@@ -1,0 +1,23 @@
+version: '3.8'
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: mysql-container
+    restart: always
+    ports:
+      - "3306:3306" # 将 MySQL 的 3306 端口映射到主机
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword   # 设置 root 用户密码
+      MYSQL_DATABASE: my_database         # 自动创建的数据库
+      MYSQL_USER: my_user                 # 创建的普通用户
+      MYSQL_PASSWORD: my_password         # 普通用户密码
+    volumes:
+      - ./data:/var/lib/mysql             # 数据持久化
+      - ./mysql-init:/docker-entrypoint-initdb.d # 初始化脚本目录
+    networks:
+      - mysql-network
+
+networks:
+  mysql-network:
+    driver: bridge

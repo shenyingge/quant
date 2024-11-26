@@ -35,3 +35,7 @@
 
 build
 config.yml
+docker-compose.yml
+
+logs
+data
