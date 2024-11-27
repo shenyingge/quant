@@ -18,6 +18,7 @@ SET(CMAKE_LIBRARY_PATH ${CMAKE_LIBRARY_PATH}
 )
 
 find_package(yaml-cpp REQUIRED)
+find_library(HIREDIS_LIB hiredis REQUIRED)
 
 # 设置源文件列表
 set(SRC_FILES
@@ -34,6 +35,7 @@ add_executable(${PROJECT_NAME} ${SRC_FILES})
 # 链接库文件，使用完整路径
 target_link_libraries(${PROJECT_NAME}
     yaml-cpp::yaml-cpp
+    ${HIREDIS_LIB}
     libthostmduserapi_se.so
     libthosttraderapi_se.so
 )

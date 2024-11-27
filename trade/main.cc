@@ -5,6 +5,7 @@
 #include "ThostFtdcMdApi.h"
 #include <cstring>
 #include <yaml-cpp/yaml.h>
+#include "redis.h"
 
 int main(){
 
@@ -20,7 +21,11 @@ int main(){
             Log::info("create md api failed");
             return -1;
         }
-        CThostFtdcMdSpi *md_spi = new CtpMd(md_api, md_login_field);
+
+        RedisTool *redis_tool = new RedisTool();
+        redis_tool->connect();
+
+        CThostFtdcMdSpi *md_spi = new CtpMd(md_api, md_login_field, redis_tool);
         md_api->RegisterSpi(md_spi);
 
         const std::string md_addr_str = config["md_addr"].as<std::string>();
