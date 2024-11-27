@@ -1,11 +1,19 @@
-from fastapi import FastAPI, WebSocket
+import asyncio  # 使用异步工具
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from utils.redis import RedisTool
 from utils.websocket import ConnectionManager
 from service.tick import TickService
+from fastapi.middleware.cors import CORSMiddleware
 
 # 创建app
 app = FastAPI()
-
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # 允许的域名，["*"] 表示所有域名
+    allow_credentials=True,
+    allow_methods=["*"],  # 允许的 HTTP 方法
+    allow_headers=["*"],  # 允许的请求头
+)
 redis = RedisTool()
 ws_connection = ConnectionManager()
 
@@ -13,16 +21,17 @@ TickService = TickService(redis)
 
 # 注册路由, 这个get请求方式就 get post 就post
 @app.get("/")
-# 异步函数也可以写同步的
 async def index():
     return "hello world"
 
+@app.websocket("/ws")
 async def ws(websocket: WebSocket):
     await ws_connection.connect(websocket)
     try:
         while True:
             ins_list = [
-            "cu2412",
+                "i2501",
+                "cu2412",
             "cu2501",
             "cu2502",
             "cu2503",
@@ -297,16 +306,21 @@ async def ws(websocket: WebSocket):
             "ec2504",
             "ec2506",
             "ec2508",
-            "ec2510",
             ]
-            # data = await websocket.receive_text()
             res_dict = {}
             for ins in ins_list:
                 data = TickService.get_ctp_tick(ins)
                 res_dict[ins] = data
 
+            # 使用异步 sleep，避免阻塞事件循环
+            await asyncio.sleep(1)
+
+            # 广播数据给所有 WebSocket 连接
             await ws_connection.broadcast(res_dict)
     except WebSocketDisconnect:
+        ws_connection.disconnect(websocket)
+    finally:
+        # 确保连接被正确关闭
         ws_connection.disconnect(websocket)
 
 # 方式一

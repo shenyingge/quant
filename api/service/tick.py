@@ -7,15 +7,13 @@ class TickService:
         self.redis_tool = redis_tool
 
     def _get_tick(self, symbol: str):
-        return self.redis_tool.get(symbol)
+        b_value = self.redis_tool.get(symbol)
+        return b_value.decode("utf-8")
 
     def get_ctp_tick(self, symbol: str):
         tick_str = self._get_tick(symbol)
-        """
-            std::string redis_message = std::string(pDepthMarketData->TradingDay) + std::string("|") + std::string(pDepthMarketData->ExchangeID) + std::string("|") + std::to_string(pDepthMarketData->LastPrice) + std::string("|") + std::to_string(pDepthMarketData->PreSettlementPrice) + std::string("|") + std::to_string(pDepthMarketData->PreClosePrice) + std::string("|") + std::to_string(pDepthMarketData->PreOpenInterest) + std::string("|") + std::to_string(pDepthMarketData->OpenPrice) + std::string("|") + std::to_string(pDepthMarketData->HighestPrice) + std::string("|") + std::to_string(pDepthMarketData->LowestPrice) + std::string("|") + std::to_string(pDepthMarketData->Volume) + std::string("|") + std::to_string(pDepthMarketData->Turnover) + std::string("|") + std::to_string(pDepthMarketData->OpenInterest) + std::string("|") + std::to_string(pDepthMarketData->ClosePrice) + std::string("|") + std::to_string(pDepthMarketData->SettlementPrice) + std::string("|") + std::to_string(pDepthMarketData->UpperLimitPrice) + std::string("|") + std::to_string(pDepthMarketData->LowerLimitPrice) + std::string("|") + std::string(pDepthMarketData->UpdateTime) + std::string("|") + std::to_string(pDepthMarketData->UpdateMillisec) + std::string("|") + std::to_string(pDepthMarketData->BidPrice1) + std::string("|") + std::to_string(pDepthMarketData->BidVolume1) + std::string("|") + std::to_string(pDepthMarketData->AskPrice1) + std::string("|") + std::to_string(pDepthMarketData->AskVolume1);
-        """
-
         tick_list = tick_str.split("|")
+
         return {
             "TradingDay": tick_list[0],
             "ExchangeID": tick_list[1],

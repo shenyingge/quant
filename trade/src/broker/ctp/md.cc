@@ -25,6 +25,7 @@ void CtpMd::OnRspUserLogin(CThostFtdcRspUserLoginField *pRspUserLogin, CThostFtd
     {
         Log::info("login success");
         char *ins_arr[] = {
+            "i2501",
             "cu2412",
             "cu2501",
             "cu2502",
@@ -326,7 +327,7 @@ void CtpMd::OnRtnDepthMarketData(CThostFtdcDepthMarketDataField *pDepthMarketDat
 {
 
     std::string redis_message = std::string(pDepthMarketData->TradingDay) + std::string("|") + std::string(pDepthMarketData->ExchangeID) + std::string("|") + std::to_string(pDepthMarketData->LastPrice) + std::string("|") + std::to_string(pDepthMarketData->PreSettlementPrice) + std::string("|") + std::to_string(pDepthMarketData->PreClosePrice) + std::string("|") + std::to_string(pDepthMarketData->PreOpenInterest) + std::string("|") + std::to_string(pDepthMarketData->OpenPrice) + std::string("|") + std::to_string(pDepthMarketData->HighestPrice) + std::string("|") + std::to_string(pDepthMarketData->LowestPrice) + std::string("|") + std::to_string(pDepthMarketData->Volume) + std::string("|") + std::to_string(pDepthMarketData->Turnover) + std::string("|") + std::to_string(pDepthMarketData->OpenInterest) + std::string("|") + std::to_string(pDepthMarketData->ClosePrice) + std::string("|") + std::to_string(pDepthMarketData->SettlementPrice) + std::string("|") + std::to_string(pDepthMarketData->UpperLimitPrice) + std::string("|") + std::to_string(pDepthMarketData->LowerLimitPrice) + std::string("|") + std::string(pDepthMarketData->UpdateTime) + std::string("|") + std::to_string(pDepthMarketData->UpdateMillisec) + std::string("|") + std::to_string(pDepthMarketData->BidPrice1) + std::string("|") + std::to_string(pDepthMarketData->BidVolume1) + std::string("|") + std::to_string(pDepthMarketData->AskPrice1) + std::string("|") + std::to_string(pDepthMarketData->AskVolume1);
-    std::cout << redis_message << std::endl;
+    // std::cout << redis_message << std::endl;
 
     this->redis_tool->set(
         pDepthMarketData->InstrumentID,
