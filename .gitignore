@@ -1,0 +1,44 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Local development files
+my_local/
+
+# Third party libraries
+xtquant/
+
+# Environment files
+.env
+
+# Database files
+*.db
+
+# Log files
+logs/
+*.log
+
+# Backup files
+backups/
+temp_backups/
+
+# IDE/Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# System files
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
