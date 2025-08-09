@@ -39,7 +39,10 @@ def run_all_tests():
         'test_concurrent_trading.py',
         'test_stress_trading.py',
         'test_auto_cancel.py',
-        'test_order_timeout.py'
+        'test_order_timeout.py',
+        'test_constants.py',
+        'test_status_logic_fix.py',
+        'test_notification_fix.py'
     ]
     
     print("QMT 交易系统测试套件")

@@ -11,6 +11,7 @@
 - ⏰ **计划任务**: 支持通过Windows任务计划程序自动运行
 - 📊 **订单监控**: 实时监控订单状态和成交情况
 - 🔧 **自动备份**: 每日自动备份交易数据
+- 📅 **交易日历**: 使用akshare获取准确的交易日历，非交易日自动跳过
 
 ## 系统要求
 
@@ -37,13 +38,15 @@ quant/
 │   ├── notifications.py   # 飞书通知服务
 │   ├── trading_service.py # 核心交易服务
 │   ├── backup_service.py  # 数据备份服务
-│   └── stock_info.py      # 股票信息缓存
+│   ├── stock_info.py      # 股票信息缓存
+│   ├── trading_calendar_manager.py # 交易日历管理
+│   └── trading_day_checker.py # 交易日检查
 ├── scripts/               # 脚本文件
-│   ├── task_runner.sh     # 主任务运行器（MINGW64）
-│   ├── setup_task.bat     # 设置计划任务
-│   ├── run_console.bat    # 控制台运行脚本
-│   ├── load_env.sh        # 环境变量加载
-│   └── auto_detect_session.py # 自动检测QMT会话
+│   ├── README.md          # 脚本使用说明
+│   ├── setup_task_simple.bat # 设置计划任务（推荐）
+│   ├── task_runner.sh     # 定时任务执行脚本
+│   ├── run_console.bat    # 手动运行脚本
+│   └── load_env.sh        # 环境变量加载
 ├── logs/                  # 日志文件目录
 │   ├── task_execution.log # 任务执行日志
 │   └── trading_service.log # 交易服务日志
@@ -105,29 +108,33 @@ uv run python main.py test
 
 ### 4. 运行服务
 
-#### 方式一：控制台模式（手动运行）
+#### 方式一：手动运行（开发测试）
 
 ```bash
 # 直接运行
-uv run python main.py
+uv run python main.py run
 
-# 或使用脚本
+# 或使用批处理脚本
 scripts\run_console.bat
+
+# 强制运行（忽略交易日检查）
+set TRADING_DAY_CHECK_ENABLED=false
+uv run python main.py run
 ```
 
-#### 方式二：计划任务（自动化）
+#### 方式二：定时任务（生产环境）
 
 以管理员身份运行：
 
 ```batch
 # 设置每日自动运行的计划任务
-scripts\setup_task.bat
+scripts\setup_task_simple.bat
 ```
 
-这会创建一个Windows计划任务：
-- 每天8:00自动启动交易服务
-- 使用MINGW64环境运行
-- 自动检测QMT会话ID
+这会创建Windows计划任务：
+- 每天 8:00 AM 自动启动交易服务
+- 每天 9:00 PM 自动停止服务
+- 非交易日自动跳过
 - 日志输出到 `logs/task_execution.log`
 
 ## 交易信号格式
@@ -160,7 +167,7 @@ scripts\setup_task.bat
 
 ```bash
 # 运行交易服务
-uv run python main.py
+uv run python main.py run
 
 # 测试系统连接
 uv run python main.py test
@@ -173,6 +180,9 @@ uv run python main.py backup-config
 
 # 管理股票信息缓存
 uv run python main.py stock-info
+
+# 管理交易日历
+uv run python main.py calendar
 ```
 
 ## 监控和维护

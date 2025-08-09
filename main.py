@@ -21,6 +21,7 @@ from src.trading_service import TradingService
 from src.redis_listener import RedisSignalListener
 from src.config import settings
 from src.logger_config import configured_logger as logger
+from src.trading_day_checker import is_trading_day
 
 def main():
     """主程序入口"""
@@ -30,7 +31,11 @@ def main():
     if len(sys.argv) > 1:
         command = sys.argv[1].lower()
 
-        if command == "test":
+        if command == "run":
+            run_service()
+        elif command == "test-run":
+            run_service(test_mode=True)
+        elif command == "test":
             test_system()
         elif command == "backup":
             manual_backup()
@@ -38,15 +43,37 @@ def main():
             show_backup_config()
         elif command == "stock-info":
             manage_stock_info()
+        elif command == "calendar":
+            manage_trading_calendar()
         else:
             print_usage()
     else:
-        # 直接运行服务（非Windows服务模式）
-        run_service()
+        # 没有参数时显示使用说明
+        print_usage()
 
-def run_service():
+def run_service(test_mode: bool = False):
     """直接运行服务"""
-    logger.info("启动交易服务（控制台模式）...")
+    if test_mode:
+        logger.info("启动交易服务（测试模式）...")
+        # 临时启用测试模式
+        os.environ['TEST_MODE_ENABLED'] = 'true'
+        # 重新加载配置
+        from src.config import Settings
+        global settings
+        settings = Settings()
+    else:
+        logger.info("启动交易服务（控制台模式）...")
+    
+    # 检查是否为交易日
+    if not is_trading_day():
+        if test_mode:
+            logger.warning("测试模式下检测到非交易日，但仍将继续运行")
+        else:
+            logger.info("今天不是交易日，服务将退出")
+            logger.info("如需强制运行，请使用: python main.py test-run")
+            logger.info("或设置环境变量 TEST_MODE_ENABLED=true")
+            return
+    
     service = None
     try:
         service = TradingService()
@@ -186,14 +213,57 @@ def manage_stock_info():
     except Exception as e:
         logger.error(f"× 管理股票信息失败: {e}")
 
+def manage_trading_calendar():
+    """管理交易日历"""
+    try:
+        from src.trading_calendar_manager import trading_calendar_manager, initialize_trading_calendar
+        from datetime import date
+        
+        logger.info("交易日历管理:")
+        logger.info("=" * 50)
+        
+        # 初始化当前年份的交易日历
+        current_year = date.today().year
+        logger.info(f"正在初始化{current_year}年交易日历...")
+        initialize_trading_calendar()
+        
+        # 检查今天是否为交易日
+        today = date.today()
+        is_trading = trading_calendar_manager.is_trading_day(today)
+        
+        logger.info(f"\n今日({today.strftime('%Y-%m-%d')})：{'交易日' if is_trading else '非交易日'}")
+        
+        # 显示下一个交易日
+        next_trading = trading_calendar_manager.get_next_trading_day(today)
+        if next_trading:
+            logger.info(f"下一个交易日：{next_trading.strftime('%Y-%m-%d')}")
+        
+        # 显示上一个交易日
+        prev_trading = trading_calendar_manager.get_previous_trading_day(today)
+        if prev_trading:
+            logger.info(f"上一个交易日：{prev_trading.strftime('%Y-%m-%d')}")
+        
+        # 询问是否更新下一年
+        if input(f"\n是否更新{current_year + 1}年交易日历？(y/N): ").lower() == 'y':
+            success = trading_calendar_manager.update_calendar_for_year(current_year + 1, force=True)
+            if success:
+                logger.info(f"✓ {current_year + 1}年交易日历更新成功")
+            else:
+                logger.error(f"✗ {current_year + 1}年交易日历更新失败")
+                
+    except Exception as e:
+        logger.error(f"管理交易日历失败: {e}")
+
 def print_usage():
     """打印使用说明"""
     logger.info("使用方法:")
-    logger.info("  python main.py                   - 直接运行服务（控制台模式）")
+    logger.info("  python main.py run               - 直接运行服务（控制台模式）")
+    logger.info("  python main.py test-run          - 测试模式运行服务（跳过交易日检查）")
     logger.info("  python main.py test              - 测试系统连接")
     logger.info("  python main.py backup            - 手动执行数据备份")
     logger.info("  python main.py backup-config     - 显示备份配置")
     logger.info("  python main.py stock-info        - 管理股票信息缓存")
+    logger.info("  python main.py calendar          - 管理交易日历")
 
 if __name__ == "__main__":
     main()

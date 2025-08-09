@@ -8,9 +8,9 @@ import sqlite3
 import shutil
 import json
 import gzip
-import schedule
 import time
 import threading
+from schedule import Scheduler
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Any, Optional
@@ -64,6 +64,7 @@ class DatabaseBackupService:
         self.config = get_backup_config()
         self.is_running = False
         self.scheduler_thread = None
+        self.scheduler = Scheduler()  # 使用独立的调度器实例
 
     def start_scheduler(self):
         """启动定时备份调度器"""
@@ -74,7 +75,7 @@ class DatabaseBackupService:
         logger.info(f"启动备份调度器，备份时间: {self.config['backup_time']}")
 
         # 设置定时任务
-        schedule.every().day.at(self.config['backup_time']).do(self._daily_backup_job)
+        self.scheduler.every().day.at(self.config['backup_time']).do(self._daily_backup_job)
 
         self.is_running = True
         self.scheduler_thread = threading.Thread(target=self._run_scheduler)
@@ -84,13 +85,13 @@ class DatabaseBackupService:
     def stop_scheduler(self):
         """停止定时备份调度器"""
         self.is_running = False
-        schedule.clear()
+        self.scheduler.clear()
         logger.info("备份调度器已停止")
 
     def _run_scheduler(self):
         """运行调度器"""
         while self.is_running:
-            schedule.run_pending()
+            self.scheduler.run_pending()
             time.sleep(60)  # 每分钟检查一次
 
     def _daily_backup_job(self):

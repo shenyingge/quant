@@ -96,7 +96,8 @@ log_message "Using Session ID: $QMT_SESSION_ID"
 export PYTHONIOENCODING=utf-8
 export PYTHONUTF8=1
 
-uv run python main.py >> "$LOG_FILE" 2>&1
+# 运行服务需要 run 参数
+uv run python main.py run >> "$LOG_FILE" 2>&1
 EXIT_CODE=$?
 
 log_message "Trading service exited with code: $EXIT_CODE"

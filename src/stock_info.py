@@ -21,13 +21,13 @@ class StockInfoCache:
             '000002': '万科A',
             '000858': '五粮液',
             '000876': '新希望',
+            '000977': '浪潮信息',
             '002415': '海康威视',
             '002594': '比亚迪',
             '600000': '浦发银行',
             '600036': '招商银行',
             '600519': '贵州茅台',
             '600887': '伊利股份',
-            '000858': '五粮液',
             '002230': '科大讯飞',
             '300059': '东方财富',
             '300750': '宁德时代'
@@ -38,8 +38,10 @@ class StockInfoCache:
         if not stock_code:
             return "未知股票"
         
-        # 清理股票代码
+        # 清理股票代码，移除市场后缀
         stock_code = str(stock_code).strip()
+        # 提取纯股票代码（移除.SH/.SZ/.BJ后缀）
+        pure_code = stock_code.split('.')[0] if '.' in stock_code else stock_code
         
         with self._lock:
             # 检查缓存
@@ -48,9 +50,9 @@ class StockInfoCache:
                 if time.time() - cache_item['timestamp'] < self._cache_timeout:
                     return cache_item['name']
             
-            # 尝试从预设名称获取
-            if stock_code in self._preset_names:
-                name = self._preset_names[stock_code]
+            # 尝试从预设名称获取（使用纯代码匹配）
+            if pure_code in self._preset_names:
+                name = self._preset_names[pure_code]
                 self._cache[stock_code] = {
                     'name': name,
                     'timestamp': time.time()
@@ -58,7 +60,7 @@ class StockInfoCache:
                 return name
             
             # 尝试通过QMT查询股票信息（如果可用）
-            name = self._query_stock_name_from_qmt(stock_code)
+            name = self._query_stock_name_from_qmt(pure_code)
             if name:
                 self._cache[stock_code] = {
                     'name': name,
@@ -67,7 +69,7 @@ class StockInfoCache:
                 return name
             
             # 如果都失败了，返回默认格式
-            default_name = f"股票{stock_code}"
+            default_name = f"股票{pure_code}"
             self._cache[stock_code] = {
                 'name': default_name,
                 'timestamp': time.time()

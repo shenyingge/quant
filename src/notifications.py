@@ -70,13 +70,13 @@ class FeishuNotifier:
 
     def notify_signal_received(self, signal_data: Dict[str, Any]) -> bool:
         """通知收到交易信号"""
-        stock_code = signal_data.get('symbol', signal_data.get('stock_code', 'N/A'))
+        stock_code = signal_data.get('stock_code', 'N/A')
         stock_display = get_stock_display_name(stock_code) if stock_code != 'N/A' else 'N/A'
         
         message = f"收到交易信号:\n"
         message += f"• 股票信息: {stock_display}\n"
-        message += f"• 操作类型: {signal_data.get('action', 'N/A')}\n"
-        message += f"• 数量: {signal_data.get('quantity', 'N/A')}\n"
+        message += f"• 操作类型: {signal_data.get('direction', 'N/A')}\n"
+        message += f"• 数量: {signal_data.get('volume', 'N/A')}\n"
         message += f"• 价格: {signal_data.get('price', 'N/A')}\n"
         message += f"• 信号ID: {signal_data.get('signal_id', 'N/A')}"
 
@@ -115,7 +115,7 @@ class FeishuNotifier:
 
     def notify_order_filled(self, order_info: Dict[str, Any]) -> bool:
         """通知订单成交"""
-        stock_code = order_info.get('symbol', order_info.get('stock_code', 'N/A'))
+        stock_code = order_info.get('stock_code', 'N/A')
         stock_display = get_stock_display_name(stock_code) if stock_code != 'N/A' else 'N/A'
         
         filled_qty = float(order_info.get('filled_qty', 0))

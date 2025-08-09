@@ -16,22 +16,22 @@ def test_enhanced_notifications():
     print("1. 测试信号接收通知格式:")
     signal_data = {
         'signal_id': 'TEST_20250808_001',
-        'symbol': '000001',  # 平安银行
-        'action': 'BUY',
-        'quantity': 100,
+        'stock_code': '000001',  # 平安银行
+        'direction': 'BUY',
+        'volume': 100,
         'price': 10.50
     }
     
     print("   原始数据:", signal_data)
     
     # 模拟通知内容（不实际发送）
-    stock_code = signal_data.get('symbol', signal_data.get('stock_code', 'N/A'))
+    stock_code = signal_data.get('stock_code', 'N/A')
     stock_display = stock_info_cache.get_stock_display_name(stock_code)
     
     print("   通知内容预览:")
     print(f"     股票信息: {stock_display}")
-    print(f"     操作类型: {signal_data.get('action', 'N/A')}")
-    print(f"     数量: {signal_data.get('quantity', 'N/A')}")
+    print(f"     操作类型: {signal_data.get('direction', 'N/A')}")
+    print(f"     数量: {signal_data.get('volume', 'N/A')}")
     print(f"     价格: {signal_data.get('price', 'N/A')}")
     print(f"     信号ID: {signal_data.get('signal_id', 'N/A')}")
     
@@ -43,8 +43,8 @@ def test_enhanced_notifications():
     print("   通知内容预览:")
     print(f"     订单ID: {order_id}")
     print(f"     股票信息: {stock_display}")
-    print(f"     操作类型: {signal_data.get('action', 'N/A')}")
-    print(f"     数量: {signal_data.get('quantity', 'N/A')}")
+    print(f"     操作类型: {signal_data.get('direction', 'N/A')}")
+    print(f"     数量: {signal_data.get('volume', 'N/A')}")
     print(f"     价格: {signal_data.get('price', 'N/A')}")
     
     # 3. 测试成交通知（多个示例）
@@ -53,19 +53,19 @@ def test_enhanced_notifications():
     test_orders = [
         {
             'order_id': '123456789',
-            'symbol': '600519',  # 贵州茅台
+            'stock_code': '600519',  # 贵州茅台
             'filled_qty': 10,
             'avg_price': 1580.50
         },
         {
             'order_id': '987654321',
-            'symbol': '300750',  # 宁德时代
+            'stock_code': '300750',  # 宁德时代
             'filled_qty': 100,
             'avg_price': 185.30
         },
         {
             'order_id': '555666777',
-            'symbol': '002594',  # 比亚迪
+            'stock_code': '002594',  # 比亚迪
             'filled_qty': 200,
             'avg_price': 78.25
         }
@@ -73,7 +73,7 @@ def test_enhanced_notifications():
     
     for i, order_info in enumerate(test_orders, 1):
         print(f"\n   成交示例 {i}:")
-        stock_display_order = stock_info_cache.get_stock_display_name(order_info['symbol'])
+        stock_display_order = stock_info_cache.get_stock_display_name(order_info['stock_code'])
         filled_qty = float(order_info['filled_qty'])
         avg_price = float(order_info['avg_price'])
         trade_amount = filled_qty * avg_price

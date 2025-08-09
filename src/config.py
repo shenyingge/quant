@@ -39,6 +39,7 @@ class Settings(BaseSettings):
     
     # 交易日检查配置
     trading_day_check_enabled: bool = Field(default=True, env="TRADING_DAY_CHECK_ENABLED")  # 是否启用交易日检查
+    test_mode_enabled: bool = Field(default=False, env="TEST_MODE_ENABLED")  # 测试模式（可在非交易日启动服务）
     
     # Python路径配置
     pythonpath: Optional[str] = Field(default=None, env="PYTHONPATH")

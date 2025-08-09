@@ -1,9 +1,9 @@
 """Redis客户端工具模块"""
 import json
 import redis
-import schedule
 import threading
 import time
+from schedule import Scheduler
 from datetime import datetime, timedelta
 from typing import Dict, Any, Optional
 from src.logger_config import configured_logger as logger
@@ -19,6 +19,7 @@ class RedisTradeRecordsClient:
         self.cleanup_scheduler_running = False
         self.cleanup_thread = None
         self._shutdown = False
+        self.scheduler = Scheduler()  # 使用独立的调度器实例
         
     def connect(self) -> bool:
         """连接Redis"""
@@ -51,6 +52,8 @@ class RedisTradeRecordsClient:
         """断开Redis连接"""
         try:
             self._shutdown = True
+            self.cleanup_scheduler_running = False
+            self.scheduler.clear()  # 清理调度器任务
             
             if self.cleanup_thread and self.cleanup_thread.is_alive():
                 self.cleanup_thread.join(timeout=2)
@@ -196,8 +199,8 @@ class RedisTradeRecordsClient:
         logger.info(f"启动Redis交易记录清理调度器，清理时间: {settings.redis_trade_cleanup_time}")
         
         # 设置调度任务
-        schedule.clear()
-        schedule.every().day.at(settings.redis_trade_cleanup_time).do(self._daily_cleanup_task)
+        self.scheduler.clear()
+        self.scheduler.every().day.at(settings.redis_trade_cleanup_time).do(self._daily_cleanup_task)
         
         self.cleanup_scheduler_running = True
         self.cleanup_thread = threading.Thread(target=self._cleanup_scheduler_worker, daemon=True)
@@ -207,7 +210,7 @@ class RedisTradeRecordsClient:
         """清理调度器工作线程"""
         while not self._shutdown and self.cleanup_scheduler_running:
             try:
-                schedule.run_pending()
+                self.scheduler.run_pending()
                 time.sleep(60)  # 每分钟检查一次
             except Exception as e:
                 logger.error(f"清理调度器异常: {e}")

@@ -22,9 +22,9 @@ def test_notifications():
     # 模拟交易信号数据
     signal_data = {
         'signal_id': 'TEST_NOTIFICATION_001',
-        'symbol': '000001',  # 平安银行
-        'action': 'BUY',
-        'quantity': 100,
+        'stock_code': '000001',  # 平安银行
+        'direction': 'BUY',
+        'volume': 100,
         'price': 10.50
     }
     
@@ -33,10 +33,10 @@ def test_notifications():
     
     # 测试信号接收通知（不会真正发送，只是测试格式）
     print("   模拟通知内容:")
-    stock_display = stock_info_cache.get_stock_display_name(signal_data['symbol'])
+    stock_display = stock_info_cache.get_stock_display_name(signal_data['stock_code'])
     print(f"   股票信息: {stock_display}")
-    print(f"   操作类型: {signal_data['action']}")
-    print(f"   数量: {signal_data['quantity']}")
+    print(f"   操作类型: {signal_data['direction']}")
+    print(f"   数量: {signal_data['volume']}")
     print(f"   价格: {signal_data['price']}")
     
     # 测试订单确认通知
@@ -49,12 +49,12 @@ def test_notifications():
     print("\n4. 测试成交通知:")
     order_info = {
         'order_id': '987654321',
-        'symbol': '600519',  # 贵州茅台
+        'stock_code': '600519',  # 贵州茅台
         'filled_qty': 10,
         'avg_price': 1580.50
     }
     
-    stock_display_maotai = stock_info_cache.get_stock_display_name(order_info['symbol'])
+    stock_display_maotai = stock_info_cache.get_stock_display_name(order_info['stock_code'])
     trade_amount = float(order_info['filled_qty']) * float(order_info['avg_price'])
     
     print(f"   订单ID: {order_info['order_id']}")

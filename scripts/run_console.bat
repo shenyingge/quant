@@ -25,13 +25,13 @@ REM Try uv first, fallback to direct python if uv not available
 uv --version >nul 2>&1
 if %errorLevel% == 0 (
     echo Using uv to run the service...
-    uv run python main.py
+    uv run python main.py run
 ) else (
     echo uv not found in PATH, using direct python execution...
     REM Check if python is available
     python --version >nul 2>&1
     if %errorLevel% == 0 (
-        python main.py
+        python main.py run
     ) else (
         echo ERROR: Neither uv nor python found in PATH
         echo Please ensure Python is installed and accessible
