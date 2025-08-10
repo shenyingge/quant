@@ -25,11 +25,17 @@ uv run python <script.py>
 # Start trading service (console mode)
 uv run python main.py run
 
+# Start with custom retry settings
+uv run python main.py run --max-retries=5 --retry-delay=30
+
 # Run with Windows batch script
 scripts\run_console.bat
 
 # Test mode (skip trading day check)
 uv run python main.py test-run
+
+# Test mode with custom retry settings
+uv run python main.py test-run --max-retries=2 --retry-delay=120
 
 # Test system connections
 uv run python main.py test
@@ -114,6 +120,7 @@ uv run python tests/run_tests.py --pytest
 - **Notifications**: FEISHU_WEBHOOK_URL, FEISHU_SECRET
 - **Trading**: ORDER_TIMEOUT_SECONDS, AUTO_CANCEL_ENABLED
 - **Backup**: BACKUP_ENABLED, BACKUP_TIME, BACKUP_DIR
+- **Auto Reconnect**: AUTO_RECONNECT_ENABLED, RECONNECT_MAX_ATTEMPTS, RECONNECT_INITIAL_DELAY, HEALTH_CHECK_INTERVAL
 
 ### Windows Service Integration
 
@@ -128,7 +135,10 @@ The system can run as a Windows scheduled task using scripts in the `scripts/` d
 2. **QMT Session**: Must have QMT client running and logged in before starting service
 3. **Real Trading**: passorder tests will execute real orders - use test accounts
 4. **Concurrent Orders**: System handles multiple simultaneous trading signals
-5. **Error Recovery**: Automatic retry logic for connection failures
+5. **Auto Reconnect**: Automatic reconnection for Redis and QMT connection failures
+   - Enabled by default with exponential backoff retry strategy
+   - Health check monitoring every 30 seconds
+   - Intelligent connection recovery with detailed notifications
 6. **Trading Days**: Uses akshare to fetch and cache trading calendar in database
    - Automatically checks if current day is a trading day before starting
    - Use `python main.py test-run` to run on non-trading days for testing
@@ -143,3 +153,49 @@ The system can run as a Windows scheduled task using scripts in the `scripts/` d
    - Manual trigger available with `python main.py pnl-summary`
    - Stock names automatically resolved and displayed alongside codes
    - Simple P&L estimation based on matched buy/sell orders
+
+## Auto Reconnection Configuration
+
+The system includes intelligent auto-reconnection capabilities for both Redis and QMT connections during trading days.
+
+### Configuration Variables (.env)
+
+```bash
+# Auto Reconnect Settings
+AUTO_RECONNECT_ENABLED=true                # Enable auto reconnection (default: true)
+RECONNECT_MAX_ATTEMPTS=5                   # Maximum reconnection attempts (default: 5)
+RECONNECT_INITIAL_DELAY=10                 # Initial delay in seconds (default: 10)
+RECONNECT_MAX_DELAY=300                    # Maximum delay in seconds (default: 300)
+RECONNECT_BACKOFF_FACTOR=2.0              # Delay multiplier for exponential backoff (default: 2.0)
+HEALTH_CHECK_INTERVAL=30                   # Health check interval in seconds (default: 30)
+```
+
+### Features
+
+1. **Exponential Backoff**: Reconnection delays increase progressively (10s → 20s → 40s → 80s → 160s → 300s max)
+2. **Health Monitoring**: Continuous connection health checks every 30 seconds
+3. **Intelligent Recovery**: Automatic detection and recovery from connection failures
+4. **Real-time Notifications**: Feishu alerts for connection status changes:
+   - Connection lost warnings
+   - Connection restored confirmations
+   - Reconnection failure alerts
+5. **Graceful Degradation**: Service continues running even during connection issues
+6. **Trading Day Aware**: Auto-reconnection only active during trading hours
+
+### Connection States
+
+- **Connected**: Normal operation with active monitoring
+- **Reconnecting**: Attempting to restore connection with exponential backoff
+- **Failed**: Maximum attempts reached, manual intervention required
+
+### Manual Control
+
+```bash
+# Disable auto-reconnection for troubleshooting
+AUTO_RECONNECT_ENABLED=false
+
+# Adjust reconnection aggressiveness
+RECONNECT_MAX_ATTEMPTS=3          # Fewer attempts
+RECONNECT_INITIAL_DELAY=5         # Faster initial retry
+HEALTH_CHECK_INTERVAL=60          # Less frequent health checks
+```

@@ -30,11 +30,28 @@ def main():
 
     if len(sys.argv) > 1:
         command = sys.argv[1].lower()
+        
+        # 解析重试参数
+        max_retries = 3
+        retry_delay = 60
+        
+        # 查找重试参数
+        for arg in sys.argv[2:]:
+            if arg.startswith('--max-retries='):
+                try:
+                    max_retries = int(arg.split('=')[1])
+                except ValueError:
+                    logger.warning(f"无效的重试次数参数: {arg}")
+            elif arg.startswith('--retry-delay='):
+                try:
+                    retry_delay = int(arg.split('=')[1])
+                except ValueError:
+                    logger.warning(f"无效的重试延迟参数: {arg}")
 
         if command == "run":
-            run_service()
+            run_service(max_retries=max_retries, retry_delay=retry_delay)
         elif command == "test-run":
-            run_service(test_mode=True)
+            run_service(test_mode=True, max_retries=max_retries, retry_delay=retry_delay)
         elif command == "test":
             test_system()
         elif command == "backup":
@@ -53,8 +70,8 @@ def main():
         # 没有参数时显示使用说明
         print_usage()
 
-def run_service(test_mode: bool = False):
-    """直接运行服务"""
+def run_service(test_mode: bool = False, max_retries: int = 3, retry_delay: int = 60):
+    """直接运行服务，支持重试机制"""
     if test_mode:
         logger.info("启动交易服务（测试模式）...")
         # 临时启用测试模式
@@ -76,19 +93,48 @@ def run_service(test_mode: bool = False):
             logger.info("或设置环境变量 TEST_MODE_ENABLED=true")
             return
     
-    service = None
-    try:
-        service = TradingService()
-        # start() 方法现在包含了 run_forever() 阻塞调用，会一直运行直到收到中断
-        service.start()
+    retry_count = 0
+    while retry_count <= max_retries:
+        service = None
+        try:
+            if retry_count > 0:
+                logger.info(f"第 {retry_count}/{max_retries} 次重试启动服务...")
             
-    except KeyboardInterrupt:
-        logger.info("收到停止信号，正在退出...")
-    except Exception as e:
-        logger.error(f"服务运行错误: {e}")
-    finally:
-        if service:
-            service.stop()
+            service = TradingService()
+            
+            # 尝试启动服务
+            start_success = service.start()
+            
+            if start_success:
+                # 服务正常启动并运行完成
+                logger.info("服务正常退出")
+                break
+            else:
+                # 启动失败
+                raise Exception("服务启动失败")
+            
+        except KeyboardInterrupt:
+            logger.info("收到停止信号，正在退出...")
+            break
+        except Exception as e:
+            logger.error(f"服务运行错误: {e}")
+            retry_count += 1
+            
+            if retry_count <= max_retries:
+                logger.warning(f"服务将在 {retry_delay} 秒后进行第 {retry_count}/{max_retries} 次重试")
+                try:
+                    import time
+                    time.sleep(retry_delay)
+                except KeyboardInterrupt:
+                    logger.info("收到停止信号，取消重试")
+                    break
+            else:
+                logger.error(f"服务重试 {max_retries} 次后仍然失败，停止重试")
+        finally:
+            if service:
+                service.stop()
+    
+    logger.info("交易服务已退出")
 
 def test_system():
     """测试系统连接"""
@@ -317,6 +363,14 @@ def print_usage():
     logger.info("  python main.py stock-info        - 管理股票信息缓存")
     logger.info("  python main.py calendar          - 管理交易日历")
     logger.info("  python main.py pnl-summary       - 手动发送当日盈亏汇总通知")
+    logger.info("")
+    logger.info("重试参数（仅适用于 run 和 test-run）:")
+    logger.info("  --max-retries=N                  - 最大重试次数（默认: 3）")
+    logger.info("  --retry-delay=N                  - 重试间隔秒数（默认: 60）")
+    logger.info("")
+    logger.info("示例:")
+    logger.info("  python main.py run --max-retries=5 --retry-delay=30")
+    logger.info("  python main.py test-run --max-retries=2")
 
 if __name__ == "__main__":
     main()

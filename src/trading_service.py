@@ -18,6 +18,7 @@ from src.trading_calendar_manager import trading_calendar_manager, initialize_tr
 from src.qmt_constants import OrderStatus, is_filled_status, is_finished_status, get_status_name
 from src.stock_info import get_stock_display_name
 from src.daily_pnl_calculator import calculate_daily_summary
+from src.connection_manager import ConnectionManager, MultiConnectionManager
 from schedule import Scheduler
 
 class TradingService:
@@ -36,6 +37,11 @@ class TradingService:
 
         # 初始化数据库
         create_tables()
+        
+        # 初始化连接管理器
+        self.connection_manager = None
+        if settings.auto_reconnect_enabled:
+            self._setup_connection_managers()
 
         # 注意：日志已经通过 logger_config 统一配置
         # 所有输出会被脚本重定向到 task_execution.log
@@ -44,20 +50,29 @@ class TradingService:
         """启动服务"""
         logger.info("正在启动交易服务...")
 
-        # 连接QMT
-        if not self.trader.connect():
-            logger.error("无法连接QMT，服务启动失败")
-            self.notifier.notify_error("QMT连接失败", "服务启动")
-            return False
+        if settings.auto_reconnect_enabled and self.connection_manager:
+            # 使用连接管理器启动连接
+            logger.info("使用自动重连机制启动连接...")
+            if not self.connection_manager.start_all():
+                logger.warning("部分连接启动失败，但已启用自动重连机制")
+        else:
+            # 传统方式启动连接
+            logger.info("使用传统方式启动连接...")
+            
+            # 连接QMT
+            if not self.trader.connect():
+                logger.error("无法连接QMT，服务启动失败")
+                self.notifier.notify_error("QMT连接失败", "服务启动")
+                return False
 
-        # 初始化Redis监听器
-        self.redis_listener = RedisSignalListener(self._handle_trading_signal)
+            # 初始化Redis监听器
+            self.redis_listener = RedisSignalListener(self._handle_trading_signal)
 
-        # 测试Redis连接
-        if not self.redis_listener.test_connection():
-            logger.error("无法连接Redis，服务启动失败")
-            self.notifier.notify_error("Redis连接失败", "服务启动")
-            return False
+            # 测试Redis连接
+            if not self.redis_listener.test_connection():
+                logger.error("无法连接Redis，服务启动失败")
+                self.notifier.notify_error("Redis连接失败", "服务启动")
+                return False
 
         self.is_running = True
 
@@ -80,6 +95,8 @@ class TradingService:
 
         # 开始监听Redis信号（这是阻塞调用）
         try:
+            if not self.redis_listener:
+                self.redis_listener = RedisSignalListener(self._handle_trading_signal)
             self.redis_listener.start_listening()
         except KeyboardInterrupt:
             logger.info("收到停止信号")
@@ -90,6 +107,89 @@ class TradingService:
             self.stop()
 
         return True
+    
+    def _setup_connection_managers(self):
+        """设置连接管理器"""
+        try:
+            logger.info("设置自动重连管理器...")
+            
+            self.connection_manager = MultiConnectionManager()
+            
+            # Redis连接管理器
+            redis_manager = ConnectionManager(
+                name="Redis",
+                connect_func=self._connect_redis,
+                disconnect_func=self._disconnect_redis,
+                health_check_func=self._health_check_redis,
+                notifier=self.notifier
+            )
+            self.connection_manager.add_connection("Redis", redis_manager)
+            
+            # QMT连接管理器
+            qmt_manager = ConnectionManager(
+                name="QMT",
+                connect_func=self._connect_qmt,
+                disconnect_func=self._disconnect_qmt,
+                health_check_func=self._health_check_qmt,
+                notifier=self.notifier
+            )
+            self.connection_manager.add_connection("QMT", qmt_manager)
+            
+            logger.info("连接管理器设置完成")
+            
+        except Exception as e:
+            logger.error(f"设置连接管理器失败: {e}")
+    
+    def _connect_redis(self) -> bool:
+        """连接Redis"""
+        try:
+            if not self.redis_listener:
+                self.redis_listener = RedisSignalListener(self._handle_trading_signal)
+            return self.redis_listener.connect()
+        except Exception as e:
+            logger.error(f"Redis连接失败: {e}")
+            return False
+    
+    def _disconnect_redis(self):
+        """断开Redis连接"""
+        try:
+            if self.redis_listener:
+                self.redis_listener.disconnect()
+        except Exception as e:
+            logger.error(f"断开Redis连接失败: {e}")
+    
+    def _health_check_redis(self) -> bool:
+        """Redis健康检查"""
+        try:
+            if self.redis_listener:
+                return self.redis_listener.test_connection()
+            return False
+        except Exception as e:
+            logger.debug(f"Redis健康检查失败: {e}")
+            return False
+    
+    def _connect_qmt(self) -> bool:
+        """连接QMT"""
+        try:
+            return self.trader.connect()
+        except Exception as e:
+            logger.error(f"QMT连接失败: {e}")
+            return False
+    
+    def _disconnect_qmt(self):
+        """断开QMT连接"""
+        try:
+            self.trader.disconnect()
+        except Exception as e:
+            logger.error(f"断开QMT连接失败: {e}")
+    
+    def _health_check_qmt(self) -> bool:
+        """QMT健康检查"""
+        try:
+            return self.trader.is_healthy()
+        except Exception as e:
+            logger.debug(f"QMT健康检查失败: {e}")
+            return False
 
     def stop(self):
         """停止服务"""
@@ -101,11 +201,17 @@ class TradingService:
 
         self.is_running = False
 
-        if self.redis_listener:
-            self.redis_listener.stop()
+        # 停止连接管理器
+        if settings.auto_reconnect_enabled and self.connection_manager:
+            logger.info("停止连接管理器...")
+            self.connection_manager.stop_all()
+        else:
+            # 传统方式停止连接
+            if self.redis_listener:
+                self.redis_listener.stop()
 
-        if self.trader:
-            self.trader.disconnect()
+            if self.trader:
+                self.trader.disconnect()
 
         # 停止备份调度器
         if self.backup_service:

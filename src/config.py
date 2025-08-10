@@ -37,6 +37,14 @@ class Settings(BaseSettings):
     # 服务配置
     max_retry_attempts: int = Field(default=3, env="MAX_RETRY_ATTEMPTS")
     
+    # 自动重连配置
+    auto_reconnect_enabled: bool = Field(default=True, env="AUTO_RECONNECT_ENABLED")  # 是否启用自动重连
+    reconnect_max_attempts: int = Field(default=5, env="RECONNECT_MAX_ATTEMPTS")  # 最大重连尝试次数
+    reconnect_initial_delay: int = Field(default=10, env="RECONNECT_INITIAL_DELAY")  # 初始重连延迟（秒）
+    reconnect_max_delay: int = Field(default=300, env="RECONNECT_MAX_DELAY")  # 最大重连延迟（秒）
+    reconnect_backoff_factor: float = Field(default=2.0, env="RECONNECT_BACKOFF_FACTOR")  # 重连延迟递增因子
+    health_check_interval: int = Field(default=30, env="HEALTH_CHECK_INTERVAL")  # 连接健康检查间隔（秒）
+    
     # 交易日检查配置
     trading_day_check_enabled: bool = Field(default=True, env="TRADING_DAY_CHECK_ENABLED")  # 是否启用交易日检查
     test_mode_enabled: bool = Field(default=False, env="TEST_MODE_ENABLED")  # 测试模式（可在非交易日启动服务）

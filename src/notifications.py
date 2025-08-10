@@ -236,3 +236,48 @@ class FeishuNotifier:
             # 发送错误通知
             error_msg = f"生成当日交易汇总时出现错误：{str(e)}"
             return self.send_message(error_msg, "❌ 汇总错误")
+    
+    def notify_connection_lost(self, connection_name: str) -> bool:
+        """通知连接丢失"""
+        message = f"⚠️ **连接丢失警告**\n\n"
+        message += f"📡 连接：{connection_name}\n"
+        message += f"❌ 状态：连接已断开\n"
+        message += f"🔄 处理：正在尝试自动重连...\n"
+        message += f"\n💡 如果重连失败，请检查网络连接或手动重启服务"
+        
+        return self.send_message(message, "⚠️ 连接断开")
+    
+    def notify_connection_restored(self, connection_name: str) -> bool:
+        """通知连接已恢复"""
+        message = f"✅ **连接恢复通知**\n\n"
+        message += f"📡 连接：{connection_name}\n"
+        message += f"✅ 状态：连接已恢复\n"
+        message += f"🎯 服务：交易功能正常运行\n"
+        message += f"\n🎉 系统已恢复正常运行状态"
+        
+        return self.send_message(message, "✅ 连接恢复")
+    
+    def notify_reconnect_failed(self, connection_name: str, attempts: int) -> bool:
+        """通知重连失败"""
+        message = f"❌ **重连失败告警**\n\n"
+        message += f"📡 连接：{connection_name}\n"
+        message += f"🔄 重试：已尝试 {attempts} 次\n"
+        message += f"❌ 状态：重连失败\n"
+        message += f"⚠️ 影响：交易功能可能受限\n"
+        message += f"\n🔧 请立即检查：\n"
+        message += f"• 网络连接状态\n"
+        message += f"• {connection_name} 服务状态\n"
+        message += f"• 防火墙或安全软件设置\n"
+        message += f"• 手动重启交易服务"
+        
+        return self.send_message(message, "❌ 重连失败")
+    
+    def notify_health_check_failed(self, connection_name: str) -> bool:
+        """通知健康检查失败"""
+        message = f"🔍 **健康检查异常**\n\n"
+        message += f"📡 连接：{connection_name}\n"
+        message += f"❌ 状态：健康检查失败\n"
+        message += f"🔄 处理：启动重连机制\n"
+        message += f"\n💡 系统正在尝试自动恢复连接"
+        
+        return self.send_message(message, "🔍 健康检查失败")

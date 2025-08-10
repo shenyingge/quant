@@ -27,13 +27,19 @@ class QMTCallback(XtQuantTraderCallback):
 
     def on_disconnected(self):
         """
-        连接断开
+        连接断开回调
         :return:
         """
         logger.error("QMT连接已断开")
         if hasattr(self.trader, 'notifier') and self.trader.notifier:
             self.trader.notifier.notify_error("QMT连接已断开", "连接状态")
+        
+        # 标记连接状态
         self.trader.is_connected = False
+        
+        # 触发重连（如果启用）
+        if hasattr(self.trader, 'trigger_reconnect'):
+            self.trader.trigger_reconnect()
 
     def on_stock_order(self, order):
         """
@@ -469,6 +475,12 @@ class QMTTrader:
             'pending_count': 0,  # 排队中委托数
         }
         self.stats_lock = threading.Lock()
+        
+        # 重连相关
+        self.reconnect_lock = threading.Lock()
+        self.reconnect_thread = None
+        self.reconnect_attempts = 0
+        self.last_connect_time = None
 
     def connect(self) -> bool:
         """连接QMT"""
@@ -512,6 +524,8 @@ class QMTTrader:
             if result == 0:
                 logger.info("QMT连接成功")
                 self.is_connected = True
+                self.reconnect_attempts = 0  # 重置重连计数
+                self.last_connect_time = time.time()
                 logger.info(f"QMT账户: {settings.qmt_account_id}")
 
                 # 某些版本的QMT可能需要订阅账户
@@ -569,6 +583,84 @@ class QMTTrader:
                 logger.info("QMT连接已断开")
         except Exception as e:
             logger.error(f"断开QMT连接时发生错误: {e}")
+    
+    def trigger_reconnect(self):
+        """触发QMT重连"""
+        if not settings.auto_reconnect_enabled:
+            logger.info("QMT自动重连已禁用")
+            return
+            
+        with self.reconnect_lock:
+            # 如果重连线程已在运行，不重复启动
+            if self.reconnect_thread and self.reconnect_thread.is_alive():
+                logger.debug("QMT重连线程已在运行")
+                return
+                
+            self.reconnect_thread = threading.Thread(target=self._reconnect_loop, daemon=True)
+            self.reconnect_thread.start()
+            logger.info("QMT重连线程已启动")
+    
+    def _reconnect_loop(self):
+        """QMT重连循环"""
+        while self.reconnect_attempts < settings.reconnect_max_attempts and not self._shutdown:
+            try:
+                self.reconnect_attempts += 1
+                
+                # 计算重连延迟（指数退避）
+                delay = min(
+                    settings.reconnect_initial_delay * (settings.reconnect_backoff_factor ** (self.reconnect_attempts - 1)),
+                    settings.reconnect_max_delay
+                )
+                
+                logger.info(f"QMT第 {self.reconnect_attempts}/{settings.reconnect_max_attempts} 次重连，"
+                           f"将在 {delay:.1f} 秒后尝试")
+                
+                # 等待重连延迟
+                for _ in range(int(delay)):
+                    if self._shutdown:
+                        logger.info("QMT服务停止，取消重连")
+                        return
+                    time.sleep(1)
+                
+                if self._shutdown:
+                    logger.info("QMT服务停止，取消重连")
+                    return
+                
+                # 尝试重连
+                if self.connect():
+                    logger.info("QMT重连成功")
+                    if self.notifier and hasattr(self.notifier, 'notify_connection_restored'):
+                        self.notifier.notify_connection_restored("QMT")
+                    return
+                else:
+                    logger.warning(f"QMT第 {self.reconnect_attempts} 次重连失败")
+                    
+            except Exception as e:
+                logger.error(f"QMT重连异常: {e}")
+        
+        # 重连失败
+        logger.error(f"QMT重连失败，已达到最大尝试次数 {settings.reconnect_max_attempts}")
+        
+        # 发送重连失败通知
+        if self.notifier and hasattr(self.notifier, 'notify_reconnect_failed'):
+            self.notifier.notify_reconnect_failed("QMT", self.reconnect_attempts)
+    
+    def is_healthy(self) -> bool:
+        """检查QMT连接健康状态"""
+        if not self.is_connected or not self.xt_trader:
+            return False
+            
+        try:
+            # 尝试获取账户信息来测试连接
+            if hasattr(self.xt_trader, 'query_stock_asset') and self.account:
+                result = self.xt_trader.query_stock_asset(self.account)
+                return result is not None
+            else:
+                # 如果没有查询方法，只检查连接状态
+                return self.is_connected
+        except Exception as e:
+            logger.debug(f"QMT健康检查异常: {e}")
+            return False
 
     def place_order(self, signal_data: Dict[str, Any]) -> Optional[str]:
         """下单（同步版本，使用异步线程但等待结果）"""
