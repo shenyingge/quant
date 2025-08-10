@@ -1,19 +1,20 @@
-import time
-import threading
-import queue
 import concurrent.futures
-from typing import Dict, Any, Optional, List
-from datetime import datetime, timedelta
-from src.logger_config import configured_logger as logger
-from sqlalchemy.orm import Session
+import queue
+import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
-from src.qmt_constants import OrderStatus, is_filled_status, is_finished_status
+from datetime import datetime, timedelta
+from typing import Any, Dict, List, Optional
 
+from sqlalchemy.orm import Session
+from xtquant import xtconstant
 from xtquant.xttrader import XtQuantTrader, XtQuantTraderCallback
 from xtquant.xttype import StockAccount
-from xtquant import xtconstant
-from src.database import TradingSignal, OrderRecord, get_db, SessionLocal
+
 from src.config import settings
+from src.database import OrderRecord, SessionLocal, TradingSignal, get_db
+from src.logger_config import configured_logger as logger
+from src.qmt_constants import OrderStatus, is_filled_status, is_finished_status
 from src.redis_client import redis_trade_client
 from src.stock_info import get_stock_display_name
 
@@ -31,14 +32,14 @@ class QMTCallback(XtQuantTraderCallback):
         :return:
         """
         logger.error("QMT连接已断开")
-        if hasattr(self.trader, 'notifier') and self.trader.notifier:
+        if hasattr(self.trader, "notifier") and self.trader.notifier:
             self.trader.notifier.notify_error("QMT连接已断开", "连接状态")
-        
+
         # 标记连接状态
         self.trader.is_connected = False
-        
+
         # 触发重连（如果启用）
-        if hasattr(self.trader, 'trigger_reconnect'):
+        if hasattr(self.trader, "trigger_reconnect"):
             self.trader.trigger_reconnect()
 
     def on_stock_order(self, order):
@@ -48,10 +49,10 @@ class QMTCallback(XtQuantTraderCallback):
         :return:
         """
         try:
-            order_id = getattr(order, 'order_id', '')
-            stock_code = getattr(order, 'stock_code', '')
-            order_status = getattr(order, 'order_status', '')
-            order_sysid = getattr(order, 'order_sysid', '')
+            order_id = getattr(order, "order_id", "")
+            stock_code = getattr(order, "stock_code", "")
+            order_status = getattr(order, "order_status", "")
+            order_sysid = getattr(order, "order_sysid", "")
 
             # 创建回调数据的唯一标识
             callback_key = f"stock_order_{order_id}_{order_status}_{order_sysid}"
@@ -72,16 +73,24 @@ class QMTCallback(XtQuantTraderCallback):
                     del self.trader._last_callback_data[key]
 
             stock_display = get_stock_display_name(stock_code) if stock_code else stock_code
-            logger.info(f"委托回报: 股票{stock_display}, 状态{order_status}, 委托号{order_id}, 系统号{order_sysid}")
+            logger.info(
+                f"委托回报: 股票{stock_display}, 状态{order_status}, 委托号{order_id}, 系统号{order_sysid}"
+            )
 
             # 更新统计信息
             with self.trader.stats_lock:
-                if order_status in ['已报', '已确认']:  # 这些状态表示已提交但未成交
-                    self.trader.stats['confirmed_orders'] = self.trader.stats.get('confirmed_orders', 0) + 1
+                if order_status in ["已报", "已确认"]:  # 这些状态表示已提交但未成交
+                    self.trader.stats["confirmed_orders"] = (
+                        self.trader.stats.get("confirmed_orders", 0) + 1
+                    )
                 elif is_filled_status(order_status):
-                    self.trader.stats['filled_orders'] = self.trader.stats.get('filled_orders', 0) + 1
-                elif order_status in ['已撤销', '废单']:  # 这些状态表示取消或失败
-                    self.trader.stats['cancelled_orders'] = self.trader.stats.get('cancelled_orders', 0) + 1
+                    self.trader.stats["filled_orders"] = (
+                        self.trader.stats.get("filled_orders", 0) + 1
+                    )
+                elif order_status in ["已撤销", "废单"]:  # 这些状态表示取消或失败
+                    self.trader.stats["cancelled_orders"] = (
+                        self.trader.stats.get("cancelled_orders", 0) + 1
+                    )
 
         except Exception as e:
             logger.error(f"委托回报处理异常: {e}")
@@ -93,12 +102,12 @@ class QMTCallback(XtQuantTraderCallback):
         :return:
         """
         try:
-            account_id = getattr(trade, 'account_id', '')
-            stock_code = getattr(trade, 'stock_code', '')
-            order_id = getattr(trade, 'order_id', '')
-            traded_volume = getattr(trade, 'traded_volume', getattr(trade, 'filled_qty', 0))
-            traded_price = getattr(trade, 'traded_price', getattr(trade, 'filled_price', 0))
-            trade_id = getattr(trade, 'trade_id', f"trade_{int(__import__('time').time())}")
+            account_id = getattr(trade, "account_id", "")
+            stock_code = getattr(trade, "stock_code", "")
+            order_id = getattr(trade, "order_id", "")
+            traded_volume = getattr(trade, "traded_volume", getattr(trade, "filled_qty", 0))
+            traded_price = getattr(trade, "traded_price", getattr(trade, "filled_price", 0))
+            trade_id = getattr(trade, "trade_id", f"trade_{int(__import__('time').time())}")
             trade_amount = traded_volume * traded_price
 
             # 创建回调数据的唯一标识
@@ -113,76 +122,97 @@ class QMTCallback(XtQuantTraderCallback):
             self.trader._last_callback_data[callback_key] = True
 
             stock_display = get_stock_display_name(stock_code) if stock_code else stock_code
-            logger.info(f"成交推送: 账户{account_id}, 股票{stock_display}, 委托{order_id}, 数量{traded_volume}, 价格{traded_price}, 金额{trade_amount:.2f}")
+            logger.info(
+                f"成交推送: 账户{account_id}, 股票{stock_display}, 委托{order_id}, 数量{traded_volume}, 价格{traded_price}, 金额{trade_amount:.2f}"
+            )
 
             # 更新数据库记录并发送成交通知
             try:
-                from src.database import SessionLocal, OrderRecord
                 from datetime import datetime
-                
+
+                from src.database import OrderRecord, SessionLocal
+
                 db = SessionLocal()
                 try:
                     # 查找对应的订单记录
-                    order_record = db.query(OrderRecord).filter(
-                        OrderRecord.order_id == order_id
-                    ).first()
-                    
+                    order_record = (
+                        db.query(OrderRecord).filter(OrderRecord.order_id == order_id).first()
+                    )
+
                     if order_record:
                         # 更新成交信息
                         order_record.filled_volume = traded_volume
                         order_record.filled_price = traded_price
                         order_record.filled_time = datetime.utcnow()
-                        
+
                         # 检查是否已经发送过成交通知
-                        if not getattr(order_record, 'fill_notified', False):
+                        if not getattr(order_record, "fill_notified", False):
                             # 发送成交通知
-                            if hasattr(self.trader, 'notifier') and self.trader.notifier:
-                                stock_display = get_stock_display_name(stock_code) if stock_code else stock_code
-                                logger.info(f"QMT回调：订单 {order_id} ({stock_display}) 成交，发送通知")
-                                self.trader.notifier.notify_order_filled({
-                                    'order_id': order_id,
-                                    'stock_code': stock_code,
-                                    'filled_qty': traded_volume,
-                                    'avg_price': traded_price,
-                                    'trade_amount': trade_amount
-                                })
+                            if hasattr(self.trader, "notifier") and self.trader.notifier:
+                                stock_display = (
+                                    get_stock_display_name(stock_code) if stock_code else stock_code
+                                )
+                                logger.info(
+                                    f"QMT回调：订单 {order_id} ({stock_display}) 成交，发送通知"
+                                )
+                                self.trader.notifier.notify_order_filled(
+                                    {
+                                        "order_id": order_id,
+                                        "stock_code": stock_code,
+                                        "filled_qty": traded_volume,
+                                        "avg_price": traded_price,
+                                        "trade_amount": trade_amount,
+                                    }
+                                )
                                 order_record.fill_notified = True
                         else:
-                            stock_display = get_stock_display_name(stock_code) if stock_code else stock_code
+                            stock_display = (
+                                get_stock_display_name(stock_code) if stock_code else stock_code
+                            )
                         logger.debug(f"订单 {order_id} ({stock_display}) 已经发送过成交通知，跳过")
-                        
+
                         db.commit()
                     else:
-                        stock_display = get_stock_display_name(stock_code) if stock_code else stock_code
+                        stock_display = (
+                            get_stock_display_name(stock_code) if stock_code else stock_code
+                        )
                         logger.warning(f"未找到订单记录: {order_id} ({stock_display})")
                         # 如果找不到订单记录，仍然发送通知（可能是手动下单等情况）
-                        if hasattr(self.trader, 'notifier') and self.trader.notifier:
-                            self.trader.notifier.notify_order_filled({
-                                'order_id': order_id,
-                                'stock_code': stock_code,
-                                'filled_qty': traded_volume,
-                                'avg_price': traded_price,
-                                'trade_amount': trade_amount
-                            })
+                        if hasattr(self.trader, "notifier") and self.trader.notifier:
+                            self.trader.notifier.notify_order_filled(
+                                {
+                                    "order_id": order_id,
+                                    "stock_code": stock_code,
+                                    "filled_qty": traded_volume,
+                                    "avg_price": traded_price,
+                                    "trade_amount": trade_amount,
+                                }
+                            )
                 finally:
                     db.close()
-                    
+
             except Exception as e:
                 logger.error(f"更新订单记录时出错: {e}")
                 # 即使更新失败，也发送通知
-                if hasattr(self.trader, 'notifier') and self.trader.notifier:
-                    self.trader.notifier.notify_order_filled({
-                        'order_id': order_id,
-                        'stock_code': stock_code,
-                        'filled_qty': traded_volume,
-                        'avg_price': traded_price,
-                        'trade_amount': trade_amount
-                    })
+                if hasattr(self.trader, "notifier") and self.trader.notifier:
+                    self.trader.notifier.notify_order_filled(
+                        {
+                            "order_id": order_id,
+                            "stock_code": stock_code,
+                            "filled_qty": traded_volume,
+                            "avg_price": traded_price,
+                            "trade_amount": trade_amount,
+                        }
+                    )
 
             # 更新统计信息
             with self.trader.stats_lock:
-                self.trader.stats['total_trade_amount'] = self.trader.stats.get('total_trade_amount', 0) + trade_amount
-                self.trader.stats['total_trade_volume'] = self.trader.stats.get('total_trade_volume', 0) + traded_volume
+                self.trader.stats["total_trade_amount"] = (
+                    self.trader.stats.get("total_trade_amount", 0) + trade_amount
+                )
+                self.trader.stats["total_trade_volume"] = (
+                    self.trader.stats.get("total_trade_volume", 0) + traded_volume
+                )
 
         except Exception as e:
             logger.error(f"成交推送处理异常: {e}")
@@ -194,23 +224,25 @@ class QMTCallback(XtQuantTraderCallback):
         :return:
         """
         try:
-            order_id = getattr(order_error, 'order_id', '')
-            error_id = getattr(order_error, 'error_id', 0)
-            error_msg = getattr(order_error, 'error_msg', '')
-            stock_code = getattr(order_error, 'stock_code', '')
+            order_id = getattr(order_error, "order_id", "")
+            error_id = getattr(order_error, "error_id", 0)
+            error_msg = getattr(order_error, "error_msg", "")
+            stock_code = getattr(order_error, "stock_code", "")
 
             stock_display = get_stock_display_name(stock_code) if stock_code else stock_code
-            logger.error(f"委托失败: 委托{order_id}, 股票{stock_display}, 错误码{error_id}, 错误信息: {error_msg}")
+            logger.error(
+                f"委托失败: 委托{order_id}, 股票{stock_display}, 错误码{error_id}, 错误信息: {error_msg}"
+            )
 
             # 发送错误通知
-            if hasattr(self.trader, 'notifier') and self.trader.notifier:
+            if hasattr(self.trader, "notifier") and self.trader.notifier:
                 self.trader.notifier.notify_error(
                     f"委托失败: {error_msg}", f"委托{order_id}, 股票{stock_display}"
                 )
 
             # 更新统计信息
             with self.trader.stats_lock:
-                self.trader.stats['failed_orders'] = self.trader.stats.get('failed_orders', 0) + 1
+                self.trader.stats["failed_orders"] = self.trader.stats.get("failed_orders", 0) + 1
 
             # 从活跃委托列表中移除失败的委托
             with self.trader.order_lock:
@@ -219,11 +251,11 @@ class QMTCallback(XtQuantTraderCallback):
                     logger.info(f"已移除失败委托 {order_id} 从活跃列表")
 
                     # 保存失败记录
-                    signal_data = order_info.get('signal_data', {})
-                    self.trader._save_order_to_redis(order_id, signal_data, 'failed', error_msg)
+                    signal_data = order_info.get("signal_data", {})
+                    self.trader._save_order_to_redis(order_id, signal_data, "failed", error_msg)
 
                     # 调用外部回调，通知失败
-                    callback = order_info.get('callback')
+                    callback = order_info.get("callback")
                     if callback:
                         callback(None, f"委托失败: {error_msg}")
 
@@ -231,16 +263,22 @@ class QMTCallback(XtQuantTraderCallback):
                 else:
                     # 遍历所有active_orders，查找匹配的seq_id
                     for temp_id, order_info in list(self.trader.active_orders.items()):
-                        if temp_id.startswith('seq_') and order_info.get('seq_id') == int(order_id) if str(order_id).isdigit() else False:
+                        if (
+                            temp_id.startswith("seq_") and order_info.get("seq_id") == int(order_id)
+                            if str(order_id).isdigit()
+                            else False
+                        ):
                             # 找到对应的序列号记录
                             self.trader.active_orders.pop(temp_id)
                             logger.info(f"已移除失败委托序列 {temp_id} 从活跃列表")
 
-                            signal_data = order_info.get('signal_data', {})
-                            self.trader._save_order_to_redis(temp_id, signal_data, 'failed', error_msg)
+                            signal_data = order_info.get("signal_data", {})
+                            self.trader._save_order_to_redis(
+                                temp_id, signal_data, "failed", error_msg
+                            )
 
                             # 调用外部回调，通知失败
-                            callback = order_info.get('callback')
+                            callback = order_info.get("callback")
                             if callback:
                                 callback(None, f"委托失败: {error_msg}")
                             break
@@ -255,23 +293,25 @@ class QMTCallback(XtQuantTraderCallback):
         :return:
         """
         try:
-            order_id = getattr(cancel_error, 'order_id', '')
-            error_id = getattr(cancel_error, 'error_id', 0)
-            error_msg = getattr(cancel_error, 'error_msg', '')
-            stock_code = getattr(cancel_error, 'stock_code', '')
+            order_id = getattr(cancel_error, "order_id", "")
+            error_id = getattr(cancel_error, "error_id", 0)
+            error_msg = getattr(cancel_error, "error_msg", "")
+            stock_code = getattr(cancel_error, "stock_code", "")
 
             stock_display = get_stock_display_name(stock_code) if stock_code else stock_code
-            logger.error(f"撤单失败: 委托{order_id}, 股票{stock_display}, 错误码{error_id}, 错误信息: {error_msg}")
+            logger.error(
+                f"撤单失败: 委托{order_id}, 股票{stock_display}, 错误码{error_id}, 错误信息: {error_msg}"
+            )
 
             # 发送错误通知
-            if hasattr(self.trader, 'notifier') and self.trader.notifier:
+            if hasattr(self.trader, "notifier") and self.trader.notifier:
                 self.trader.notifier.notify_error(
                     f"撤单失败: {error_msg}", f"委托{order_id}, 股票{stock_display}"
                 )
 
             # 更新统计信息
             with self.trader.stats_lock:
-                self.trader.stats['cancel_failed'] = self.trader.stats.get('cancel_failed', 0) + 1
+                self.trader.stats["cancel_failed"] = self.trader.stats.get("cancel_failed", 0) + 1
 
         except Exception as e:
             logger.error(f"撤单错误处理异常: {e}")
@@ -283,23 +323,23 @@ class QMTCallback(XtQuantTraderCallback):
         :return:
         """
         try:
-            account_id = getattr(status, 'account_id', '')
-            account_type = getattr(status, 'account_type', '')
-            account_status = getattr(status, 'status', '')
+            account_id = getattr(status, "account_id", "")
+            account_type = getattr(status, "account_type", "")
+            account_status = getattr(status, "status", "")
 
             logger.info(f"账户状态变化: 账户{account_id}, 类型{account_type}, 状态{account_status}")
 
             # 如果账户状态异常，发送通知
-            if account_status not in ['正常', '连接', 'CONNECTED', '1']:
-                if hasattr(self.trader, 'notifier') and self.trader.notifier:
+            if account_status not in ["正常", "连接", "CONNECTED", "1"]:
+                if hasattr(self.trader, "notifier") and self.trader.notifier:
                     self.trader.notifier.notify_error(
                         f"账户状态异常: {account_status}", f"账户{account_id}"
                     )
 
             # 更新连接状态
-            if account_status in ['正常', '连接', 'CONNECTED', '1']:
+            if account_status in ["正常", "连接", "CONNECTED", "1"]:
                 self.trader.is_connected = True
-            elif account_status in ['断开', 'DISCONNECTED', '0']:
+            elif account_status in ["断开", "DISCONNECTED", "0"]:
                 self.trader.is_connected = False
 
         except Exception as e:
@@ -310,10 +350,10 @@ class QMTCallback(XtQuantTraderCallback):
         try:
             logger.info(f"异步下单回调: {response.__dict__}")
             # 处理异步下单结果
-            order_id = getattr(response, 'order_id', None)
-            seq_id = getattr(response, 'seq', None)
-            error_id = getattr(response, 'error_id', 0)
-            error_msg = getattr(response, 'error_msg', '')
+            order_id = getattr(response, "order_id", None)
+            seq_id = getattr(response, "seq", None)
+            error_id = getattr(response, "error_id", 0)
+            error_msg = getattr(response, "error_msg", "")
 
             if error_id == 0 and order_id:
                 logger.info(f"异步下单成功，委托编号: {order_id}，序列号: {seq_id}")
@@ -329,13 +369,13 @@ class QMTCallback(XtQuantTraderCallback):
                             logger.info(f"委托序列 {seq_id} 已更新为真实委托编号 {order_id}")
 
                             # 保存成功的委托记录到Redis
-                            signal_data = order_info.get('signal_data', {})
+                            signal_data = order_info.get("signal_data", {})
                             self.trader._save_order_to_redis(
-                                str(order_id), signal_data, 'submitted'
+                                str(order_id), signal_data, "submitted"
                             )
 
                             # 调用外部回调，通知TradingService真实的order_id
-                            callback = order_info.get('callback')
+                            callback = order_info.get("callback")
                             if callback:
                                 callback(str(order_id), None)
             else:
@@ -350,11 +390,11 @@ class QMTCallback(XtQuantTraderCallback):
                             logger.info(f"移除失败的委托序列 {seq_id}")
 
                             # 保存失败的委托记录到Redis
-                            signal_data = order_info.get('signal_data', {})
-                            self.trader._save_order_to_redis(None, signal_data, 'failed', error_msg)
+                            signal_data = order_info.get("signal_data", {})
+                            self.trader._save_order_to_redis(None, signal_data, "failed", error_msg)
 
                             # 调用外部回调，通知失败
-                            callback = order_info.get('callback')
+                            callback = order_info.get("callback")
                             if callback:
                                 callback(None, f"异步下单失败: {error_msg}")
 
@@ -365,8 +405,8 @@ class QMTCallback(XtQuantTraderCallback):
         """异步撤单回调"""
         try:
             logger.info(f"异步撤单回调: {response.__dict__}")
-            error_id = getattr(response, 'error_id', 0)
-            error_msg = getattr(response, 'error_msg', '')
+            error_id = getattr(response, "error_id", 0)
+            error_msg = getattr(response, "error_msg", "")
 
             if error_id == 0:
                 logger.info("异步撤单成功")
@@ -387,8 +427,8 @@ class QMTCallback(XtQuantTraderCallback):
             with self.trader.order_lock:
                 if order_id in self.trader.active_orders:
                     order_info = self.trader.active_orders[order_id]
-                    order_info['last_status'] = status
-                    order_info['last_update'] = datetime.now()
+                    order_info["last_status"] = status
+                    order_info["last_update"] = datetime.now()
 
                     # 如果委托完成，移除并保存最终记录
                     if is_finished_status(status):
@@ -396,38 +436,38 @@ class QMTCallback(XtQuantTraderCallback):
                         logger.info(f"委托 {order_id} 最终状态: {status}，移出活跃列表")
 
                         # 保存最终状态记录
-                        signal_data = order_info.get('signal_data', {})
+                        signal_data = order_info.get("signal_data", {})
                         final_status = (
-                            'filled'
-                            if status == '已成交'  # 保留这个比较，因为需要区分具体的成交状态
-                            else 'cancelled' if status == '已撤销' else 'rejected'
+                            "filled"
+                            if status == "已成交"  # 保留这个比较，因为需要区分具体的成交状态
+                            else "cancelled" if status == "已撤销" else "rejected"
                         )
 
                         # 构建状态更新记录
                         status_record = {
-                            'order_id': order_id,
-                            'final_status': final_status,
-                            'order_status': status,
-                            'update_time': datetime.now().isoformat(),
+                            "order_id": order_id,
+                            "final_status": final_status,
+                            "order_status": status,
+                            "update_time": datetime.now().isoformat(),
                         }
 
                         # 如果是成交，添加成交信息
-                        if status == '已成交':
+                        if status == "已成交":
                             filled_qty = getattr(
-                                order_status, 'filled_qty', getattr(order_status, 'order_volume', 0)
+                                order_status, "filled_qty", getattr(order_status, "order_volume", 0)
                             )
                             avg_price = getattr(
-                                order_status, 'avg_price', getattr(order_status, 'price', 0)
+                                order_status, "avg_price", getattr(order_status, "price", 0)
                             )
 
                             status_record.update(
                                 {
-                                    'filled_volume': filled_qty,
-                                    'avg_price': avg_price,
-                                    'stock_code': getattr(
+                                    "filled_volume": filled_qty,
+                                    "avg_price": avg_price,
+                                    "stock_code": getattr(
                                         order_status,
-                                        'stock_code',
-                                        signal_data.get('stock_code', ''),
+                                        "stock_code",
+                                        signal_data.get("stock_code", ""),
                                     ),
                                 }
                             )
@@ -468,14 +508,14 @@ class QMTTrader:
 
         # 统计信息
         self.stats = {
-            'total_orders': 0,  # 总委托数
-            'successful_orders': 0,  # 成功委托数
-            'failed_orders': 0,  # 失败委托数
-            'timeout_orders': 0,  # 超时委托数
-            'pending_count': 0,  # 排队中委托数
+            "total_orders": 0,  # 总委托数
+            "successful_orders": 0,  # 成功委托数
+            "failed_orders": 0,  # 失败委托数
+            "timeout_orders": 0,  # 超时委托数
+            "pending_count": 0,  # 排队中委托数
         }
         self.stats_lock = threading.Lock()
-        
+
         # 重连相关
         self.reconnect_lock = threading.Lock()
         self.reconnect_thread = None
@@ -530,7 +570,7 @@ class QMTTrader:
 
                 # 某些版本的QMT可能需要订阅账户
                 try:
-                    if hasattr(self.xt_trader, 'subscribe'):
+                    if hasattr(self.xt_trader, "subscribe"):
                         subscribe_result = self.xt_trader.subscribe(self.account)
                         if subscribe_result == 0:
                             logger.info("QMT账户订阅成功")
@@ -567,7 +607,7 @@ class QMTTrader:
             self._shutdown = True
 
             # 停止异步交易线程池
-            if hasattr(self, 'trade_executor') and self.trade_executor:
+            if hasattr(self, "trade_executor") and self.trade_executor:
                 self.trade_executor.shutdown(wait=True)
 
             # 停止xtquant
@@ -583,76 +623,79 @@ class QMTTrader:
                 logger.info("QMT连接已断开")
         except Exception as e:
             logger.error(f"断开QMT连接时发生错误: {e}")
-    
+
     def trigger_reconnect(self):
         """触发QMT重连"""
         if not settings.auto_reconnect_enabled:
             logger.info("QMT自动重连已禁用")
             return
-            
+
         with self.reconnect_lock:
             # 如果重连线程已在运行，不重复启动
             if self.reconnect_thread and self.reconnect_thread.is_alive():
                 logger.debug("QMT重连线程已在运行")
                 return
-                
+
             self.reconnect_thread = threading.Thread(target=self._reconnect_loop, daemon=True)
             self.reconnect_thread.start()
             logger.info("QMT重连线程已启动")
-    
+
     def _reconnect_loop(self):
         """QMT重连循环"""
         while self.reconnect_attempts < settings.reconnect_max_attempts and not self._shutdown:
             try:
                 self.reconnect_attempts += 1
-                
+
                 # 计算重连延迟（指数退避）
                 delay = min(
-                    settings.reconnect_initial_delay * (settings.reconnect_backoff_factor ** (self.reconnect_attempts - 1)),
-                    settings.reconnect_max_delay
+                    settings.reconnect_initial_delay
+                    * (settings.reconnect_backoff_factor ** (self.reconnect_attempts - 1)),
+                    settings.reconnect_max_delay,
                 )
-                
-                logger.info(f"QMT第 {self.reconnect_attempts}/{settings.reconnect_max_attempts} 次重连，"
-                           f"将在 {delay:.1f} 秒后尝试")
-                
+
+                logger.info(
+                    f"QMT第 {self.reconnect_attempts}/{settings.reconnect_max_attempts} 次重连，"
+                    f"将在 {delay:.1f} 秒后尝试"
+                )
+
                 # 等待重连延迟
                 for _ in range(int(delay)):
                     if self._shutdown:
                         logger.info("QMT服务停止，取消重连")
                         return
                     time.sleep(1)
-                
+
                 if self._shutdown:
                     logger.info("QMT服务停止，取消重连")
                     return
-                
+
                 # 尝试重连
                 if self.connect():
                     logger.info("QMT重连成功")
-                    if self.notifier and hasattr(self.notifier, 'notify_connection_restored'):
+                    if self.notifier and hasattr(self.notifier, "notify_connection_restored"):
                         self.notifier.notify_connection_restored("QMT")
                     return
                 else:
                     logger.warning(f"QMT第 {self.reconnect_attempts} 次重连失败")
-                    
+
             except Exception as e:
                 logger.error(f"QMT重连异常: {e}")
-        
+
         # 重连失败
         logger.error(f"QMT重连失败，已达到最大尝试次数 {settings.reconnect_max_attempts}")
-        
+
         # 发送重连失败通知
-        if self.notifier and hasattr(self.notifier, 'notify_reconnect_failed'):
+        if self.notifier and hasattr(self.notifier, "notify_reconnect_failed"):
             self.notifier.notify_reconnect_failed("QMT", self.reconnect_attempts)
-    
+
     def is_healthy(self) -> bool:
         """检查QMT连接健康状态"""
         if not self.is_connected or not self.xt_trader:
             return False
-            
+
         try:
             # 尝试获取账户信息来测试连接
-            if hasattr(self.xt_trader, 'query_stock_asset') and self.account:
+            if hasattr(self.xt_trader, "query_stock_asset") and self.account:
                 result = self.xt_trader.query_stock_asset(self.account)
                 return result is not None
             else:
@@ -669,17 +712,19 @@ class QMTTrader:
             return None
 
         try:
-            stock_code = signal_data.get('stock_code', signal_data.get('symbol', '')).strip()
-            direction = signal_data.get('direction', signal_data.get('action', '')).upper()
-            volume = int(signal_data.get('volume', signal_data.get('quantity', 0)))
-            price = signal_data.get('price')
+            stock_code = signal_data.get("stock_code", signal_data.get("symbol", "")).strip()
+            direction = signal_data.get("direction", signal_data.get("action", "")).upper()
+            volume = int(signal_data.get("volume", signal_data.get("quantity", 0)))
+            price = signal_data.get("price")
 
             if not stock_code or not direction or volume <= 0:
                 logger.error(f"无效的委托参数: {signal_data}")
                 return None
 
             stock_display = get_stock_display_name(stock_code) if stock_code else stock_code
-            logger.info(f"准备委托下单: 证券={stock_display}, 方向={direction}, 数量={volume}, 价格={price}")
+            logger.info(
+                f"准备委托下单: 证券={stock_display}, 方向={direction}, 数量={volume}, 价格={price}"
+            )
 
             # 使用异步线程池提交任务，但等待结果
             future = self.trade_executor.submit(self._execute_order, signal_data)
@@ -706,12 +751,14 @@ class QMTTrader:
 
         # 更新统计
         with self.stats_lock:
-            self.stats['total_orders'] += 1
-            self.stats['pending_count'] += 1
+            self.stats["total_orders"] += 1
+            self.stats["pending_count"] += 1
 
-        stock_code = signal_data.get('stock_code', signal_data.get('symbol', 'Unknown'))
-        direction = signal_data.get('direction', signal_data.get('action', 'Unknown'))
-        stock_display = get_stock_display_name(stock_code) if stock_code != 'Unknown' else stock_code
+        stock_code = signal_data.get("stock_code", signal_data.get("symbol", "Unknown"))
+        direction = signal_data.get("direction", signal_data.get("action", "Unknown"))
+        stock_display = (
+            get_stock_display_name(stock_code) if stock_code != "Unknown" else stock_code
+        )
         logger.info(
             f"提交异步委托任务: {stock_display} {direction} [队列中: {self.stats['pending_count']}]"
         )
@@ -720,26 +767,26 @@ class QMTTrader:
             try:
                 order_id = future.result()
                 with self.stats_lock:
-                    self.stats['pending_count'] -= 1
+                    self.stats["pending_count"] -= 1
                     if order_id:
-                        self.stats['successful_orders'] += 1
+                        self.stats["successful_orders"] += 1
                     else:
-                        self.stats['failed_orders'] += 1
+                        self.stats["failed_orders"] += 1
 
                 if callback:
                     callback(order_id, None if order_id else "下单失败")
             except concurrent.futures.TimeoutError:
                 with self.stats_lock:
-                    self.stats['pending_count'] -= 1
-                    self.stats['timeout_orders'] += 1
+                    self.stats["pending_count"] -= 1
+                    self.stats["timeout_orders"] += 1
                 error_msg = f"异步委托超时"
                 logger.error(error_msg)
                 if callback:
                     callback(None, error_msg)
             except Exception as e:
                 with self.stats_lock:
-                    self.stats['pending_count'] -= 1
-                    self.stats['failed_orders'] += 1
+                    self.stats["pending_count"] -= 1
+                    self.stats["failed_orders"] += 1
                 error_msg = f"异步委托异常: {e}"
                 logger.error(error_msg)
                 if callback:
@@ -751,36 +798,36 @@ class QMTTrader:
     def _execute_order(self, signal_data: Dict[str, Any], callback=None) -> Optional[str]:
         """实际执行委托操作（使用passorder）"""
         try:
-            stock_code = signal_data.get('stock_code', '').strip()
-            direction = signal_data.get('direction', '').upper()
-            volume = int(signal_data.get('volume', 0))
-            price = signal_data.get('price')
+            stock_code = signal_data.get("stock_code", "").strip()
+            direction = signal_data.get("direction", "").upper()
+            volume = int(signal_data.get("volume", 0))
+            price = signal_data.get("price")
 
             # 确定市场类型并格式化股票代码
-            if stock_code.startswith('6'):
-                market = 'SH'  # 上海
+            if stock_code.startswith("6"):
+                market = "SH"  # 上海
                 full_stock_code = f"{stock_code}.SH"
-            elif stock_code.startswith('8') or (
-                stock_code.startswith('4') and len(stock_code) == 6
+            elif stock_code.startswith("8") or (
+                stock_code.startswith("4") and len(stock_code) == 6
             ):
-                market = 'BJ'  # 北京（新三板精选层/北交所）
+                market = "BJ"  # 北京（新三板精选层/北交所）
                 full_stock_code = f"{stock_code}.BJ"
-            elif stock_code.startswith(('0', '3')):
-                market = 'SZ'  # 深圳
+            elif stock_code.startswith(("0", "3")):
+                market = "SZ"  # 深圳
                 full_stock_code = f"{stock_code}.SZ"
             else:
                 # 默认判断
-                market = 'SH'
+                market = "SH"
                 full_stock_code = f"{stock_code}.SH"
 
             # 如果已经包含市场后缀，不重复添加
-            if '.' in stock_code:
+            if "." in stock_code:
                 full_stock_code = stock_code
 
             # 转换买卖方向 - 使用xtconstant常量
-            if direction == 'BUY':
+            if direction == "BUY":
                 xt_direction = xtconstant.STOCK_BUY
-            elif direction == 'SELL':
+            elif direction == "SELL":
                 xt_direction = xtconstant.STOCK_SELL
             else:
                 logger.error(f"不支持的交易方向: {direction}")
@@ -793,13 +840,15 @@ class QMTTrader:
                 order_price = price
             else:
                 # 没有价格指定，根据交易所使用不同的市价单类型
-                if market == 'SH' or market == 'BJ':
+                if market == "SH" or market == "BJ":
                     # 上交所/北交所：最优五档即时成交剩余撤销
                     price_type = xtconstant.MARKET_SH_CONVERT_5_CANCEL  # 42
-                elif market == 'SZ':
+                elif market == "SZ":
                     # 深交所：即时成交剩余撤销
                     price_type = xtconstant.MARKET_SZ_INSTBUSI_RESTCANCEL  # 46
-                    logger.debug(f"深交所市价单类型: MARKET_SZ_INSTBUSI_RESTCANCEL = {xtconstant.MARKET_SZ_INSTBUSI_RESTCANCEL}")
+                    logger.debug(
+                        f"深交所市价单类型: MARKET_SZ_INSTBUSI_RESTCANCEL = {xtconstant.MARKET_SZ_INSTBUSI_RESTCANCEL}"
+                    )
                 else:
                     # 默认使用最优五档
                     price_type = xtconstant.MARKET_SH_CONVERT_5_CANCEL
@@ -813,7 +862,9 @@ class QMTTrader:
             )
 
             # 添加调试信息，显示xtconstant的实际值
-            logger.debug(f"xtconstant values - STOCK_BUY={xtconstant.STOCK_BUY}, STOCK_SELL={xtconstant.STOCK_SELL}, FIX_PRICE={xtconstant.FIX_PRICE}")
+            logger.debug(
+                f"xtconstant values - STOCK_BUY={xtconstant.STOCK_BUY}, STOCK_SELL={xtconstant.STOCK_SELL}, FIX_PRICE={xtconstant.FIX_PRICE}"
+            )
 
             # 使用order_stock_async执行异步委托，避免阻塞
             try:
@@ -825,7 +876,7 @@ class QMTTrader:
                     volume,  # 委托数量
                     price_type,  # 价格类型: FIX_PRICE, MARKET_PRICE
                     order_price,  # 委托价格
-                    'auto_trader',  # 策略名称
+                    "auto_trader",  # 策略名称
                     f'Signal_{signal_data.get("signal_id", "unknown")}',  # 订单备注
                 )
 
@@ -856,7 +907,7 @@ class QMTTrader:
                     order_volume=volume,
                     price_type=price_type,
                     price=order_price,
-                    strategy_name='auto_trader',
+                    strategy_name="auto_trader",
                     order_remark=f'Signal_{signal_data.get("signal_id", "unknown")}',
                 )
 
@@ -871,17 +922,17 @@ class QMTTrader:
                 # 将委托加入活跃列表，用于回调处理
                 with self.order_lock:
                     self.active_orders[temp_id] = {
-                        'timestamp': datetime.now(),
-                        'signal_data': signal_data,
-                        'seq_id': seq_id,  # 保存序列号
-                        'trades': [],  # 成交记录列表
-                        'total_filled': 0,  # 总成交量
-                        'callback': callback,  # 保存外部回调函数
+                        "timestamp": datetime.now(),
+                        "signal_data": signal_data,
+                        "seq_id": seq_id,  # 保存序列号
+                        "trades": [],  # 成交记录列表
+                        "total_filled": 0,  # 总成交量
+                        "callback": callback,  # 保存外部回调函数
                     }
                 logger.info(f"委托序列 {seq_id} 已加入活跃列表")
 
                 # 保存委托记录到Redis（使用临时ID）
-                self._save_order_to_redis(temp_id, signal_data, 'submitted')
+                self._save_order_to_redis(temp_id, signal_data, "submitted")
 
                 return temp_id
             else:
@@ -889,7 +940,7 @@ class QMTTrader:
                 logger.error(f"委托失败(order_stock): {error_msg}")
 
                 # 保存失败的委托记录到Redis
-                self._save_order_to_redis(None, signal_data, 'failed', error_msg)
+                self._save_order_to_redis(None, signal_data, "failed", error_msg)
 
                 return None
 
@@ -949,13 +1000,13 @@ class QMTTrader:
         with self.order_lock:
             return [
                 {
-                    'order_id': order_id,
-                    'signal_data': info.get('signal_data', {}),
-                    'timestamp': info['timestamp'].strftime('%Y-%m-%d %H:%M:%S'),
-                    'elapsed_seconds': (datetime.now() - info['timestamp']).total_seconds(),
-                    'last_status': info.get('last_status', 'unknown'),
-                    'total_filled': info.get('total_filled', 0),
-                    'trades_count': len(info.get('trades', [])),
+                    "order_id": order_id,
+                    "signal_data": info.get("signal_data", {}),
+                    "timestamp": info["timestamp"].strftime("%Y-%m-%d %H:%M:%S"),
+                    "elapsed_seconds": (datetime.now() - info["timestamp"]).total_seconds(),
+                    "last_status": info.get("last_status", "unknown"),
+                    "total_filled": info.get("total_filled", 0),
+                    "trades_count": len(info.get("trades", [])),
                 }
                 for order_id, info in self.active_orders.items()
             ]
@@ -966,31 +1017,31 @@ class QMTTrader:
             stats = self.stats.copy()
 
         # 添加成功率和队列状态
-        total = stats['total_orders']
+        total = stats["total_orders"]
         if total > 0:
-            stats['success_rate'] = (stats['successful_orders'] / total) * 100
+            stats["success_rate"] = (stats["successful_orders"] / total) * 100
         else:
-            stats['success_rate'] = 0
+            stats["success_rate"] = 0
 
         # 添加线程池状态
-        stats['thread_pool_active'] = (
+        stats["thread_pool_active"] = (
             len(self.trade_executor._threads)
-            if hasattr(self.trade_executor, '_threads') and self.trade_executor._threads
+            if hasattr(self.trade_executor, "_threads") and self.trade_executor._threads
             else 0
         )
-        stats['thread_pool_max'] = self.trade_executor._max_workers
-        stats['xtquant_main_thread'] = True  # xtquant运行在主线程
+        stats["thread_pool_max"] = self.trade_executor._max_workers
+        stats["xtquant_main_thread"] = True  # xtquant运行在主线程
 
         return stats
 
     def get_queue_status(self) -> Dict[str, Any]:
         """获取队列状态"""
         return {
-            'active_orders_count': self.get_active_orders_count(),
-            'thread_queue_pending': self.stats['pending_count'],
-            'total_orders_submitted': self.stats['total_orders'],
-            'success_rate': f"{self.get_trading_stats()['success_rate']:.1f}%",
-            'xtquant_main_thread': True,
+            "active_orders_count": self.get_active_orders_count(),
+            "thread_queue_pending": self.stats["pending_count"],
+            "total_orders_submitted": self.stats["total_orders"],
+            "success_rate": f"{self.get_trading_stats()['success_rate']:.1f}%",
+            "xtquant_main_thread": True,
         }
 
     def _save_order_to_redis(
@@ -1003,19 +1054,19 @@ class QMTTrader:
         try:
             # 构建交易记录数据
             trade_record = {
-                'order_id': order_id,
-                'stock_code': signal_data.get('stock_code', signal_data.get('symbol', '')),
-                'direction': signal_data.get('direction', signal_data.get('action', '')),
-                'volume': signal_data.get('volume', signal_data.get('quantity', 0)),
-                'price': signal_data.get('price', 0),
-                'status': status,
-                'timestamp': datetime.now().isoformat(),
-                'signal_data': signal_data
+                "order_id": order_id,
+                "stock_code": signal_data.get("stock_code", signal_data.get("symbol", "")),
+                "direction": signal_data.get("direction", signal_data.get("action", "")),
+                "volume": signal_data.get("volume", signal_data.get("quantity", 0)),
+                "price": signal_data.get("price", 0),
+                "status": status,
+                "timestamp": datetime.now().isoformat(),
+                "signal_data": signal_data,
             }
 
             # 如果有错误信息，添加到记录中
             if error_msg:
-                trade_record['error_message'] = error_msg
+                trade_record["error_message"] = error_msg
 
             # 使用order_id作为trade_id（后续如果有实际成交记录可以更新）
             trade_id = f"order_{order_id}"
@@ -1035,29 +1086,31 @@ class QMTTrader:
 
         try:
             # 获取实际成交信息
-            filled_volume = trade_info.get('filled_volume', trade_info.get('traded_volume', 0))
-            avg_price = trade_info.get('avg_price', trade_info.get('traded_price', 0))
+            filled_volume = trade_info.get("filled_volume", trade_info.get("traded_volume", 0))
+            avg_price = trade_info.get("avg_price", trade_info.get("traded_price", 0))
 
             if filled_volume > 0:  # 有成交量才保存
                 # 构建成交记录
                 execution_record = {
-                    'order_id': order_id,
-                    'trade_id': f"exec_{order_id}_{int(time.time())}",
-                    'stock_code': trade_info.get('stock_code', ''),
-                    'filled_volume': filled_volume,
-                    'avg_price': avg_price,
-                    'trade_amount': filled_volume * avg_price,
-                    'execution_time': datetime.now().isoformat(),
-                    'order_status': trade_info.get('order_status', ''),
-                    'original_trade_info': trade_info
+                    "order_id": order_id,
+                    "trade_id": f"exec_{order_id}_{int(time.time())}",
+                    "stock_code": trade_info.get("stock_code", ""),
+                    "filled_volume": filled_volume,
+                    "avg_price": avg_price,
+                    "trade_amount": filled_volume * avg_price,
+                    "execution_time": datetime.now().isoformat(),
+                    "order_status": trade_info.get("order_status", ""),
+                    "original_trade_info": trade_info,
                 }
 
-                trade_id = execution_record['trade_id']
+                trade_id = execution_record["trade_id"]
 
                 # 保存成交记录到Redis
                 success = redis_trade_client.save_trade_record(order_id, trade_id, execution_record)
                 if success:
-                    logger.info(f"成交记录已保存到Redis: {order_id}_{trade_id} (成交量:{filled_volume}, 成交价:{avg_price})")
+                    logger.info(
+                        f"成交记录已保存到Redis: {order_id}_{trade_id} (成交量:{filled_volume}, 成交价:{avg_price})"
+                    )
 
         except Exception as e:
             logger.error(f"保存成交记录到Redis异常: {e}")
@@ -1065,25 +1118,25 @@ class QMTTrader:
     def get_redis_trade_records_info(self) -> Dict[str, Any]:
         """获取Redis交易记录信息"""
         if not settings.redis_trade_records_enabled:
-            return {'enabled': False, 'message': 'Redis交易记录存储未启用'}
+            return {"enabled": False, "message": "Redis交易记录存储未启用"}
 
         try:
             count = redis_trade_client.get_trade_records_count()
             return {
-                'enabled': True,
-                'records_count': count,
-                'cleanup_time': settings.redis_trade_cleanup_time,
-                'redis_host': settings.redis_host,
-                'redis_port': settings.redis_port
+                "enabled": True,
+                "records_count": count,
+                "cleanup_time": settings.redis_trade_cleanup_time,
+                "redis_host": settings.redis_host,
+                "redis_port": settings.redis_port,
             }
         except Exception as e:
-            return {'enabled': True, 'error': str(e)}
+            return {"enabled": True, "error": str(e)}
 
     def _cancel_order(self, order_id: str) -> bool:
         """撤销委托"""
         try:
             # 如果是序列号格式，无法直接撤单
-            if order_id.startswith('seq_'):
+            if order_id.startswith("seq_"):
                 logger.warning(f"无法撤销序列号委托 {order_id}，等待真实order_id")
                 return False
 
@@ -1107,20 +1160,20 @@ class QMTTrader:
         """查询委托状态"""
         try:
             # 如果是序列号格式，暂时跳过查询
-            if order_id.startswith('seq_'):
+            if order_id.startswith("seq_"):
                 return None
 
             order = self.xt_trader.query_stock_order(self.account, int(order_id))
 
             if order:
                 return {
-                    'order_id': str(order.order_id),
-                    'stock_code': order.stock_code,
-                    'order_status': order.order_status,
-                    'filled_volume': getattr(
-                        order, 'filled_qty', getattr(order, 'order_volume', 0)
+                    "order_id": str(order.order_id),
+                    "stock_code": order.stock_code,
+                    "order_status": order.order_status,
+                    "filled_volume": getattr(
+                        order, "filled_qty", getattr(order, "order_volume", 0)
                     ),
-                    'avg_price': getattr(order, 'avg_price', getattr(order, 'price', 0)),
+                    "avg_price": getattr(order, "avg_price", getattr(order, "price", 0)),
                 }
             return None
 
@@ -1138,12 +1191,12 @@ class QMTTrader:
 
             return [
                 {
-                    'stock_code': pos.stock_code,
-                    'volume': getattr(pos, 'volume', 0),
-                    'available_volume': getattr(pos, 'can_use_volume', 0),
-                    'avg_price': getattr(pos, 'avg_price', 0),
-                    'market_value': getattr(pos, 'market_value', 0),
-                    'account_id': getattr(pos, 'account_id', ''),
+                    "stock_code": pos.stock_code,
+                    "volume": getattr(pos, "volume", 0),
+                    "available_volume": getattr(pos, "can_use_volume", 0),
+                    "avg_price": getattr(pos, "avg_price", 0),
+                    "market_value": getattr(pos, "market_value", 0),
+                    "account_id": getattr(pos, "account_id", ""),
                 }
                 for pos in positions
                 if pos

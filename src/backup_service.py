@@ -3,21 +3,24 @@
 简化版本，配置从环境变量读取
 """
 
-import os
-import sqlite3
-import shutil
-import json
 import gzip
-import time
+import json
+import os
+import shutil
+import sqlite3
 import threading
-from schedule import Scheduler
+import time
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Dict, List, Any, Optional
+from typing import Any, Dict, List, Optional
+
+from schedule import Scheduler
+
 from src.logger_config import configured_logger as logger
 
 try:
     import paramiko
+
     HAS_PARAMIKO = True
 except ImportError:
     HAS_PARAMIKO = False
@@ -25,12 +28,14 @@ except ImportError:
 
 try:
     from ftplib import FTP
+
     HAS_FTP = True
 except ImportError:
     HAS_FTP = False
 
 try:
     import requests
+
     HAS_REQUESTS = True
 except ImportError:
     HAS_REQUESTS = False
@@ -39,20 +44,20 @@ except ImportError:
 def get_backup_config():
     """从环境变量获取备份配置"""
     return {
-        'enabled': os.getenv('BACKUP_ENABLED', 'true').lower() == 'true',
-        'backup_time': os.getenv('BACKUP_TIME', '15:05'),
-        'backup_method': os.getenv('BACKUP_METHOD', 'local'),
-        'backup_format': os.getenv('BACKUP_FORMAT', 'json'),
-        'compress': os.getenv('BACKUP_COMPRESS', 'true').lower() == 'true',
-        'keep_days': int(os.getenv('BACKUP_KEEP_DAYS', '30')),
-        'local_backup_dir': os.getenv('BACKUP_LOCAL_DIR', './backups'),
+        "enabled": os.getenv("BACKUP_ENABLED", "true").lower() == "true",
+        "backup_time": os.getenv("BACKUP_TIME", "15:05"),
+        "backup_method": os.getenv("BACKUP_METHOD", "local"),
+        "backup_format": os.getenv("BACKUP_FORMAT", "json"),
+        "compress": os.getenv("BACKUP_COMPRESS", "true").lower() == "true",
+        "keep_days": int(os.getenv("BACKUP_KEEP_DAYS", "30")),
+        "local_backup_dir": os.getenv("BACKUP_LOCAL_DIR", "./backups"),
         # SCP配置
-        'scp_host': os.getenv('SCP_HOST', ''),
-        'scp_port': int(os.getenv('SCP_PORT', '22')),
-        'scp_username': os.getenv('SCP_USERNAME', ''),
-        'scp_password': os.getenv('SCP_PASSWORD', ''),
-        'scp_key_file': os.getenv('SCP_KEY_FILE', ''),
-        'scp_remote_dir': os.getenv('SCP_REMOTE_DIR', '/data/trading_backups'),
+        "scp_host": os.getenv("SCP_HOST", ""),
+        "scp_port": int(os.getenv("SCP_PORT", "22")),
+        "scp_username": os.getenv("SCP_USERNAME", ""),
+        "scp_password": os.getenv("SCP_PASSWORD", ""),
+        "scp_key_file": os.getenv("SCP_KEY_FILE", ""),
+        "scp_remote_dir": os.getenv("SCP_REMOTE_DIR", "/data/trading_backups"),
     }
 
 
@@ -68,14 +73,14 @@ class DatabaseBackupService:
 
     def start_scheduler(self):
         """启动定时备份调度器"""
-        if not self.config['enabled']:
+        if not self.config["enabled"]:
             logger.info("数据备份功能已禁用")
             return
 
         logger.info(f"启动备份调度器，备份时间: {self.config['backup_time']}")
 
         # 设置定时任务
-        self.scheduler.every().day.at(self.config['backup_time']).do(self._daily_backup_job)
+        self.scheduler.every().day.at(self.config["backup_time"]).do(self._daily_backup_job)
 
         self.is_running = True
         self.scheduler_thread = threading.Thread(target=self._run_scheduler)
@@ -111,9 +116,9 @@ class DatabaseBackupService:
 
             # 根据配置选择备份方式
             success = False
-            if self.config['backup_method'] == "local":
+            if self.config["backup_method"] == "local":
                 success = self._backup_to_local(backup_file)
-            elif self.config['backup_method'] == "scp":
+            elif self.config["backup_method"] == "scp":
                 success = self._backup_via_scp(backup_file)
 
             if success:
@@ -122,7 +127,7 @@ class DatabaseBackupService:
                 logger.error("每日数据备份失败")
 
             # 清理临时文件
-            if os.path.exists(backup_file) and self.config['backup_method'] != "local":
+            if os.path.exists(backup_file) and self.config["backup_method"] != "local":
                 os.remove(backup_file)
 
         except Exception as e:
@@ -146,7 +151,7 @@ class DatabaseBackupService:
                 "backup_time": datetime.now().isoformat(),
                 "trading_signals": [],
                 "order_records": [],
-                "service_logs": []
+                "service_logs": [],
             }
 
             # 获取今日交易信号
@@ -186,9 +191,11 @@ class DatabaseBackupService:
                 + len(data["order_records"])
                 + len(data["service_logs"])
             )
-            logger.info(f"获取今日数据: 信号{len(data['trading_signals'])}条, "
-                       f"订单{len(data['order_records'])}条, "
-                       f"日志{len(data['service_logs'])}条")
+            logger.info(
+                f"获取今日数据: 信号{len(data['trading_signals'])}条, "
+                f"订单{len(data['order_records'])}条, "
+                f"日志{len(data['service_logs'])}条"
+            )
 
             return data if total_records > 0 else {}
 
@@ -200,10 +207,10 @@ class DatabaseBackupService:
         """创建备份文件"""
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-        if self.config['backup_format'] == "json":
+        if self.config["backup_format"] == "json":
             filename = f"trading_backup_{timestamp}.json"
             content = json.dumps(data, indent=2, ensure_ascii=False, default=str)
-        elif self.config['backup_format'] == "sqlite":
+        elif self.config["backup_format"] == "sqlite":
             filename = f"trading_backup_{timestamp}.db"
             return self._create_sqlite_backup(data, filename)
         else:
@@ -214,13 +221,13 @@ class DatabaseBackupService:
         temp_dir.mkdir(exist_ok=True)
         backup_file = temp_dir / filename
 
-        if self.config['compress'] and self.config['backup_format'] == "json":
+        if self.config["compress"] and self.config["backup_format"] == "json":
             # 压缩JSON文件
             backup_file = backup_file.with_suffix(".json.gz")
-            with gzip.open(backup_file, 'wt', encoding='utf-8') as f:
+            with gzip.open(backup_file, "wt", encoding="utf-8") as f:
                 f.write(content)
         else:
-            with open(backup_file, 'w', encoding='utf-8') as f:
+            with open(backup_file, "w", encoding="utf-8") as f:
                 f.write(content)
 
         logger.info(f"创建备份文件: {backup_file}")
@@ -237,7 +244,8 @@ class DatabaseBackupService:
         cursor = conn.cursor()
 
         # 创建表结构（简化版）
-        cursor.execute("""
+        cursor.execute(
+            """
             CREATE TABLE trading_signals (
                 id INTEGER PRIMARY KEY,
                 signal_id TEXT,
@@ -250,9 +258,11 @@ class DatabaseBackupService:
                 error_message TEXT,
                 created_at TEXT
             )
-        """)
+        """
+        )
 
-        cursor.execute("""
+        cursor.execute(
+            """
             CREATE TABLE order_records (
                 id INTEGER PRIMARY KEY,
                 signal_id TEXT,
@@ -270,7 +280,8 @@ class DatabaseBackupService:
                 created_at TEXT,
                 updated_at TEXT
             )
-        """)
+        """
+        )
 
         # 插入数据
         for signal in data.get("trading_signals", []):
@@ -284,16 +295,16 @@ class DatabaseBackupService:
                 tuple(
                     signal.get(k)
                     for k in [
-                        'id',
-                        'signal_id',
-                        'stock_code',
-                        'direction',
-                        'volume',
-                        'price',
-                        'signal_time',
-                        'processed',
-                        'error_message',
-                        'created_at',
+                        "id",
+                        "signal_id",
+                        "stock_code",
+                        "direction",
+                        "volume",
+                        "price",
+                        "signal_time",
+                        "processed",
+                        "error_message",
+                        "created_at",
                     ]
                 ),
             )
@@ -310,21 +321,21 @@ class DatabaseBackupService:
                 tuple(
                     order.get(k)
                     for k in [
-                        'id',
-                        'signal_id',
-                        'order_id',
-                        'stock_code',
-                        'direction',
-                        'volume',
-                        'price',
-                        'order_status',
-                        'order_time',
-                        'filled_price',
-                        'filled_volume',
-                        'filled_time',
-                        'error_message',
-                        'created_at',
-                        'updated_at',
+                        "id",
+                        "signal_id",
+                        "order_id",
+                        "stock_code",
+                        "direction",
+                        "volume",
+                        "price",
+                        "order_status",
+                        "order_time",
+                        "filled_price",
+                        "filled_volume",
+                        "filled_time",
+                        "error_message",
+                        "created_at",
+                        "updated_at",
                     ]
                 ),
             )
@@ -337,7 +348,7 @@ class DatabaseBackupService:
     def _backup_to_local(self, backup_file: str) -> bool:
         """本地备份"""
         try:
-            backup_dir = Path(self.config['local_backup_dir'])
+            backup_dir = Path(self.config["local_backup_dir"])
             backup_dir.mkdir(parents=True, exist_ok=True)
 
             target_file = backup_dir / Path(backup_file).name
@@ -366,8 +377,8 @@ class DatabaseBackupService:
 
             # 连接参数
             key_file = (
-                os.path.expanduser(self.config['scp_key_file'])
-                if self.config['scp_key_file']
+                os.path.expanduser(self.config["scp_key_file"])
+                if self.config["scp_key_file"]
                 else None
             )
 
@@ -381,9 +392,9 @@ class DatabaseBackupService:
                 try:
                     pkey = paramiko.RSAKey.from_private_key_file(key_file)
                     ssh.connect(
-                        hostname=self.config['scp_host'],
-                        port=self.config['scp_port'],
-                        username=self.config['scp_username'],
+                        hostname=self.config["scp_host"],
+                        port=self.config["scp_port"],
+                        username=self.config["scp_username"],
                         pkey=pkey,
                         timeout=30,
                     )
@@ -393,13 +404,13 @@ class DatabaseBackupService:
                 except Exception as key_error:
                     logger.error(f"加载私钥失败: {key_error}")
                     return False
-            elif self.config['scp_password']:
+            elif self.config["scp_password"]:
                 logger.info("使用密码认证")
                 ssh.connect(
-                    hostname=self.config['scp_host'],
-                    port=self.config['scp_port'],
-                    username=self.config['scp_username'],
-                    password=self.config['scp_password'],
+                    hostname=self.config["scp_host"],
+                    port=self.config["scp_port"],
+                    username=self.config["scp_username"],
+                    password=self.config["scp_password"],
                     timeout=30,
                 )
             else:
@@ -413,11 +424,11 @@ class DatabaseBackupService:
 
             # 确保远程目录存在
             try:
-                sftp.listdir(self.config['scp_remote_dir'])
+                sftp.listdir(self.config["scp_remote_dir"])
                 logger.info(f"远程目录已存在: {self.config['scp_remote_dir']}")
             except OSError:
                 try:
-                    sftp.mkdir(self.config['scp_remote_dir'])
+                    sftp.mkdir(self.config["scp_remote_dir"])
                     logger.info(f"创建远程目录: {self.config['scp_remote_dir']}")
                 except OSError as mkdir_error:
                     logger.error(f"创建远程目录失败: {mkdir_error}")
@@ -452,7 +463,7 @@ class DatabaseBackupService:
     def _cleanup_old_backups(self, backup_dir: Path):
         """清理过期的本地备份文件"""
         try:
-            cutoff_date = datetime.now() - timedelta(days=self.config['keep_days'])
+            cutoff_date = datetime.now() - timedelta(days=self.config["keep_days"])
 
             for file_path in backup_dir.glob("trading_backup_*"):
                 if file_path.is_file():
@@ -481,13 +492,13 @@ class DatabaseBackupService:
 
             # 根据配置选择备份方式
             success = False
-            if self.config['backup_method'] == "local":
+            if self.config["backup_method"] == "local":
                 success = self._backup_to_local(backup_file)
-            elif self.config['backup_method'] == "scp":
+            elif self.config["backup_method"] == "scp":
                 success = self._backup_via_scp(backup_file)
 
             # 清理临时文件
-            if os.path.exists(backup_file) and self.config['backup_method'] != "local":
+            if os.path.exists(backup_file) and self.config["backup_method"] != "local":
                 os.remove(backup_file)
 
             if success:

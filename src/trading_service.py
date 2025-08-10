@@ -1,25 +1,27 @@
-import time
-import threading
-from typing import Dict, Any
-from datetime import datetime
-from sqlalchemy.orm import Session
 import sys
+import threading
+import time
+from datetime import datetime
+from typing import Any, Dict
+
+from schedule import Scheduler
+from sqlalchemy.orm import Session
+
+from src.backup_service import DatabaseBackupService
+from src.config import settings
+from src.connection_manager import ConnectionManager, MultiConnectionManager
+from src.daily_pnl_calculator import calculate_daily_summary
+from src.database import OrderRecord, SessionLocal, TradingSignal, create_tables
 
 # 使用统一的日志配置
 from src.logger_config import configured_logger as logger
-
-from src.redis_listener import RedisSignalListener
-from src.trader import QMTTrader
 from src.notifications import FeishuNotifier
-from src.database import create_tables, SessionLocal, TradingSignal, OrderRecord
-from src.config import settings
-from src.backup_service import DatabaseBackupService
-from src.trading_calendar_manager import trading_calendar_manager, initialize_trading_calendar
-from src.qmt_constants import OrderStatus, is_filled_status, is_finished_status, get_status_name
+from src.qmt_constants import OrderStatus, get_status_name, is_filled_status, is_finished_status
+from src.redis_listener import RedisSignalListener
 from src.stock_info import get_stock_display_name
-from src.daily_pnl_calculator import calculate_daily_summary
-from src.connection_manager import ConnectionManager, MultiConnectionManager
-from schedule import Scheduler
+from src.trader import QMTTrader
+from src.trading_calendar_manager import initialize_trading_calendar, trading_calendar_manager
+
 
 class TradingService:
     def __init__(self):
@@ -31,13 +33,13 @@ class TradingService:
 
         # 初始化备份服务
         self.backup_service = DatabaseBackupService()
-        
+
         # 初始化盈亏汇总调度器
         self.pnl_scheduler = Scheduler()
 
         # 初始化数据库
         create_tables()
-        
+
         # 初始化连接管理器
         self.connection_manager = None
         if settings.auto_reconnect_enabled:
@@ -58,7 +60,7 @@ class TradingService:
         else:
             # 传统方式启动连接
             logger.info("使用传统方式启动连接...")
-            
+
             # 连接QMT
             if not self.trader.connect():
                 logger.error("无法连接QMT，服务启动失败")
@@ -83,7 +85,7 @@ class TradingService:
 
         # 启动备份调度器
         self.backup_service.start_scheduler()
-        
+
         # 启动盈亏汇总调度器
         self._setup_pnl_summary_scheduler()
 
@@ -107,39 +109,39 @@ class TradingService:
             self.stop()
 
         return True
-    
+
     def _setup_connection_managers(self):
         """设置连接管理器"""
         try:
             logger.info("设置自动重连管理器...")
-            
+
             self.connection_manager = MultiConnectionManager()
-            
+
             # Redis连接管理器
             redis_manager = ConnectionManager(
                 name="Redis",
                 connect_func=self._connect_redis,
                 disconnect_func=self._disconnect_redis,
                 health_check_func=self._health_check_redis,
-                notifier=self.notifier
+                notifier=self.notifier,
             )
             self.connection_manager.add_connection("Redis", redis_manager)
-            
+
             # QMT连接管理器
             qmt_manager = ConnectionManager(
                 name="QMT",
                 connect_func=self._connect_qmt,
                 disconnect_func=self._disconnect_qmt,
                 health_check_func=self._health_check_qmt,
-                notifier=self.notifier
+                notifier=self.notifier,
             )
             self.connection_manager.add_connection("QMT", qmt_manager)
-            
+
             logger.info("连接管理器设置完成")
-            
+
         except Exception as e:
             logger.error(f"设置连接管理器失败: {e}")
-    
+
     def _connect_redis(self) -> bool:
         """连接Redis"""
         try:
@@ -149,7 +151,7 @@ class TradingService:
         except Exception as e:
             logger.error(f"Redis连接失败: {e}")
             return False
-    
+
     def _disconnect_redis(self):
         """断开Redis连接"""
         try:
@@ -157,7 +159,7 @@ class TradingService:
                 self.redis_listener.disconnect()
         except Exception as e:
             logger.error(f"断开Redis连接失败: {e}")
-    
+
     def _health_check_redis(self) -> bool:
         """Redis健康检查"""
         try:
@@ -167,7 +169,7 @@ class TradingService:
         except Exception as e:
             logger.debug(f"Redis健康检查失败: {e}")
             return False
-    
+
     def _connect_qmt(self) -> bool:
         """连接QMT"""
         try:
@@ -175,14 +177,14 @@ class TradingService:
         except Exception as e:
             logger.error(f"QMT连接失败: {e}")
             return False
-    
+
     def _disconnect_qmt(self):
         """断开QMT连接"""
         try:
             self.trader.disconnect()
         except Exception as e:
             logger.error(f"断开QMT连接失败: {e}")
-    
+
     def _health_check_qmt(self) -> bool:
         """QMT健康检查"""
         try:
@@ -216,9 +218,9 @@ class TradingService:
         # 停止备份调度器
         if self.backup_service:
             self.backup_service.stop_scheduler()
-        
+
         # 停止盈亏汇总调度器
-        if hasattr(self, 'pnl_scheduler'):
+        if hasattr(self, "pnl_scheduler"):
             # 调度器没有显式的停止方法，但服务停止后线程会自然结束
             pass
 
@@ -232,29 +234,29 @@ class TradingService:
             logger.info(f"开始处理交易信号: {signal_data}")
 
             # 验证信号数据 - 使用A股市场常用术语
-            required_fields = ['signal_id', 'stock_code', 'direction', 'volume']
+            required_fields = ["signal_id", "stock_code", "direction", "volume"]
 
             # 字段名映射：兼容多种输入格式，统一转换为A股常用术语
             field_mappings = {
                 # 信号ID字段
-                'order_signal_id': 'signal_id',
-                'id': 'signal_id',
+                "order_signal_id": "signal_id",
+                "id": "signal_id",
                 # 证券代码字段
-                'symbol': 'stock_code',
-                'code': 'stock_code',
-                'instrument': 'stock_code',
+                "symbol": "stock_code",
+                "code": "stock_code",
+                "instrument": "stock_code",
                 # 买卖方向字段
-                'side': 'direction',
-                'action': 'direction',
-                'order_side': 'direction',
+                "side": "direction",
+                "action": "direction",
+                "order_side": "direction",
                 # 数量字段
-                'quantity': 'volume',
-                'qty': 'volume',
-                'size': 'volume',
-                'amount': 'volume',
+                "quantity": "volume",
+                "qty": "volume",
+                "size": "volume",
+                "amount": "volume",
                 # 价格字段
-                'order_price': 'price',
-                'limit_price': 'price',
+                "order_price": "price",
+                "limit_price": "price",
             }
 
             # 转换字段名到A股常用术语
@@ -275,9 +277,11 @@ class TradingService:
             db = SessionLocal()
             try:
                 # 检查信号是否已处理
-                existing_signal = db.query(TradingSignal).filter(
-                    TradingSignal.signal_id == signal_data['signal_id']
-                ).first()
+                existing_signal = (
+                    db.query(TradingSignal)
+                    .filter(TradingSignal.signal_id == signal_data["signal_id"])
+                    .first()
+                )
 
                 if existing_signal:
                     logger.warning(f"信号已存在，跳过处理: {signal_data['signal_id']}")
@@ -285,12 +289,12 @@ class TradingService:
 
                 # 保存新信号
                 trading_signal = TradingSignal(
-                    signal_id=signal_data['signal_id'],
-                    stock_code=signal_data['stock_code'],
-                    direction=signal_data['direction'],
-                    volume=signal_data['volume'],
-                    price=signal_data.get('price'),
-                    signal_time=datetime.utcnow()
+                    signal_id=signal_data["signal_id"],
+                    stock_code=signal_data["stock_code"],
+                    direction=signal_data["direction"],
+                    volume=signal_data["volume"],
+                    price=signal_data.get("price"),
+                    signal_time=datetime.utcnow(),
                 )
                 db.add(trading_signal)
                 db.commit()
@@ -306,7 +310,9 @@ class TradingService:
 
         except Exception as e:
             logger.error(f"处理交易信号时发生错误: {e}")
-            self.notifier.notify_error(str(e), f"处理信号: {signal_data.get('signal_id', 'Unknown')}")
+            self.notifier.notify_error(
+                str(e), f"处理信号: {signal_data.get('signal_id', 'Unknown')}"
+            )
 
     def _execute_trade(self, signal_data: Dict[str, Any], db: Session):
         """执行交易（使用超时保护的同步下单）"""
@@ -318,13 +324,13 @@ class TradingService:
             if order_id:
                 # 保存订单记录
                 order_record = OrderRecord(
-                    signal_id=signal_data['signal_id'],
+                    signal_id=signal_data["signal_id"],
                     order_id=order_id,
-                    stock_code=signal_data['stock_code'],
-                    direction=signal_data['direction'],
-                    volume=signal_data['volume'],
-                    price=signal_data.get('price'),
-                    order_status="PENDING"
+                    stock_code=signal_data["stock_code"],
+                    direction=signal_data["direction"],
+                    volume=signal_data["volume"],
+                    price=signal_data.get("price"),
+                    order_status="PENDING",
                 )
                 db.add(order_record)
                 db.commit()
@@ -336,14 +342,14 @@ class TradingService:
                 logger.error("下单失败")
                 # 保存失败记录
                 order_record = OrderRecord(
-                    signal_id=signal_data['signal_id'],
+                    signal_id=signal_data["signal_id"],
                     order_id=f"FAILED_{int(time.time())}",
-                    stock_code=signal_data['stock_code'],
-                    direction=signal_data['direction'],
-                    volume=signal_data['volume'],
-                    price=signal_data.get('price'),
+                    stock_code=signal_data["stock_code"],
+                    direction=signal_data["direction"],
+                    volume=signal_data["volume"],
+                    price=signal_data.get("price"),
                     order_status="FAILED",
-                    error_message="委托失败"
+                    error_message="委托失败",
                 )
                 db.add(order_record)
                 db.commit()
@@ -352,20 +358,22 @@ class TradingService:
 
         except Exception as e:
             logger.error(f"执行交易时发生错误: {e}")
-            self.notifier.notify_error(str(e), f"执行交易: {signal_data.get('signal_id', 'Unknown')}")
+            self.notifier.notify_error(
+                str(e), f"执行交易: {signal_data.get('signal_id', 'Unknown')}"
+            )
 
     def _execute_trade_async(self, signal_data: Dict[str, Any], trading_signal):
         """执行异步交易（立即返回，不阻塞）"""
-        signal_id = signal_data['signal_id']
+        signal_id = signal_data["signal_id"]
 
         def trade_callback(order_id, error):
             """异步交易回调函数"""
             db = SessionLocal()
             try:
                 # 重新获取信号记录（因为可能在不同的线程中）
-                signal_record = db.query(TradingSignal).filter(
-                    TradingSignal.signal_id == signal_id
-                ).first()
+                signal_record = (
+                    db.query(TradingSignal).filter(TradingSignal.signal_id == signal_id).first()
+                )
 
                 if not signal_record:
                     logger.error(f"找不到信号记录: {signal_id}")
@@ -373,27 +381,29 @@ class TradingService:
 
                 if order_id and not error:
                     # 检查是否是序列号，如果是序列号说明还在等待真实order_id
-                    if str(order_id).startswith('seq_'):
-                        logger.info(f"异步下单已提交，序列号: {order_id}, 信号ID: {signal_id}, 等待真实委托编号...")
+                    if str(order_id).startswith("seq_"):
+                        logger.info(
+                            f"异步下单已提交，序列号: {order_id}, 信号ID: {signal_id}, 等待真实委托编号..."
+                        )
                         return  # 不保存到数据库，等待真实order_id回调
 
                     logger.info(f"异步下单成功，订单ID: {order_id}, 信号ID: {signal_id}")
 
                     # 检查订单记录是否已存在，避免重复插入
-                    existing_record = db.query(OrderRecord).filter(
-                        OrderRecord.order_id == str(order_id)
-                    ).first()
+                    existing_record = (
+                        db.query(OrderRecord).filter(OrderRecord.order_id == str(order_id)).first()
+                    )
 
                     if not existing_record:
                         # 保存订单记录
                         order_record = OrderRecord(
                             signal_id=signal_id,
                             order_id=str(order_id),
-                            stock_code=signal_data['stock_code'],
-                            direction=signal_data['direction'],
-                            volume=signal_data['volume'],
-                            price=signal_data.get('price'),
-                            order_status="PENDING"
+                            stock_code=signal_data["stock_code"],
+                            direction=signal_data["direction"],
+                            volume=signal_data["volume"],
+                            price=signal_data.get("price"),
+                            order_status="PENDING",
                         )
                         db.add(order_record)
 
@@ -413,12 +423,12 @@ class TradingService:
                     order_record = OrderRecord(
                         signal_id=signal_id,
                         order_id=f"FAILED_{int(time.time())}_{signal_id}",  # 确保唯一性
-                        stock_code=signal_data['stock_code'],
-                        direction=signal_data['direction'],
-                        volume=signal_data['volume'],
-                        price=signal_data.get('price'),
+                        stock_code=signal_data["stock_code"],
+                        direction=signal_data["direction"],
+                        volume=signal_data["volume"],
+                        price=signal_data.get("price"),
                         order_status="FAILED",
-                        error_message=str(error) if error else "异步委托失败"
+                        error_message=str(error) if error else "异步委托失败",
                     )
                     db.add(order_record)
 
@@ -440,8 +450,10 @@ class TradingService:
                 db.close()
 
         try:
-            stock_code = signal_data.get('stock_code', 'Unknown')
-            stock_display = get_stock_display_name(stock_code) if stock_code != 'Unknown' else stock_code
+            stock_code = signal_data.get("stock_code", "Unknown")
+            stock_display = (
+                get_stock_display_name(stock_code) if stock_code != "Unknown" else stock_code
+            )
             logger.info(f"提交异步交易任务: {signal_id}, 股票: {stock_display}")
 
             # 立即提交异步下单任务，不等待结果
@@ -460,7 +472,9 @@ class TradingService:
                 db.close()
             except:
                 pass
-            self.notifier.notify_error(str(e), f"提交异步交易失败: {signal_data.get('signal_id', 'Unknown')}")
+            self.notifier.notify_error(
+                str(e), f"提交异步交易失败: {signal_data.get('signal_id', 'Unknown')}"
+            )
 
     def _setup_trading_calendar(self):
         """设置交易日历和自动更新"""
@@ -479,9 +493,12 @@ class TradingService:
                             # 检查是否已有下一年数据
                             db = SessionLocal()
                             from src.database import TradingCalendar
-                            count = db.query(TradingCalendar).filter(
-                                TradingCalendar.year == next_year
-                            ).count()
+
+                            count = (
+                                db.query(TradingCalendar)
+                                .filter(TradingCalendar.year == next_year)
+                                .count()
+                            )
                             db.close()
 
                             if count == 0:
@@ -529,9 +546,9 @@ class TradingService:
 
                         if order_status:
                             # 更新订单状态
-                            current_status = order_status.get('order_status', 'UNKNOWN')
+                            current_status = order_status.get("order_status", "UNKNOWN")
                             order.order_status = current_status
-                            filled_volume = order_status.get('filled_volume', 0)
+                            filled_volume = order_status.get("filled_volume", 0)
 
                             logger.debug(
                                 f"订单 {order.order_id} 状态: {current_status}, 成交数量: {filled_volume}"
@@ -540,13 +557,15 @@ class TradingService:
                             # 检查订单是否有成交
                             # 注意：只有当状态明确表示成交时，才处理成交数量
                             # 避免在非成交状态下错误处理成交数量
-                            logger.debug(f"状态检查: {current_status} 是否为成交状态: {is_filled_status(current_status)}")
-                            
+                            logger.debug(
+                                f"状态检查: {current_status} 是否为成交状态: {is_filled_status(current_status)}"
+                            )
+
                             # 严格检查：状态必须表示成交，且成交数量大于已记录数量
                             has_valid_fill = (
-                                is_filled_status(current_status) and 
-                                filled_volume > 0 and 
-                                filled_volume > (order.filled_volume or 0)
+                                is_filled_status(current_status)
+                                and filled_volume > 0
+                                and filled_volume > (order.filled_volume or 0)
                             )
 
                             if has_valid_fill:
@@ -555,21 +574,21 @@ class TradingService:
                                 )
 
                                 order.filled_volume = filled_volume
-                                order.filled_price = order_status.get('avg_price', 0)
+                                order.filled_price = order_status.get("avg_price", 0)
                                 order.filled_time = datetime.utcnow()
 
                                 # 如果完全成交且还没发送过成交通知，则发送通知
                                 if order.filled_volume >= order.volume and not getattr(
-                                    order, 'fill_notified', False
+                                    order, "fill_notified", False
                                 ):
 
                                     logger.info(f"订单 {order.order_id} 完全成交，发送通知")
                                     self.notifier.notify_order_filled(
                                         {
-                                            'order_id': order.order_id,
-                                            'stock_code': order.stock_code,
-                                            'filled_qty': order.filled_volume,
-                                            'avg_price': order.filled_price,
+                                            "order_id": order.order_id,
+                                            "stock_code": order.stock_code,
+                                            "filled_qty": order.filled_volume,
+                                            "avg_price": order.filled_price,
                                         }
                                     )
                                     order.fill_notified = True
@@ -597,13 +616,13 @@ class TradingService:
                 time.sleep(30)
 
         logger.info("订单监控线程已停止")
-    
+
     def _setup_pnl_summary_scheduler(self):
         """设置盈亏汇总调度器"""
         try:
             # 设置每天下午3:10发送汇总通知
             self.pnl_scheduler.every().day.at("15:10").do(self._send_daily_pnl_summary)
-            
+
             # 启动调度器线程
             def run_pnl_scheduler():
                 logger.info("盈亏汇总调度器已启动，每天15:10发送汇总通知")
@@ -615,24 +634,24 @@ class TradingService:
                         logger.error(f"盈亏汇总调度器运行异常: {e}")
                         time.sleep(60)
                 logger.info("盈亏汇总调度器已停止")
-            
+
             pnl_scheduler_thread = threading.Thread(target=run_pnl_scheduler)
             pnl_scheduler_thread.daemon = True
             pnl_scheduler_thread.start()
-            
+
             logger.info("盈亏汇总调度器设置完成：每天15:10发送当日交易汇总")
-            
+
         except Exception as e:
             logger.error(f"设置盈亏汇总调度器失败: {e}")
-    
+
     def _send_daily_pnl_summary(self):
         """发送当日盈亏汇总通知"""
         try:
             logger.info("开始生成当日盈亏汇总...")
-            
+
             # 计算当日交易汇总
             pnl_data = calculate_daily_summary()
-            
+
             if pnl_data:
                 # 发送汇总通知
                 success = self.notifier.notify_daily_pnl_summary(pnl_data)
@@ -642,7 +661,7 @@ class TradingService:
                     logger.error("当日盈亏汇总通知发送失败")
             else:
                 logger.warning("无法生成当日盈亏汇总数据")
-                
+
         except Exception as e:
             logger.error(f"发送当日盈亏汇总时发生错误: {e}")
             # 发送错误通知

@@ -17,4 +17,48 @@ dependencies = [
     "schedule>=1.2.0",
     "paramiko>=4.0.0",
     "akshare",
+    "pre-commit>=4.3.0",
 ]
+
+[dependency-groups]
+dev = [
+    "black>=25.1.0",
+    "isort>=6.0.1",
+    "pre-commit>=4.3.0",
+]
+
+[tool.black]
+line-length = 100
+target-version = ['py39', 'py310', 'py311', 'py312']
+include = '\.pyi?$'
+extend-exclude = '''
+# A regex preceded by ^/ will apply only to files and directories
+# in the root of the project.
+(
+  ^/migrations/  # exclude a directory in the root of the project (if any)
+  | __pycache__
+  | .git
+  | .venv
+  | venv
+  | env
+  | .env
+  | dist
+  | build
+  | logs
+  | backups
+)
+'''
+
+[tool.isort]
+profile = "black"
+line_length = 100
+multi_line_output = 3
+include_trailing_comma = true
+force_grid_wrap = 0
+use_parentheses = true
+ensure_newline_before_comments = true
+src_paths = ["src", "tests", "."]
+known_first_party = ["src"]
+known_local_folder = ["src"]
+sections = ["FUTURE", "STDLIB", "THIRDPARTY", "FIRSTPARTY", "LOCALFOLDER"]
+skip_glob = ["__pycache__", ".git", ".venv", "venv", "env", ".env", "dist", "build", "logs", "backups"]

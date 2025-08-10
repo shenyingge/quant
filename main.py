@@ -1,27 +1,27 @@
-
+import codecs
+import locale
 import os
 import sys
-import locale
-import codecs
 
 # 设置编码环境
-if sys.platform.startswith('win'):
+if sys.platform.startswith("win"):
     # Windows系统编码设置
-    os.environ['PYTHONIOENCODING'] = 'utf-8'
+    os.environ["PYTHONIOENCODING"] = "utf-8"
     # 设置控制台输出编码
-    if hasattr(sys.stdout, 'reconfigure'):
-        sys.stdout.reconfigure(encoding='utf-8')
-    if hasattr(sys.stderr, 'reconfigure'):
-        sys.stderr.reconfigure(encoding='utf-8')
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8")
 else:
     # 非Windows系统
-    locale.setlocale(locale.LC_ALL, 'zh_CN.UTF-8')
+    locale.setlocale(locale.LC_ALL, "zh_CN.UTF-8")
 
-from src.trading_service import TradingService
-from src.redis_listener import RedisSignalListener
 from src.config import settings
 from src.logger_config import configured_logger as logger
+from src.redis_listener import RedisSignalListener
 from src.trading_day_checker import is_trading_day
+from src.trading_service import TradingService
+
 
 def main():
     """主程序入口"""
@@ -30,21 +30,21 @@ def main():
 
     if len(sys.argv) > 1:
         command = sys.argv[1].lower()
-        
+
         # 解析重试参数
         max_retries = 3
         retry_delay = 60
-        
+
         # 查找重试参数
         for arg in sys.argv[2:]:
-            if arg.startswith('--max-retries='):
+            if arg.startswith("--max-retries="):
                 try:
-                    max_retries = int(arg.split('=')[1])
+                    max_retries = int(arg.split("=")[1])
                 except ValueError:
                     logger.warning(f"无效的重试次数参数: {arg}")
-            elif arg.startswith('--retry-delay='):
+            elif arg.startswith("--retry-delay="):
                 try:
-                    retry_delay = int(arg.split('=')[1])
+                    retry_delay = int(arg.split("=")[1])
                 except ValueError:
                     logger.warning(f"无效的重试延迟参数: {arg}")
 
@@ -70,19 +70,21 @@ def main():
         # 没有参数时显示使用说明
         print_usage()
 
+
 def run_service(test_mode: bool = False, max_retries: int = 3, retry_delay: int = 60):
     """直接运行服务，支持重试机制"""
     if test_mode:
         logger.info("启动交易服务（测试模式）...")
         # 临时启用测试模式
-        os.environ['TEST_MODE_ENABLED'] = 'true'
+        os.environ["TEST_MODE_ENABLED"] = "true"
         # 重新加载配置
         from src.config import Settings
+
         global settings
         settings = Settings()
     else:
         logger.info("启动交易服务（控制台模式）...")
-    
+
     # 检查是否为交易日
     if not is_trading_day():
         if test_mode:
@@ -92,19 +94,19 @@ def run_service(test_mode: bool = False, max_retries: int = 3, retry_delay: int 
             logger.info("如需强制运行，请使用: python main.py test-run")
             logger.info("或设置环境变量 TEST_MODE_ENABLED=true")
             return
-    
+
     retry_count = 0
     while retry_count <= max_retries:
         service = None
         try:
             if retry_count > 0:
                 logger.info(f"第 {retry_count}/{max_retries} 次重试启动服务...")
-            
+
             service = TradingService()
-            
+
             # 尝试启动服务
             start_success = service.start()
-            
+
             if start_success:
                 # 服务正常启动并运行完成
                 logger.info("服务正常退出")
@@ -112,18 +114,21 @@ def run_service(test_mode: bool = False, max_retries: int = 3, retry_delay: int 
             else:
                 # 启动失败
                 raise Exception("服务启动失败")
-            
+
         except KeyboardInterrupt:
             logger.info("收到停止信号，正在退出...")
             break
         except Exception as e:
             logger.error(f"服务运行错误: {e}")
             retry_count += 1
-            
+
             if retry_count <= max_retries:
-                logger.warning(f"服务将在 {retry_delay} 秒后进行第 {retry_count}/{max_retries} 次重试")
+                logger.warning(
+                    f"服务将在 {retry_delay} 秒后进行第 {retry_count}/{max_retries} 次重试"
+                )
                 try:
                     import time
+
                     time.sleep(retry_delay)
                 except KeyboardInterrupt:
                     logger.info("收到停止信号，取消重试")
@@ -133,8 +138,9 @@ def run_service(test_mode: bool = False, max_retries: int = 3, retry_delay: int 
         finally:
             if service:
                 service.stop()
-    
+
     logger.info("交易服务已退出")
+
 
 def test_system():
     """测试系统连接"""
@@ -146,7 +152,8 @@ def test_system():
 
     # 测试数据库
     try:
-        from src.database import create_tables, SessionLocal
+        from src.database import SessionLocal, create_tables
+
         create_tables()
         db = SessionLocal()
         db.close()
@@ -159,6 +166,7 @@ def test_system():
     # 测试QMT连接
     try:
         from src.trader import QMTTrader
+
         trader = QMTTrader()
         qmt_ok = trader.connect()
         if qmt_ok:
@@ -176,13 +184,13 @@ def test_system():
         logger.info("\n所有系统组件正常，可以启动服务")
 
         # 发布测试信号
-        if input("\n是否发布测试交易信号？(y/N): ").lower() == 'y':
+        if input("\n是否发布测试交易信号？(y/N): ").lower() == "y":
             test_signal = {
                 "signal_id": f"TEST_{int(__import__('time').time())}",
                 "stock_code": "000001",
                 "direction": "BUY",
                 "volume": 100,
-                "price": 10.0
+                "price": 10.0,
             }
             listener.publish_test_signal(test_signal)
             logger.info(f"测试信号已发布: {test_signal}")
@@ -195,47 +203,49 @@ def manual_backup():
     logger.info("正在执行手动数据备份...")
     try:
         from src.backup_service import DatabaseBackupService
-        
+
         backup_service = DatabaseBackupService()
-        
+
         success = backup_service.manual_backup()
         if success:
             logger.info("√ 数据备份完成")
         else:
             logger.error("× 数据备份失败")
-            
+
     except Exception as e:
         logger.error(f"× 备份失败: {e}")
+
 
 def show_backup_config():
     """显示备份配置"""
     try:
         from src.backup_service import get_backup_config
-        
+
         config = get_backup_config()
         logger.info("当前备份配置:")
         logger.info("=" * 50)
-        
+
         for key, value in config.items():
-            if 'password' in key.lower() or 'token' in key.lower():
+            if "password" in key.lower() or "token" in key.lower():
                 # 隐藏敏感信息
                 value = "***" if value else ""
             logger.info(f"{key:20}: {value}")
-            
+
         logger.info("\n配置位置: .env 文件")
         logger.info("修改配置后需要重启服务生效")
-        
+
     except Exception as e:
         logger.error(f"× 读取备份配置失败: {e}")
+
 
 def manage_stock_info():
     """管理股票信息"""
     try:
         from src.stock_info import stock_info_cache
-        
+
         logger.info("股票信息管理:")
         logger.info("=" * 50)
-        
+
         # 显示缓存状态
         stats = stock_info_cache.get_cache_stats()
         logger.info(f"缓存统计:")
@@ -243,7 +253,7 @@ def manage_stock_info():
         logger.info(f"  有效缓存(24h内): {stats['valid_cached']}")
         logger.info(f"  过期缓存: {stats['expired_cached']}")
         logger.info(f"  缓存超时: {stats['cache_timeout_hours']}小时")
-        
+
         # 检查是否需要进行批量更新
         if len(sys.argv) > 2:
             action = sys.argv[2].lower()
@@ -260,97 +270,115 @@ def manage_stock_info():
             elif action == "test":
                 # 测试股票名称查询
                 logger.info("\n测试股票名称查询:")
-                test_codes = ['000001.SZ', '600519.SH', '000977.SZ', '605069.SH', '001231.SZ', '999999.SZ']
+                test_codes = [
+                    "000001.SZ",
+                    "600519.SH",
+                    "000977.SZ",
+                    "605069.SH",
+                    "001231.SZ",
+                    "999999.SZ",
+                ]
                 for code in test_codes:
                     name = stock_info_cache.get_stock_display_name(code)
                     logger.info(f"  {code} -> {name}")
                 return
-        
+
         # 默认显示帮助信息
         logger.info("\n可用操作:")
         logger.info("  python main.py stock-info update  - 批量更新所有股票信息")
         logger.info("  python main.py stock-info clear   - 清空股票信息缓存")
         logger.info("  python main.py stock-info test    - 测试股票名称查询")
         logger.info("  python main.py stock-info         - 显示缓存状态")
-            
+
     except Exception as e:
         logger.error(f"× 管理股票信息失败: {e}")
+
 
 def manage_trading_calendar():
     """管理交易日历"""
     try:
-        from src.trading_calendar_manager import trading_calendar_manager, initialize_trading_calendar
         from datetime import date
-        
+
+        from src.trading_calendar_manager import (
+            initialize_trading_calendar,
+            trading_calendar_manager,
+        )
+
         logger.info("交易日历管理:")
         logger.info("=" * 50)
-        
+
         # 初始化当前年份的交易日历
         current_year = date.today().year
         logger.info(f"正在初始化{current_year}年交易日历...")
         initialize_trading_calendar()
-        
+
         # 检查今天是否为交易日
         today = date.today()
         is_trading = trading_calendar_manager.is_trading_day(today)
-        
-        logger.info(f"\n今日({today.strftime('%Y-%m-%d')})：{'交易日' if is_trading else '非交易日'}")
-        
+
+        logger.info(
+            f"\n今日({today.strftime('%Y-%m-%d')})：{'交易日' if is_trading else '非交易日'}"
+        )
+
         # 显示下一个交易日
         next_trading = trading_calendar_manager.get_next_trading_day(today)
         if next_trading:
             logger.info(f"下一个交易日：{next_trading.strftime('%Y-%m-%d')}")
-        
+
         # 显示上一个交易日
         prev_trading = trading_calendar_manager.get_previous_trading_day(today)
         if prev_trading:
             logger.info(f"上一个交易日：{prev_trading.strftime('%Y-%m-%d')}")
-        
+
         # 询问是否更新下一年
-        if input(f"\n是否更新{current_year + 1}年交易日历？(y/N): ").lower() == 'y':
-            success = trading_calendar_manager.update_calendar_for_year(current_year + 1, force=True)
+        if input(f"\n是否更新{current_year + 1}年交易日历？(y/N): ").lower() == "y":
+            success = trading_calendar_manager.update_calendar_for_year(
+                current_year + 1, force=True
+            )
             if success:
                 logger.info(f"✓ {current_year + 1}年交易日历更新成功")
             else:
                 logger.error(f"✗ {current_year + 1}年交易日历更新失败")
-                
+
     except Exception as e:
         logger.error(f"管理交易日历失败: {e}")
+
 
 def send_pnl_summary():
     """手动发送当日盈亏汇总通知"""
     logger.info("手动发送当日盈亏汇总通知")
     logger.info("=" * 50)
-    
+
     try:
         from src.daily_pnl_calculator import calculate_daily_summary
         from src.notifications import FeishuNotifier
-        
+
         # 计算当日交易汇总
         logger.info("正在计算当日盈亏汇总...")
         pnl_data = calculate_daily_summary()
-        
+
         if not pnl_data:
             logger.error("无法生成盈亏汇总数据")
             return
-            
+
         logger.info(f"✓ 成功生成 {pnl_data['date_display']} 的交易汇总")
         logger.info(f"  总成交订单：{pnl_data['summary']['total_orders']}笔")
         logger.info(f"  总成交金额：¥{pnl_data['summary']['total_amount']:,.2f}")
-        
+
         # 创建通知器并发送
         notifier = FeishuNotifier()
-        
+
         logger.info("\n正在发送飞书通知...")
         success = notifier.notify_daily_pnl_summary(pnl_data)
-        
+
         if success:
             logger.info("✓ 盈亏汇总通知发送成功！")
         else:
             logger.error("× 盈亏汇总通知发送失败")
-            
+
     except Exception as e:
         logger.error(f"发送盈亏汇总通知失败: {e}")
+
 
 def print_usage():
     """打印使用说明"""
@@ -371,6 +399,7 @@ def print_usage():
     logger.info("示例:")
     logger.info("  python main.py run --max-retries=5 --retry-delay=30")
     logger.info("  python main.py test-run --max-retries=2")
+
 
 if __name__ == "__main__":
     main()
