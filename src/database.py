@@ -66,6 +66,19 @@ class TradingCalendar(Base):
         Index('idx_year_market', 'year', 'market'),
     )
 
+class StockInfo(Base):
+    """股票信息表，缓存股票基本信息"""
+    __tablename__ = "stock_info"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    stock_code = Column(String(20), unique=True, nullable=False, index=True)  # 股票代码（含市场后缀，如000001.SZ）
+    stock_name = Column(String(100), nullable=False)  # 股票名称
+    market = Column(String(10), nullable=True)  # 市场：SZ(深圳), SH(上海)
+    industry = Column(String(100), nullable=True)  # 行业
+    list_date = Column(Date, nullable=True)  # 上市日期
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
 engine = create_engine(settings.db_url)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 

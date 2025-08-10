@@ -46,6 +46,9 @@ uv run python main.py stock-info
 # Manage trading calendar
 uv run python main.py calendar
 
+# Send daily P&L summary notification
+uv run python main.py pnl-summary
+
 # Database migration (run after updates)
 uv run python migrate_db.py
 ```
@@ -78,6 +81,8 @@ uv run python tests/run_tests.py --pytest
 6. **src/notifications.py**: Feishu (飞书) webhook notifications for trading events
 7. **src/backup_service.py**: Automated daily backup of trading data
 8. **src/config.py**: Pydantic settings management from environment variables
+9. **src/daily_pnl_calculator.py**: Daily profit/loss calculation and summary generation
+10. **src/stock_info.py**: Stock information cache and name display management
 
 ### Signal Processing Flow
 
@@ -88,6 +93,7 @@ uv run python tests/run_tests.py --pytest
 5. Order status monitored with callbacks
 6. Notifications sent to Feishu for key events
 7. Database updated with order results
+8. Daily P&L summary calculated and sent at 15:10 automatically
 
 ### Trading Signal Format
 ```json
@@ -132,3 +138,8 @@ The system can run as a Windows scheduled task using scripts in the `scripts/` d
    - Order statuses, operation types, and price types use standard QMT constants
    - See src/qmt_constants.py for mappings and utility functions
    - Avoids hardcoded Chinese strings like "已成交", "已撤销" etc.
+8. **Daily P&L Summary**: Automated daily trading summary sent to Feishu at 15:10
+   - Includes trading overview, time distribution, stock breakdown, and P&L estimates
+   - Manual trigger available with `python main.py pnl-summary`
+   - Stock names automatically resolved and displayed alongside codes
+   - Simple P&L estimation based on matched buy/sell orders

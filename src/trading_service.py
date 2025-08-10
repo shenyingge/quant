@@ -17,6 +17,8 @@ from src.backup_service import DatabaseBackupService
 from src.trading_calendar_manager import trading_calendar_manager, initialize_trading_calendar
 from src.qmt_constants import OrderStatus, is_filled_status, is_finished_status, get_status_name
 from src.stock_info import get_stock_display_name
+from src.daily_pnl_calculator import calculate_daily_summary
+from schedule import Scheduler
 
 class TradingService:
     def __init__(self):
@@ -28,6 +30,9 @@ class TradingService:
 
         # 初始化备份服务
         self.backup_service = DatabaseBackupService()
+        
+        # 初始化盈亏汇总调度器
+        self.pnl_scheduler = Scheduler()
 
         # 初始化数据库
         create_tables()
@@ -63,6 +68,9 @@ class TradingService:
 
         # 启动备份调度器
         self.backup_service.start_scheduler()
+        
+        # 启动盈亏汇总调度器
+        self._setup_pnl_summary_scheduler()
 
         # 初始化交易日历并设置自动更新
         self._setup_trading_calendar()
@@ -102,6 +110,11 @@ class TradingService:
         # 停止备份调度器
         if self.backup_service:
             self.backup_service.stop_scheduler()
+        
+        # 停止盈亏汇总调度器
+        if hasattr(self, 'pnl_scheduler'):
+            # 调度器没有显式的停止方法，但服务停止后线程会自然结束
+            pass
 
         # 发送服务停止通知
         self.notifier.notify_service_status("已停止", "交易服务已安全停止")
@@ -478,3 +491,56 @@ class TradingService:
                 time.sleep(30)
 
         logger.info("订单监控线程已停止")
+    
+    def _setup_pnl_summary_scheduler(self):
+        """设置盈亏汇总调度器"""
+        try:
+            # 设置每天下午3:10发送汇总通知
+            self.pnl_scheduler.every().day.at("15:10").do(self._send_daily_pnl_summary)
+            
+            # 启动调度器线程
+            def run_pnl_scheduler():
+                logger.info("盈亏汇总调度器已启动，每天15:10发送汇总通知")
+                while self.is_running:
+                    try:
+                        self.pnl_scheduler.run_pending()
+                        time.sleep(60)  # 每分钟检查一次
+                    except Exception as e:
+                        logger.error(f"盈亏汇总调度器运行异常: {e}")
+                        time.sleep(60)
+                logger.info("盈亏汇总调度器已停止")
+            
+            pnl_scheduler_thread = threading.Thread(target=run_pnl_scheduler)
+            pnl_scheduler_thread.daemon = True
+            pnl_scheduler_thread.start()
+            
+            logger.info("盈亏汇总调度器设置完成：每天15:10发送当日交易汇总")
+            
+        except Exception as e:
+            logger.error(f"设置盈亏汇总调度器失败: {e}")
+    
+    def _send_daily_pnl_summary(self):
+        """发送当日盈亏汇总通知"""
+        try:
+            logger.info("开始生成当日盈亏汇总...")
+            
+            # 计算当日交易汇总
+            pnl_data = calculate_daily_summary()
+            
+            if pnl_data:
+                # 发送汇总通知
+                success = self.notifier.notify_daily_pnl_summary(pnl_data)
+                if success:
+                    logger.info("当日盈亏汇总通知发送成功")
+                else:
+                    logger.error("当日盈亏汇总通知发送失败")
+            else:
+                logger.warning("无法生成当日盈亏汇总数据")
+                
+        except Exception as e:
+            logger.error(f"发送当日盈亏汇总时发生错误: {e}")
+            # 发送错误通知
+            try:
+                self.notifier.notify_error(f"生成当日盈亏汇总失败: {str(e)}", "定时任务")
+            except:
+                pass  # 避免通知发送失败导致的递归错误

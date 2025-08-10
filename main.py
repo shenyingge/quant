@@ -45,6 +45,8 @@ def main():
             manage_stock_info()
         elif command == "calendar":
             manage_trading_calendar()
+        elif command == "pnl-summary":
+            send_pnl_summary()
         else:
             print_usage()
     else:
@@ -191,24 +193,39 @@ def manage_stock_info():
         # 显示缓存状态
         stats = stock_info_cache.get_cache_stats()
         logger.info(f"缓存统计:")
-        logger.info(f"  总缓存数: {stats['total_cached']}")
-        logger.info(f"  有效缓存: {stats['valid_cached']}")
+        logger.info(f"  数据库总缓存: {stats['total_cached']}")
+        logger.info(f"  有效缓存(24h内): {stats['valid_cached']}")
         logger.info(f"  过期缓存: {stats['expired_cached']}")
-        logger.info(f"  预设数量: {stats['preset_count']}")
-        logger.info(f"  缓存超时: {stats['cache_timeout']}秒")
+        logger.info(f"  缓存超时: {stats['cache_timeout_hours']}小时")
         
-        logger.info("\n预设股票列表:")
-        preset_names = stock_info_cache._preset_names
-        for code, name in sorted(preset_names.items()):
-            display_name = stock_info_cache.get_stock_display_name(code)
-            logger.info(f"  {display_name}")
-            
-        # 测试股票名称查询
-        logger.info("\n测试股票名称查询:")
-        test_codes = ['000001', '600519', '300750', '999999']
-        for code in test_codes:
-            name = stock_info_cache.get_stock_display_name(code)
-            logger.info(f"  {code} -> {name}")
+        # 检查是否需要进行批量更新
+        if len(sys.argv) > 2:
+            action = sys.argv[2].lower()
+            if action == "update":
+                logger.info("\n开始批量更新股票信息...")
+                updated_count = stock_info_cache.bulk_update_stock_info()
+                logger.info(f"✓ 批量更新完成，共更新 {updated_count} 条股票信息")
+                return
+            elif action == "clear":
+                logger.info("\n清空股票信息缓存...")
+                stock_info_cache.clear_cache()
+                logger.info("✓ 股票信息缓存已清空")
+                return
+            elif action == "test":
+                # 测试股票名称查询
+                logger.info("\n测试股票名称查询:")
+                test_codes = ['000001.SZ', '600519.SH', '000977.SZ', '605069.SH', '001231.SZ', '999999.SZ']
+                for code in test_codes:
+                    name = stock_info_cache.get_stock_display_name(code)
+                    logger.info(f"  {code} -> {name}")
+                return
+        
+        # 默认显示帮助信息
+        logger.info("\n可用操作:")
+        logger.info("  python main.py stock-info update  - 批量更新所有股票信息")
+        logger.info("  python main.py stock-info clear   - 清空股票信息缓存")
+        logger.info("  python main.py stock-info test    - 测试股票名称查询")
+        logger.info("  python main.py stock-info         - 显示缓存状态")
             
     except Exception as e:
         logger.error(f"× 管理股票信息失败: {e}")
@@ -254,6 +271,41 @@ def manage_trading_calendar():
     except Exception as e:
         logger.error(f"管理交易日历失败: {e}")
 
+def send_pnl_summary():
+    """手动发送当日盈亏汇总通知"""
+    logger.info("手动发送当日盈亏汇总通知")
+    logger.info("=" * 50)
+    
+    try:
+        from src.daily_pnl_calculator import calculate_daily_summary
+        from src.notifications import FeishuNotifier
+        
+        # 计算当日交易汇总
+        logger.info("正在计算当日盈亏汇总...")
+        pnl_data = calculate_daily_summary()
+        
+        if not pnl_data:
+            logger.error("无法生成盈亏汇总数据")
+            return
+            
+        logger.info(f"✓ 成功生成 {pnl_data['date_display']} 的交易汇总")
+        logger.info(f"  总成交订单：{pnl_data['summary']['total_orders']}笔")
+        logger.info(f"  总成交金额：¥{pnl_data['summary']['total_amount']:,.2f}")
+        
+        # 创建通知器并发送
+        notifier = FeishuNotifier()
+        
+        logger.info("\n正在发送飞书通知...")
+        success = notifier.notify_daily_pnl_summary(pnl_data)
+        
+        if success:
+            logger.info("✓ 盈亏汇总通知发送成功！")
+        else:
+            logger.error("× 盈亏汇总通知发送失败")
+            
+    except Exception as e:
+        logger.error(f"发送盈亏汇总通知失败: {e}")
+
 def print_usage():
     """打印使用说明"""
     logger.info("使用方法:")
@@ -264,6 +316,7 @@ def print_usage():
     logger.info("  python main.py backup-config     - 显示备份配置")
     logger.info("  python main.py stock-info        - 管理股票信息缓存")
     logger.info("  python main.py calendar          - 管理交易日历")
+    logger.info("  python main.py pnl-summary       - 手动发送当日盈亏汇总通知")
 
 if __name__ == "__main__":
     main()
