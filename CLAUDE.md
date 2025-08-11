@@ -118,7 +118,7 @@ uv run python tests/run_tests.py --pytest
 - **Redis**: REDIS_HOST, REDIS_PORT, REDIS_SIGNAL_CHANNEL
 - **QMT**: QMT_SESSION_ID, QMT_PATH, QMT_ACCOUNT_ID
 - **Notifications**: FEISHU_WEBHOOK_URL, FEISHU_SECRET
-- **Trading**: ORDER_TIMEOUT_SECONDS, AUTO_CANCEL_ENABLED
+- **Trading**: ORDER_TIMEOUT_SECONDS, AUTO_CANCEL_ENABLED, ORDER_RETRY_ATTEMPTS, AUTO_CANCEL_TIMEOUT
 - **Backup**: BACKUP_ENABLED, BACKUP_TIME, BACKUP_DIR
 - **Auto Reconnect**: AUTO_RECONNECT_ENABLED, RECONNECT_MAX_ATTEMPTS, RECONNECT_INITIAL_DELAY, HEALTH_CHECK_INTERVAL
 
@@ -146,13 +146,20 @@ The system can run as a Windows scheduled task using scripts in the `scripts/` d
    - Calendar auto-updates in December for next year
 7. **QMT Constants**: Uses xtconstant enumeration values instead of hardcoded strings
    - Order statuses, operation types, and price types use standard QMT constants
+   - Account status mapping with proper Chinese descriptions
    - See src/qmt_constants.py for mappings and utility functions
    - Avoids hardcoded Chinese strings like "已成交", "已撤销" etc.
+   - Internal processing uses status codes, notifications use descriptions
 8. **Daily P&L Summary**: Automated daily trading summary sent to Feishu at 15:10
    - Includes trading overview, time distribution, stock breakdown, and P&L estimates
    - Manual trigger available with `python main.py pnl-summary`
    - Stock names automatically resolved and displayed alongside codes
    - Simple P&L estimation based on matched buy/sell orders
+9. **Order Retry & Timeout Management**: Advanced order execution with automatic retry and timeout controls
+   - Automatic retry up to 3 times for failed orders with configurable delay
+   - Timeout-based automatic order cancellation for pending orders
+   - Real-time monitoring and notification of retry attempts and timeout cancellations
+   - Comprehensive error tracking and status reporting
 
 ## Auto Reconnection Configuration
 
@@ -199,3 +206,98 @@ RECONNECT_MAX_ATTEMPTS=3          # Fewer attempts
 RECONNECT_INITIAL_DELAY=5         # Faster initial retry
 HEALTH_CHECK_INTERVAL=60          # Less frequent health checks
 ```
+
+## Order Retry & Timeout Configuration
+
+The system provides robust order execution with automatic retry and timeout management.
+
+### Configuration Variables (.env)
+
+```bash
+# Order Retry Settings
+ORDER_RETRY_ATTEMPTS=3             # Number of retry attempts for failed orders (default: 3)
+ORDER_RETRY_DELAY=2                # Delay between retries in seconds (default: 2)
+
+# Timeout Management
+AUTO_CANCEL_ENABLED=true           # Enable automatic order cancellation (default: true)
+AUTO_CANCEL_TIMEOUT=300            # Timeout for automatic order cancellation in seconds (default: 300)
+ORDER_TIMEOUT_SECONDS=60           # General order timeout (default: 60)
+ORDER_SUBMIT_TIMEOUT=10            # Order submission timeout (default: 10)
+```
+
+### Features
+
+1. **Automatic Retry**: Failed orders are automatically retried up to 3 times
+   - Configurable retry attempts and delay between attempts
+   - Exponential backoff can be implemented if needed
+   - Each retry attempt is logged and tracked
+
+2. **Timeout Management**: Orders that remain pending too long are automatically cancelled
+   - Background monitoring thread checks for timeout orders every 30 seconds
+   - Configurable timeout duration (default: 5 minutes)
+   - Automatic cancellation with notification alerts
+
+3. **Status Tracking**: Comprehensive tracking of order states and retry attempts
+   - Failed orders are marked with retry count and error details
+   - Timeout cancellations are clearly identified in order history
+   - Real-time notifications for retry attempts and timeout events
+
+4. **Error Recovery**: Intelligent error handling and recovery mechanisms
+   - Different retry strategies for different types of failures
+   - Graceful degradation when maximum retries are reached
+   - Detailed error logging for troubleshooting
+
+### Manual Control
+
+```bash
+# Disable retry mechanism
+ORDER_RETRY_ATTEMPTS=1             # No retries
+
+# Disable timeout cancellation
+AUTO_CANCEL_ENABLED=false
+
+# Adjust timeout aggressiveness
+AUTO_CANCEL_TIMEOUT=120            # 2 minutes timeout
+ORDER_RETRY_DELAY=5                # 5 seconds between retries
+```
+
+## QMT Status Code Mappings
+
+The system uses standardized status codes for consistent processing and user-friendly notifications.
+
+### Order Status Codes
+
+Standard QMT order status constants are mapped to Chinese descriptions:
+
+- `48` (ORDER_UNREPORTED): "未报"
+- `49` (ORDER_WAIT_REPORTING): "待报"
+- `50` (ORDER_REPORTED): "已报"
+- `56` (ORDER_SUCCEEDED): "已成交"
+- `54` (ORDER_CANCELED): "已撤销"
+- `55` (ORDER_PART_SUCC): "部分成交"
+- `53` (ORDER_PART_CANCEL): "部分撤销"
+- `57` (ORDER_JUNK): "废单"
+
+### Account Status Codes
+
+Account status constants with Chinese descriptions:
+
+- `-1`: "无效" (Invalid)
+- `0`: "正常" (Normal/OK)
+- `1`: "连接中" (Connecting/Waiting Login)
+- `2`: "登录中" (Logging in)
+- `3`: "失败" (Failed)
+- `4`: "初始化中" (Initializing)
+- `5`: "数据刷新校正中" (Data Correcting)
+- `6`: "收盘后" (Market Closed)
+- `7`: "穿透副链接断开" (Assistant Connection Failed)
+- `8`: "系统停用" (System Disabled)
+- `9`: "用户停用" (User Disabled)
+
+### Status Processing Strategy
+
+- **Internal Logic**: Uses numeric status codes for precise condition checking
+- **Database Storage**: Stores original status codes for data integrity
+- **Logging**: Displays format "status_code(description)" for debugging
+- **Notifications**: Shows user-friendly Chinese descriptions only
+- **Error Detection**: Automatic classification of normal vs error states

@@ -14,7 +14,14 @@ from xtquant.xttype import StockAccount
 from src.config import settings
 from src.database import OrderRecord, SessionLocal, TradingSignal, get_db
 from src.logger_config import configured_logger as logger
-from src.qmt_constants import OrderStatus, is_filled_status, is_finished_status
+from src.qmt_constants import (
+    AccountStatus,
+    OrderStatus,
+    get_account_status_name,
+    get_status_name,
+    is_filled_status,
+    is_finished_status,
+)
 from src.redis_client import redis_trade_client
 from src.stock_info import get_stock_display_name
 
@@ -73,13 +80,25 @@ class QMTCallback(XtQuantTraderCallback):
                     del self.trader._last_callback_data[key]
 
             stock_display = get_stock_display_name(stock_code) if stock_code else stock_code
+            # 日志记录使用状态码进行内部判断，但显示时使用描述
             logger.info(
-                f"委托回报: 股票{stock_display}, 状态{order_status}, 委托号{order_id}, 系统号{order_sysid}"
+                f"委托回报: 股票{stock_display}, 状态{order_status}({get_status_name(order_status) if isinstance(order_status, int) else order_status}), 委托号{order_id}, 系统号{order_sysid}"
             )
 
             # 更新统计信息
             with self.trader.stats_lock:
-                if order_status in ["已报", "已确认"]:  # 这些状态表示已提交但未成交
+                # 检查是否为已报状态
+                is_reported = (
+                    isinstance(order_status, int) and order_status == OrderStatus.REPORTED
+                ) or (isinstance(order_status, str) and order_status in ["已报", "已确认"])
+
+                # 检查是否为取消状态
+                is_cancelled = (
+                    isinstance(order_status, int)
+                    and order_status in [OrderStatus.CANCELED, OrderStatus.REJECTED]
+                ) or (isinstance(order_status, str) and order_status in ["已撤销", "废单"])
+
+                if is_reported:
                     self.trader.stats["confirmed_orders"] = (
                         self.trader.stats.get("confirmed_orders", 0) + 1
                     )
@@ -87,7 +106,7 @@ class QMTCallback(XtQuantTraderCallback):
                     self.trader.stats["filled_orders"] = (
                         self.trader.stats.get("filled_orders", 0) + 1
                     )
-                elif order_status in ["已撤销", "废单"]:  # 这些状态表示取消或失败
+                elif is_cancelled:
                     self.trader.stats["cancelled_orders"] = (
                         self.trader.stats.get("cancelled_orders", 0) + 1
                     )
@@ -327,20 +346,63 @@ class QMTCallback(XtQuantTraderCallback):
             account_type = getattr(status, "account_type", "")
             account_status = getattr(status, "status", "")
 
-            logger.info(f"账户状态变化: 账户{account_id}, 类型{account_type}, 状态{account_status}")
+            # 获取账户状态描述，支持数字和字符串状态
+            if isinstance(account_status, int):
+                status_desc = get_account_status_name(account_status)
+                logger.info(
+                    f"账户状态变化: 账户{account_id}, 类型{account_type}, 状态{account_status}({status_desc})"
+                )
+            else:
+                # 兼容旧版本字符串状态
+                logger.info(
+                    f"账户状态变化: 账户{account_id}, 类型{account_type}, 状态{account_status}"
+                )
+                status_desc = account_status
+
+            # 检查是否为异常状态
+            is_error_status = False
+            if isinstance(account_status, int):
+                is_error_status = account_status in AccountStatus.get_error_statuses()
+            else:
+                # 兼容旧版本字符串判断
+                is_error_status = account_status not in [
+                    "正常",
+                    "连接",
+                    "CONNECTED",
+                    "1",
+                    "连接中",
+                    "登录中",
+                    "初始化中",
+                    "数据刷新校正中",
+                ]
 
             # 如果账户状态异常，发送通知
-            if account_status not in ["正常", "连接", "CONNECTED", "1"]:
+            if is_error_status:
                 if hasattr(self.trader, "notifier") and self.trader.notifier:
-                    self.trader.notifier.notify_error(
-                        f"账户状态异常: {account_status}", f"账户{account_id}"
-                    )
+                    # 使用专门的账户状态通知方法
+                    if hasattr(self.trader.notifier, "notify_account_status"):
+                        self.trader.notifier.notify_account_status(
+                            account_id, account_status, "状态异常"
+                        )
+                    else:
+                        # 兼容旧版本通知器
+                        self.trader.notifier.notify_error(
+                            f"账户状态异常: {status_desc}", f"账户{account_id}"
+                        )
 
             # 更新连接状态
-            if account_status in ["正常", "连接", "CONNECTED", "1"]:
-                self.trader.is_connected = True
-            elif account_status in ["断开", "DISCONNECTED", "0"]:
-                self.trader.is_connected = False
+            if isinstance(account_status, int):
+                self.trader.is_connected = account_status in AccountStatus.get_normal_statuses()
+            else:
+                # 兼容旧版本字符串状态
+                self.trader.is_connected = account_status in [
+                    "正常",
+                    "连接",
+                    "CONNECTED",
+                    "1",
+                    "连接中",
+                    "登录中",
+                ]
 
         except Exception as e:
             logger.error(f"账户状态处理异常: {e}")
@@ -421,7 +483,10 @@ class QMTCallback(XtQuantTraderCallback):
         try:
             order_id = str(order_status.order_id)
             status = order_status.order_status
-            logger.info(f"委托状态变化: {order_id} -> {status}")
+            # 日志记录状态码和描述，方便调试
+            logger.info(
+                f"委托状态变化: {order_id} -> {status}({get_status_name(status) if isinstance(status, int) else status})"
+            )
 
             # 更新委托状态记录
             with self.trader.order_lock:
@@ -433,15 +498,23 @@ class QMTCallback(XtQuantTraderCallback):
                     # 如果委托完成，移除并保存最终记录
                     if is_finished_status(status):
                         order_info = self.trader.active_orders.pop(order_id)
-                        logger.info(f"委托 {order_id} 最终状态: {status}，移出活跃列表")
+                        logger.info(
+                            f"委托 {order_id} 最终状态: {status}({get_status_name(status) if isinstance(status, int) else status})，移出活跃列表"
+                        )
 
                         # 保存最终状态记录
                         signal_data = order_info.get("signal_data", {})
-                        final_status = (
-                            "filled"
-                            if status == "已成交"  # 保留这个比较，因为需要区分具体的成交状态
-                            else "cancelled" if status == "已撤销" else "rejected"
-                        )
+                        # 判断最终状态（支持数字和字符串状态）
+                        if (isinstance(status, int) and status == OrderStatus.SUCCEEDED) or (
+                            isinstance(status, str) and status == "已成交"
+                        ):
+                            final_status = "filled"
+                        elif (isinstance(status, int) and status == OrderStatus.CANCELED) or (
+                            isinstance(status, str) and status == "已撤销"
+                        ):
+                            final_status = "cancelled"
+                        else:
+                            final_status = "rejected"
 
                         # 构建状态更新记录
                         status_record = {
@@ -452,7 +525,9 @@ class QMTCallback(XtQuantTraderCallback):
                         }
 
                         # 如果是成交，添加成交信息
-                        if status == "已成交":
+                        if (isinstance(status, int) and status == OrderStatus.SUCCEEDED) or (
+                            isinstance(status, str) and status == "已成交"
+                        ):
                             filled_qty = getattr(
                                 order_status, "filled_qty", getattr(order_status, "order_volume", 0)
                             )
@@ -521,6 +596,10 @@ class QMTTrader:
         self.reconnect_thread = None
         self.reconnect_attempts = 0
         self.last_connect_time = None
+
+        # 订单超时监控
+        self.timeout_monitor_thread = None
+        self.timeout_monitor_running = False
 
     def connect(self) -> bool:
         """连接QMT"""
@@ -593,6 +672,10 @@ class QMTTrader:
                 # xtquant将在主线程中运行，等待run_forever调用
                 logger.info("xtquant将在主线程中运行，等待run_forever调用")
 
+                # 启动订单超时监控
+                if settings.auto_cancel_enabled:
+                    self._start_timeout_monitor()
+
                 return True
             else:
                 logger.error(f"QMT连接失败，错误代码: {result}")
@@ -605,6 +688,9 @@ class QMTTrader:
         """断开QMT连接"""
         try:
             self._shutdown = True
+
+            # 停止订单超时监控
+            self._stop_timeout_monitor()
 
             # 停止异步交易线程池
             if hasattr(self, "trade_executor") and self.trade_executor:
@@ -796,7 +882,41 @@ class QMTTrader:
         future.add_done_callback(_async_order_callback)
 
     def _execute_order(self, signal_data: Dict[str, Any], callback=None) -> Optional[str]:
-        """实际执行委托操作（使用passorder）"""
+        """实际执行委托操作（使用passorder），支持重试机制"""
+        retry_count = 0
+        last_error = None
+
+        while retry_count <= settings.order_retry_attempts:
+            try:
+                if retry_count > 0:
+                    logger.info(
+                        f"开始第 {retry_count} 次重试下单，股票: {signal_data.get('stock_code')}"
+                    )
+                    time.sleep(settings.order_retry_delay)
+
+                result = self._execute_single_order(signal_data, callback)
+                if result:
+                    if retry_count > 0:
+                        logger.info(f"重试下单成功，第 {retry_count} 次尝试")
+                    return result
+
+            except Exception as e:
+                last_error = e
+                logger.error(f"第 {retry_count + 1} 次下单尝试失败: {e}")
+
+            retry_count += 1
+
+        # 所有重试都失败了
+        error_msg = f"下单失败，已重试 {settings.order_retry_attempts} 次，最后错误: {last_error}"
+        logger.error(error_msg)
+
+        # 保存失败记录
+        self._save_order_to_redis(None, signal_data, "failed", error_msg)
+
+        return None
+
+    def _execute_single_order(self, signal_data: Dict[str, Any], callback=None) -> Optional[str]:
+        """执行单次下单操作"""
         try:
             stock_code = signal_data.get("stock_code", "").strip()
             direction = signal_data.get("direction", "").upper()
@@ -830,8 +950,7 @@ class QMTTrader:
             elif direction == "SELL":
                 xt_direction = xtconstant.STOCK_SELL
             else:
-                logger.error(f"不支持的交易方向: {direction}")
-                return None
+                raise ValueError(f"不支持的交易方向: {direction}")
 
             # 价格类型 - 根据交易所和是否有价格来确定
             if price and price > 0:
@@ -886,8 +1005,7 @@ class QMTTrader:
                     # 暂时返回序列号作为order_id，实际order_id会在回调中获得
                     order_result = seq
                 else:
-                    logger.error(f"异步委托提交失败，序列号: {seq}")
-                    return None
+                    raise Exception(f"异步委托提交失败，序列号: {seq}")
 
                 # 异步API无需等待，结果会通过回调返回
 
@@ -919,7 +1037,7 @@ class QMTTrader:
                 # 使用序列号作为临时ID，实际order_id会在回调中更新
                 temp_id = f"seq_{seq_id}"
 
-                # 将委托加入活跃列表，用于回调处理
+                # 将委托加入活跃列表，用于回调处理和超时监控
                 with self.order_lock:
                     self.active_orders[temp_id] = {
                         "timestamp": datetime.now(),
@@ -928,6 +1046,7 @@ class QMTTrader:
                         "trades": [],  # 成交记录列表
                         "total_filled": 0,  # 总成交量
                         "callback": callback,  # 保存外部回调函数
+                        "retry_count": getattr(self, "_current_retry_count", 0),  # 记录重试次数
                     }
                 logger.info(f"委托序列 {seq_id} 已加入活跃列表")
 
@@ -937,16 +1056,10 @@ class QMTTrader:
                 return temp_id
             else:
                 error_msg = f"委托失败，返回值: {order_result}"
-                logger.error(f"委托失败(order_stock): {error_msg}")
-
-                # 保存失败的委托记录到Redis
-                self._save_order_to_redis(None, signal_data, "failed", error_msg)
-
-                return None
+                raise Exception(error_msg)
 
         except Exception as e:
-            logger.error(f"执行委托时发生错误: {e}")
-            return None
+            raise e
 
     def cancel_order(self, order_id: str) -> bool:
         """撤销委托（异步执行但等待结果）"""
@@ -1205,3 +1318,93 @@ class QMTTrader:
         except Exception as e:
             logger.error(f"查询持仓异常: {e}")
             return []
+
+    def _start_timeout_monitor(self):
+        """启动订单超时监控"""
+        if self.timeout_monitor_running:
+            return
+
+        self.timeout_monitor_running = True
+        self.timeout_monitor_thread = threading.Thread(
+            target=self._timeout_monitor_loop, daemon=True, name="OrderTimeoutMonitor"
+        )
+        self.timeout_monitor_thread.start()
+        logger.info(f"订单超时监控已启动，超时时间: {settings.auto_cancel_timeout}秒")
+
+    def _stop_timeout_monitor(self):
+        """停止订单超时监控"""
+        if self.timeout_monitor_running:
+            self.timeout_monitor_running = False
+            logger.info("订单超时监控已停止")
+
+    def _timeout_monitor_loop(self):
+        """订单超时监控循环"""
+        logger.info("订单超时监控线程已启动")
+
+        while self.timeout_monitor_running and not self._shutdown:
+            try:
+                current_time = datetime.now()
+                timeout_orders = []
+
+                # 查找超时订单
+                with self.order_lock:
+                    for order_id, order_info in list(self.active_orders.items()):
+                        order_time = order_info.get("timestamp")
+                        if order_time:
+                            elapsed_time = (current_time - order_time).total_seconds()
+                            if elapsed_time > settings.auto_cancel_timeout:
+                                timeout_orders.append((order_id, order_info, elapsed_time))
+
+                # 处理超时订单
+                for order_id, order_info, elapsed_time in timeout_orders:
+                    try:
+                        signal_data = order_info.get("signal_data", {})
+                        stock_code = signal_data.get("stock_code", "Unknown")
+                        stock_display = (
+                            get_stock_display_name(stock_code)
+                            if stock_code != "Unknown"
+                            else stock_code
+                        )
+
+                        logger.warning(
+                            f"订单超时 {elapsed_time:.1f}秒: {order_id} ({stock_display}), 开始自动撤单"
+                        )
+
+                        # 标记为超时撤单
+                        with self.order_lock:
+                            if order_id in self.active_orders:
+                                self.active_orders[order_id]["timeout_cancelled"] = True
+
+                        # 尝试撤单
+                        cancel_success = self._cancel_order(order_id)
+
+                        if cancel_success:
+                            logger.info(f"超时订单撤单成功: {order_id}")
+                            # 发送撤单通知，使用状态描述
+                            if self.notifier:
+                                self.notifier.notify_error(
+                                    f"订单超时自动撤单: {stock_display}",
+                                    f"委托{order_id}超时{elapsed_time:.1f}秒，状态将变为{get_status_name(OrderStatus.CANCELED)}",
+                                )
+                        else:
+                            # 如果撤单失败，从活跃列表中移除（可能订单已经成交或其他状态）
+                            with self.order_lock:
+                                if order_id in self.active_orders:
+                                    self.active_orders.pop(order_id)
+                                    logger.warning(f"撤单失败，已从活跃列表移除: {order_id}")
+
+                    except Exception as e:
+                        logger.error(f"处理超时订单异常 {order_id}: {e}")
+                        # 移除有问题的订单
+                        with self.order_lock:
+                            if order_id in self.active_orders:
+                                self.active_orders.pop(order_id)
+
+                # 每30秒检查一次
+                time.sleep(30)
+
+            except Exception as e:
+                logger.error(f"订单超时监控异常: {e}")
+                time.sleep(30)
+
+        logger.info("订单超时监控线程已停止")

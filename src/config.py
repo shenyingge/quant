@@ -38,6 +38,11 @@ class Settings(BaseSettings):
     order_submit_timeout: int = Field(
         default=10, env="ORDER_SUBMIT_TIMEOUT"
     )  # 下单操作超时时间（秒）
+    order_retry_attempts: int = Field(default=3, env="ORDER_RETRY_ATTEMPTS")  # 下单重试次数
+    order_retry_delay: int = Field(default=2, env="ORDER_RETRY_DELAY")  # 下单重试间隔（秒）
+    auto_cancel_timeout: int = Field(
+        default=300, env="AUTO_CANCEL_TIMEOUT"
+    )  # 超时自动撤单时间（秒）
 
     # 飞书配置
     feishu_webhook_url: Optional[str] = Field(default=None, env="FEISHU_WEBHOOK_URL")

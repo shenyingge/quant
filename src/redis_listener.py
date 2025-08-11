@@ -173,7 +173,6 @@ class RedisSignalListener:
 
             if self.redis_client:
                 self.redis_client.ping()
-                logger.info("Redis连接测试成功")
                 return True
             else:
                 return False

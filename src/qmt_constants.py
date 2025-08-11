@@ -116,9 +116,59 @@ class PriceType:
     LIMIT = xtconstant.PRTP_FIX  # 限价
 
 
+# 账户状态映射：状态码 -> 中文描述
+ACCOUNT_STATUS_MAP = {
+    -1: "无效",
+    0: "正常",
+    1: "连接中",
+    2: "登录中",
+    3: "失败",
+    4: "初始化中",
+    5: "数据刷新校正中",
+    6: "收盘后",
+    7: "穿透副链接断开",
+    8: "系统停用",
+    9: "用户停用",
+}
+
+# 反向映射：中文描述 -> 状态码
+ACCOUNT_STATUS_NAME_MAP = {v: k for k, v in ACCOUNT_STATUS_MAP.items()}
+
+
+class AccountStatus:
+    """账户状态常量"""
+
+    INVALID = -1  # 无效
+    OK = 0  # 正常
+    WAITING_LOGIN = 1  # 连接中
+    LOGINING = 2  # 登录中
+    FAIL = 3  # 失败
+    INITING = 4  # 初始化中
+    CORRECTING = 5  # 数据刷新校正中
+    CLOSED = 6  # 收盘后
+    ASSIS_FAIL = 7  # 穿透副链接断开
+    DISABLEBYSYS = 8  # 系统停用
+    DISABLEBYUSER = 9  # 用户停用
+
+    @classmethod
+    def get_normal_statuses(cls):
+        """获取正常运行状态列表"""
+        return [cls.OK, cls.WAITING_LOGIN, cls.LOGINING, cls.INITING, cls.CORRECTING]
+
+    @classmethod
+    def get_error_statuses(cls):
+        """获取错误状态列表"""
+        return [cls.INVALID, cls.FAIL, cls.ASSIS_FAIL, cls.DISABLEBYSYS, cls.DISABLEBYUSER]
+
+
 def get_status_name(status_code: int) -> str:
     """根据状态代码获取中文名称"""
     return STATUS_CODE_MAP.get(status_code, f"未知状态({status_code})")
+
+
+def get_account_status_name(status_code: int) -> str:
+    """根据账户状态代码获取中文名称"""
+    return ACCOUNT_STATUS_MAP.get(status_code, f"未知账户状态({status_code})")
 
 
 def get_status_code(status_name: str) -> int:

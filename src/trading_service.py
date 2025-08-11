@@ -167,7 +167,6 @@ class TradingService:
                 return self.redis_listener.test_connection()
             return False
         except Exception as e:
-            logger.debug(f"Redis健康检查失败: {e}")
             return False
 
     def _connect_qmt(self) -> bool:
@@ -551,7 +550,7 @@ class TradingService:
                             filled_volume = order_status.get("filled_volume", 0)
 
                             logger.debug(
-                                f"订单 {order.order_id} 状态: {current_status}, 成交数量: {filled_volume}"
+                                f"订单 {order.order_id} 状态: {current_status}({get_status_name(current_status) if isinstance(current_status, int) else current_status}), 成交数量: {filled_volume}"
                             )
 
                             # 检查订单是否有成交
@@ -570,7 +569,7 @@ class TradingService:
 
                             if has_valid_fill:
                                 logger.info(
-                                    f"订单 {order.order_id} 有新成交: 状态={current_status}, 成交={filled_volume}"
+                                    f"订单 {order.order_id} 有新成交: 状态={current_status}({get_status_name(current_status) if isinstance(current_status, int) else current_status}), 成交={filled_volume}"
                                 )
 
                                 order.filled_volume = filled_volume
@@ -600,7 +599,27 @@ class TradingService:
 
                             # 如果订单已完成（成交或取消），更新状态为非PENDING
                             if is_finished_status(current_status):
-                                logger.info(f"订单 {order.order_id} 已完成: {current_status}")
+                                logger.info(
+                                    f"订单 {order.order_id} 已完成: {current_status}({get_status_name(current_status) if isinstance(current_status, int) else current_status})"
+                                )
+
+                                # 检查是否是超时撤单（支持数字状态码）
+                                is_cancelled = (
+                                    isinstance(current_status, int)
+                                    and current_status == OrderStatus.CANCELED
+                                ) or (
+                                    isinstance(current_status, str)
+                                    and current_status in ["已撤销", "CANCELLED"]
+                                )
+
+                                if is_cancelled:
+                                    # 检查活跃订单中是否有超时信息
+                                    active_order_info = self.trader.active_orders.get(
+                                        order.order_id, {}
+                                    )
+                                    if active_order_info.get("timeout_cancelled"):
+                                        order.error_message = "超时自动撤单"
+                                        logger.info(f"订单 {order.order_id} 标记为超时撤单")
 
                             order.updated_at = datetime.utcnow()
                             db.commit()

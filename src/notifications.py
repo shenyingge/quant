@@ -6,6 +6,7 @@ import requests
 
 from src.config import settings
 from src.logger_config import configured_logger as logger
+from src.qmt_constants import get_account_status_name, get_status_name
 from src.stock_info import get_stock_display_name
 
 
@@ -124,6 +125,61 @@ class FeishuNotifier:
         message += f"• 成交金额: {trade_amount:.2f}元"
 
         return self.send_message(message, "🎉 订单成交")
+
+    def notify_order_status_change(
+        self, order_id: str, stock_code: str, old_status: Any, new_status: Any, context: str = ""
+    ) -> bool:
+        """通知订单状态变化"""
+        stock_display = get_stock_display_name(stock_code) if stock_code != "N/A" else "N/A"
+
+        # 获取状态描述
+        old_desc = get_status_name(old_status) if isinstance(old_status, int) else old_status
+        new_desc = get_status_name(new_status) if isinstance(new_status, int) else new_status
+
+        message = f"订单状态变化:\n"
+        message += f"• 订单ID: {order_id}\n"
+        message += f"• 股票信息: {stock_display}\n"
+        message += f"• 状态变化: {old_desc} → {new_desc}\n"
+        if context:
+            message += f"• 备注: {context}"
+
+        return self.send_message(message, "🔄 状态变化")
+
+    def notify_account_status(
+        self, account_id: str, account_status: Any, context: str = ""
+    ) -> bool:
+        """通知账户状态变化"""
+        # 获取状态描述
+        if isinstance(account_status, int):
+            status_desc = get_account_status_name(account_status)
+        else:
+            status_desc = account_status
+
+        message = f"账户状态变化:\n"
+        message += f"• 账户ID: {account_id}\n"
+        message += f"• 账户状态: {status_desc}\n"
+        if context:
+            message += f"• 备注: {context}"
+
+        # 根据状态严重程度选择不同的图标
+        if isinstance(account_status, int) and account_status in [
+            3,
+            7,
+            8,
+            9,
+        ]:  # 失败、断开、停用状态
+            title = "❌ 账户异常"
+        elif isinstance(account_status, int) and account_status in [
+            1,
+            2,
+            4,
+            5,
+        ]:  # 连接中、登录中等过渡状态
+            title = "⏳ 账户状态"
+        else:
+            title = "✅ 账户正常"
+
+        return self.send_message(message, title)
 
     def notify_error(self, error_message: str, context: str = "") -> bool:
         """通知错误信息"""
