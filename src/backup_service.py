@@ -376,11 +376,9 @@ class DatabaseBackupService:
             ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 
             # 连接参数
-            key_file = (
-                os.path.expanduser(self.config["scp_key_file"])
-                if self.config["scp_key_file"]
-                else None
-            )
+            key_file = None
+            if self.config["scp_key_file"]:
+                key_file = str(Path(self.config["scp_key_file"]).expanduser().resolve())
 
             logger.info(
                 f"尝试SCP连接: {self.config['scp_username']}@{self.config['scp_host']}:{self.config['scp_port']}"
@@ -423,14 +421,27 @@ class DatabaseBackupService:
             sftp = ssh.open_sftp()
 
             # 确保远程目录存在
+            remote_dir = self.config["scp_remote_dir"]
+            # 如果是相对路径（以~开始），让SFTP自己处理
+            if remote_dir.startswith("~/"):
+                # SFTP会自动处理~路径
+                pass
+
             try:
-                sftp.listdir(self.config["scp_remote_dir"])
-                logger.info(f"远程目录已存在: {self.config['scp_remote_dir']}")
+                sftp.listdir(remote_dir)
+                logger.info(f"远程目录已存在: {remote_dir}")
             except OSError:
                 try:
-                    sftp.mkdir(self.config["scp_remote_dir"])
-                    logger.info(f"创建远程目录: {self.config['scp_remote_dir']}")
-                except OSError as mkdir_error:
+                    # 使用SSH命令创建目录，更可靠
+                    stdin, stdout, stderr = ssh.exec_command(f'mkdir -p "{remote_dir}"')
+                    exit_status = stdout.channel.recv_exit_status()
+                    if exit_status == 0:
+                        logger.info(f"创建远程目录成功: {remote_dir}")
+                    else:
+                        error_msg = stderr.read().decode()
+                        logger.error(f"创建远程目录失败: {error_msg}")
+                        return False
+                except Exception as mkdir_error:
                     logger.error(f"创建远程目录失败: {mkdir_error}")
                     return False
 

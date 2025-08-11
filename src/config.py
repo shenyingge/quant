@@ -21,6 +21,21 @@ class Settings(BaseSettings):
         default="20:30", env="REDIS_TRADE_CLEANUP_TIME"
     )  # 每日清理时间
 
+    # Redis消息持久化配置
+    redis_message_mode: str = Field(
+        default="stream", env="REDIS_MESSAGE_MODE"
+    )  # 消息模式: pubsub, list, stream
+    redis_stream_name: str = Field(
+        default="trading_signals_stream", env="REDIS_STREAM_NAME"
+    )  # Stream名称
+    redis_consumer_group: str = Field(
+        default="trading_service", env="REDIS_CONSUMER_GROUP"
+    )  # 消费者组名称
+    redis_consumer_name: str = Field(default="consumer1", env="REDIS_CONSUMER_NAME")  # 消费者名称
+    redis_list_name: str = Field(default="trading_signals_list", env="REDIS_LIST_NAME")  # List名称
+    redis_stream_max_len: int = Field(default=10000, env="REDIS_STREAM_MAX_LEN")  # Stream最大长度
+    redis_block_timeout: int = Field(default=1000, env="REDIS_BLOCK_TIMEOUT")  # 阻塞等待超时(毫秒)
+
     # 数据库配置
     db_url: str = Field(default="sqlite:///./trading.db", env="DATABASE_URL")
 

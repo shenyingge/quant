@@ -115,7 +115,7 @@ uv run python tests/run_tests.py --pytest
 
 ### Key Configuration (via .env)
 
-- **Redis**: REDIS_HOST, REDIS_PORT, REDIS_SIGNAL_CHANNEL
+- **Redis**: REDIS_HOST, REDIS_PORT, REDIS_SIGNAL_CHANNEL, REDIS_MESSAGE_MODE, REDIS_STREAM_NAME, REDIS_CONSUMER_GROUP
 - **QMT**: QMT_SESSION_ID, QMT_PATH, QMT_ACCOUNT_ID
 - **Notifications**: FEISHU_WEBHOOK_URL, FEISHU_SECRET
 - **Trading**: ORDER_TIMEOUT_SECONDS, AUTO_CANCEL_ENABLED, ORDER_RETRY_ATTEMPTS, AUTO_CANCEL_TIMEOUT
@@ -301,3 +301,60 @@ Account status constants with Chinese descriptions:
 - **Logging**: Displays format "status_code(description)" for debugging
 - **Notifications**: Shows user-friendly Chinese descriptions only
 - **Error Detection**: Automatic classification of normal vs error states
+
+## Redis 消息持久化配置
+
+系统支持三种Redis消息模式，提供不同级别的消息可靠性保证。
+
+### 消息模式配置 (.env)
+
+```bash
+# Redis消息持久化模式选择
+REDIS_MESSAGE_MODE=stream              # 消息模式: pubsub, list, stream (推荐: stream)
+
+# Stream模式配置 (推荐生产环境)
+REDIS_STREAM_NAME=trading_signals_stream            # Stream名称
+REDIS_CONSUMER_GROUP=trading_service                # 消费者组名称
+REDIS_CONSUMER_NAME=consumer1                       # 消费者名称
+REDIS_STREAM_MAX_LEN=10000                         # Stream最大长度
+REDIS_BLOCK_TIMEOUT=1000                           # 阻塞等待超时(毫秒)
+
+# List模式配置 (简单队列)
+REDIS_LIST_NAME=trading_signals_list               # List队列名称
+
+# Pub/Sub模式配置 (向后兼容)
+REDIS_SIGNAL_CHANNEL=trading_signals               # 发布订阅频道名称
+```
+
+### 模式特性对比
+
+| 模式 | 持久化 | 多消费者 | 顺序保证 | 消息回溯 | 推荐场景 |
+|------|--------|----------|----------|----------|----------|
+| **Stream** | ✅ | ✅ | ✅ | ✅ | **生产环境推荐** |
+| **List** | ✅ | ❌ | ✅ | ❌ | 简单队列场景 |
+| **Pub/Sub** | ❌ | ✅ | ❌ | ❌ | 实时通知/向后兼容 |
+
+### Stream模式优势
+
+1. **消息持久化**: 服务重启后消息不丢失
+2. **消费者组**: 支持多个消费者协同处理，消息不重复
+3. **自动确认**: 处理完成后自动ACK确认消息
+4. **消息回溯**: 可从任意位置重新消费消息
+5. **故障恢复**: 消费者崩溃重启后继续处理未确认消息
+
+### 使用建议
+
+- **生产环境**: 使用Stream模式，提供最高的消息可靠性
+- **开发测试**: 可使用List模式，配置简单
+- **兼容性**: 保持Pub/Sub模式支持老版本兼容
+
+### 迁移指南
+
+从Pub/Sub迁移到Stream模式:
+
+1. 在`.env`中设置: `REDIS_MESSAGE_MODE=stream`
+2. 配置Stream相关参数（使用默认值即可）
+3. 重启交易服务
+4. 验证消息处理正常
+
+**注意**: Stream模式首次启动会自动创建消费者组，无需手动干预。
