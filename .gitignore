@@ -10,7 +10,7 @@ wheels/
 .venv
 
 # Local development files
-my_local/
+archive/
 
 # Third party libraries
 xtquant/
@@ -25,9 +25,9 @@ xtquant/
 logs/
 *.log
 
-# Backup files
-backups/
-temp_backups/
+# Data files (keep data directory but ignore backup contents)
+data/backups/
+data/factors/*.parquet
 
 # IDE/Editor files
 .vscode/
@@ -44,3 +44,7 @@ Thumbs.db
 *.temp
 
 .claude
+
+examples/
+
+data/

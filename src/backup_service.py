@@ -50,7 +50,7 @@ def get_backup_config():
         "backup_format": os.getenv("BACKUP_FORMAT", "json"),
         "compress": os.getenv("BACKUP_COMPRESS", "true").lower() == "true",
         "keep_days": int(os.getenv("BACKUP_KEEP_DAYS", "30")),
-        "local_backup_dir": os.getenv("BACKUP_LOCAL_DIR", "./backups"),
+        "local_backup_dir": os.getenv("BACKUP_LOCAL_DIR", "./data/backups"),
         # SCP配置
         "scp_host": os.getenv("SCP_HOST", ""),
         "scp_port": int(os.getenv("SCP_PORT", "22")),
