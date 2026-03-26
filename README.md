@@ -234,10 +234,53 @@ uv run python main.py t0-backtest \
    --output-dir ./output/backtest
 ```
 
+也可以直接给目录，让 `quant` 自己按股票代码匹配文件：
+
+```bash
+uv run python main.py t0-backtest \
+   --minute-data ./data/minute \
+   --daily-data ./data/daily \
+   --symbol 601138.SH \
+   --start-datetime "2026-03-12 09:58:00" \
+   --end-datetime "2026-03-24 15:00:00"
+```
+
+还支持 JSON 配置文件：
+
+```bash
+uv run python main.py t0-backtest --config ./configs/t0_backtest_601138.json
+```
+
+配置文件示例：
+
+```json
+{
+  "minute_data": "./data/minute",
+  "daily_data": "./data/daily",
+  "symbol": "601138.SH",
+  "output_dir": "./output/backtest_601138",
+  "start_datetime": "2026-03-12 09:58:00",
+  "end_datetime": "2026-03-24 15:00:00",
+  "execution_mode": "next_bar_open",
+  "base_position": 2600,
+  "tactical_position": 900,
+  "initial_position": 3500,
+  "available_volume": 3500,
+  "cost_price": 72.685,
+  "cash_available": 2133.81,
+  "commission_rate": 0.0001,
+  "min_commission": 5.0,
+  "transfer_fee_rate": 0.00002,
+  "stamp_duty_rate": 0.0005
+}
+```
+
 输出文件：
 
 - `signals.csv`
 - `fills.csv`
+- `roundtrips.csv`
+- `open_legs.csv`
 - `summary.json`
 
 ### T+0 运行产物
