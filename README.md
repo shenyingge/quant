@@ -337,3 +337,21 @@ uv run python tests/test_passorder.py
 ## 联系方式
 
 如有问题或建议，请提交Issue或联系开发者。
+## 分钟行情任务
+
+```bash
+# 导出自定义分钟历史行情包
+uv run python main.py export-minute-history --trade-date today --listed-only
+
+# 按日任务默认参数拉取当日分钟行情
+uv run python main.py export-minute-daily
+```
+
+Windows 计划任务配置：
+
+```cmd
+scripts\setup_minute_history_task.bat
+```
+
+这会创建 `QMT_Minute_History_Daily`，每天 `15:20` 运行，
+日志写入 `logs/task_execution_minute_history.log`。

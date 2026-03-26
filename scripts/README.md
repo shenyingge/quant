@@ -172,3 +172,14 @@ TRADING_DAY_CHECK_ENABLED=false
 3. **交易日检查**：使用 akshare 获取准确的交易日历
 4. **自动停止**：当前通过针对命令行模式的停止脚本结束对应进程，而不是粗暴停止所有 Python 进程
 5. **日志轮转**：建议定期清理或归档日志文件
+## 分钟行情任务
+
+```cmd
+scripts\setup_minute_history_task.bat
+schtasks /run /tn "QMT_Minute_History_Daily"
+type logs\task_execution_minute_history.log
+```
+
+这个任务通过 `task_wrapper_minute_history.bat` 和
+`task_runner.ps1 -Mode minute-history-daily`
+执行 `uv run python main.py export-minute-daily`。

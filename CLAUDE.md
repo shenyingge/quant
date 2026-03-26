@@ -58,6 +58,12 @@ uv run python main.py pnl-summary
 # Export daily holdings and trades
 uv run python main.py export-daily
 
+# 导出分钟历史行情包
+uv run python main.py export-minute-history --trade-date today --listed-only
+
+# 按日任务默认参数拉取当日分钟行情
+uv run python main.py export-minute-daily
+
 # Run T+0 once
 uv run python main.py t0-strategy
 
@@ -142,6 +148,7 @@ uv run python tests/run_tests.py --pytest
 The system can run as a Windows scheduled task using scripts in the `scripts/` directory:
 - `setup_task_simple.bat`: Creates scheduled tasks for the main trading service
 - `setup_t0_tasks.bat`: Creates scheduled tasks for T+0 daemon and position sync
+- `setup_minute_history_task.bat`: Creates a scheduled task for daily minute-history export
 - `task_runner.ps1`: Primary Windows scheduled-task runner
 - `task_runner.sh`: Legacy shell runner kept for older environments
 - Mode-specific QMT session IDs are supported for trading service, T+0 daemon, and T+0 sync

@@ -2,6 +2,7 @@ import codecs
 import locale
 import os
 import sys
+from datetime import date
 
 # 设置编码环境
 if sys.platform.startswith("win"):
@@ -61,35 +62,55 @@ def main():
 
         if command == "run":
             run_service(max_retries=max_retries, retry_delay=retry_delay)
+            return 0
         elif command == "test-run":
             run_service(test_mode=True, max_retries=max_retries, retry_delay=retry_delay)
+            return 0
         elif command == "test":
             test_system()
+            return 0
         elif command == "backup":
             manual_backup()
+            return 0
         elif command == "backup-config":
             show_backup_config()
+            return 0
         elif command == "stock-info":
             manage_stock_info()
+            return 0
         elif command == "calendar":
             manage_trading_calendar()
+            return 0
         elif command == "pnl-summary":
             send_pnl_summary()
+            return 0
         elif command == "export-daily":
             export_daily()
+            return 0
+        elif command == "export-minute-history":
+            return export_minute_history(sys.argv[2:])
+        elif command == "export-minute-daily":
+            return export_minute_daily(sys.argv[2:])
         elif command == "t0-strategy":
             run_t0_strategy()
+            return 0
         elif command == "t0-daemon":
             run_t0_daemon()
+            return 0
         elif command == "t0-sync-position":
             sync_t0_position()
+            return 0
         elif command == "t0-backtest":
             run_t0_backtest(sys.argv[2:])
+            return 0
         else:
             print_usage()
+            return 1
     else:
         # 没有参数时显示使用说明
         print_usage()
+
+        return 1
 
 
 def run_service(test_mode: bool = False, max_retries: int = 3, retry_delay: int = 60):
@@ -421,6 +442,34 @@ def export_daily():
         logger.error(f"导出每日数据失败: {e}")
 
 
+def export_minute_history(argv=None):
+    """?????????"""
+    logger.info("????????")
+    logger.info("=" * 50)
+
+    try:
+        from src.minute_history_exporter import main as export_main
+
+        return export_main(argv)
+    except Exception as e:
+        logger.error(f"??????????: {e}")
+        return 1
+
+
+def export_minute_daily(argv=None):
+    """?????????"""
+    logger.info("????????")
+    logger.info("=" * 50)
+
+    if not is_trading_day():
+        logger.info("????????????????")
+        return 0
+
+    trade_date = date.today().strftime("%Y%m%d")
+    default_args = ["--trade-date", trade_date, "--listed-only", "--overwrite", "--skip-zip"]
+    return export_minute_history(default_args + (argv or []))
+
+
 def _notify_t0_runtime(component: str, event: str, detail: str = "", level: str = "info"):
     """Best-effort T+0 runtime notifications."""
     try:
@@ -557,6 +606,8 @@ def print_usage():
     logger.info("  python main.py t0-daemon         - 持续运行T+0策略(每分钟)")
     logger.info("  python main.py t0-sync-position  - 从QMT同步仓位")
     logger.info("  python main.py t0-backtest       - 运行文件驱动的T+0回测")
+    logger.info("  python main.py export-minute-history - 导出分钟历史行情包")
+    logger.info("  python main.py export-minute-daily   - 拉取当日分钟行情")
     logger.info("")
     logger.info("重试参数（仅适用于 run 和 test-run）:")
     logger.info("  --max-retries=N                  - 最大重试次数（默认: 3）")
@@ -565,10 +616,11 @@ def print_usage():
     logger.info("示例:")
     logger.info("  python main.py run --max-retries=5 --retry-delay=30")
     logger.info("  python main.py test-run --max-retries=2")
+    logger.info("  python main.py export-minute-daily --skip-upload")
     logger.info(
         "  python main.py t0-backtest --minute-data data.csv --daily-data daily.csv --output-dir output/backtest"
     )
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

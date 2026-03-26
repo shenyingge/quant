@@ -1,5 +1,5 @@
 param(
-    [ValidateSet("trading-service", "t0-daemon", "t0-sync-position")]
+    [ValidateSet("trading-service", "t0-daemon", "t0-sync-position", "minute-history-daily")]
     [string]$Mode = "trading-service"
 )
 
@@ -31,6 +31,11 @@ switch ($Mode) {
         $LogPath = Join-Path $LogsDir "task_execution_t0_sync.log"
         $DisplayName = "T0 position sync"
         $MainArgs = @("main.py", "t0-sync-position")
+    }
+    "minute-history-daily" {
+        $LogPath = Join-Path $LogsDir "task_execution_minute_history.log"
+        $DisplayName = "每日分钟行情导出"
+        $MainArgs = @("main.py", "export-minute-daily")
     }
 }
 
