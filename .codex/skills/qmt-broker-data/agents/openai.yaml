@@ -1,0 +1,4 @@
+interface:
+  display_name: "QMT Broker Data"
+  short_description: "Broker, market data, and export flows"
+  default_prompt: "Use $qmt-broker-data to inspect the quant repository and help with broker abstractions, market data contracts, exports, and related code changes."

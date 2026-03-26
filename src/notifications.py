@@ -8,6 +8,7 @@ from src.config import settings
 from src.logger_config import configured_logger as logger
 from src.qmt_constants import get_account_status_name, get_status_name
 from src.stock_info import get_stock_display_name
+from src.strategy.core.models import SignalCard
 
 
 class FeishuNotifier:
@@ -62,6 +63,146 @@ class FeishuNotifier:
         except Exception as e:
             logger.error(f"发送飞书通知时发生错误: {e}")
             return False
+
+    @staticmethod
+    def _format_number(value: Any, digits: int = 2) -> str:
+        """Format numeric values for notification messages."""
+        if value is None:
+            return "N/A"
+
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return str(value)
+
+        if number.is_integer():
+            return f"{int(number):,}"
+
+        return f"{number:,.{digits}f}"
+
+    def notify_runtime_event(
+        self,
+        component: str,
+        event: str,
+        detail: str = "",
+        level: str = "info",
+    ) -> bool:
+        """Send startup, shutdown, and runtime status notifications."""
+        title_map = {
+            "info": f"🔔 {component}",
+            "success": f"✅ {component}",
+            "warning": f"⚠️ {component}",
+            "error": f"❌ {component}",
+        }
+
+        message = f"组件: {component}\n事件: {event}"
+        if detail:
+            message += f"\n详情: {detail}"
+
+        return self.send_message(message, title_map.get(level, title_map["info"]))
+
+    def notify_t0_signal(self, signal_card: Any, stock_code: Optional[str] = None) -> bool:
+        """Send T+0 strategy signal notifications."""
+        if isinstance(signal_card, SignalCard):
+            return self._notify_t0_signal_from_card(signal_card, stock_code)
+
+        signal = signal_card.get("signal", {})
+        action = signal.get("action", "observe")
+        is_error = bool(signal_card.get("error"))
+
+        if action == "observe" and not is_error and not settings.t0_notify_observe_signals:
+            logger.info("T+0 observe 信号通知已跳过，可通过 T0_NOTIFY_OBSERVE_SIGNALS=true 开启")
+            return True
+
+        stock_code = stock_code or settings.t0_stock_code
+        stock_display = get_stock_display_name(stock_code) if stock_code else settings.t0_stock_code
+        market = signal_card.get("market", {})
+        position = signal_card.get("position", {})
+        scores = signal_card.get("scores", {})
+
+        message = f"股票: {stock_display}\n"
+        message += (
+            f"时间: {signal_card.get('as_of_time', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))}\n"
+        )
+        message += f"市场状态: {signal_card.get('regime', 'unknown')}\n"
+        message += f"信号: {action}\n"
+        message += f"原因: {signal.get('reason', 'N/A')}\n"
+        message += f"建议价格: {self._format_number(signal.get('price'))}\n"
+        message += f"建议数量: {self._format_number(signal.get('volume'), digits=0)}\n"
+
+        if market:
+            message += (
+                f"最新价 / VWAP: {self._format_number(market.get('price'))}"
+                f" / {self._format_number(market.get('vwap'))}\n"
+            )
+
+        if position:
+            message += (
+                f"仓位(总 / 可用): {self._format_number(position.get('total'), digits=0)}"
+                f" / {self._format_number(position.get('available'), digits=0)}\n"
+            )
+
+        if scores:
+            message += (
+                f"评分(fake_breakout / absorption): "
+                f"{self._format_number(scores.get('fake_breakout'))}"
+                f" / {self._format_number(scores.get('absorption'))}"
+            )
+
+        if is_error:
+            title = "❌ T+0策略异常"
+        elif action == "observe":
+            title = "👀 T+0观察信号"
+        else:
+            title = "📮 T+0交易信号"
+
+        return self.send_message(message, title)
+
+    def _notify_t0_signal_from_card(
+        self, signal_card: SignalCard, stock_code: Optional[str] = None
+    ) -> bool:
+        action = signal_card.signal.action
+
+        if action == "observe" and not settings.t0_notify_observe_signals:
+            logger.info("T+0 observe 信号通知已跳过，可通过 T0_NOTIFY_OBSERVE_SIGNALS=true 开启")
+            return True
+
+        stock_code = stock_code or settings.t0_stock_code
+        stock_display = get_stock_display_name(stock_code) if stock_code else settings.t0_stock_code
+
+        message = f"股票: {stock_display}\n"
+        message += f"时间: {signal_card.as_of_time}\n"
+        message += f"市场状态: {signal_card.regime}\n"
+        message += f"信号: {signal_card.signal.action}\n"
+        message += f"原因: {signal_card.signal.reason}\n"
+        message += f"建议价格: {self._format_number(signal_card.signal.price)}\n"
+        message += f"建议数量: {self._format_number(signal_card.signal.volume, digits=0)}\n"
+        message += (
+            f"最新价 / VWAP: {self._format_number(signal_card.market.price)}"
+            f" / {self._format_number(signal_card.market.vwap)}\n"
+        )
+        message += (
+            f"仓位(总 / 可用): {self._format_number(signal_card.position.total, digits=0)}"
+            f" / {self._format_number(signal_card.position.available, digits=0)}\n"
+        )
+        message += (
+            f"评分(fake_breakout / absorption): "
+            f"{self._format_number(signal_card.scores.get('fake_breakout'))}"
+            f" / {self._format_number(signal_card.scores.get('absorption'))}"
+        )
+
+        title = "👀 T+0观察信号" if action == "observe" else "📮 T+0交易信号"
+        return self.send_message(message, title)
+
+    def notify_t0_position_sync(self, stock_code: str, success: bool, detail: str = "") -> bool:
+        """Send T+0 position-sync notifications."""
+        stock_display = get_stock_display_name(stock_code) if stock_code else settings.t0_stock_code
+        message = f"股票: {stock_display}\n结果: {'成功' if success else '失败'}"
+        if detail:
+            message += f"\n详情: {detail}"
+
+        title = "✅ T+0仓位同步" if success else "❌ T+0仓位同步"
+        return self.send_message(message, title)
 
     def notify_signal_received(self, signal_data: Dict[str, Any]) -> bool:
         """通知收到交易信号"""

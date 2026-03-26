@@ -18,9 +18,20 @@ else:
 
 from src.config import settings
 from src.logger_config import configured_logger as logger
+from src.notifications import FeishuNotifier
 from src.redis_listener import RedisSignalListener
 from src.trading_day_checker import is_trading_day
 from src.trading_service import TradingService
+
+
+def _resolve_qmt_session_id(mode: str) -> int:
+    """Resolve a mode-specific QMT session id with fallback to the default value."""
+    session_id_map = {
+        "trading-service": settings.qmt_session_id_trading_service,
+        "t0-daemon": settings.qmt_session_id_t0_daemon,
+        "t0-sync": settings.qmt_session_id_t0_sync,
+    }
+    return session_id_map.get(mode) or settings.qmt_session_id
 
 
 def main():
@@ -64,6 +75,16 @@ def main():
             manage_trading_calendar()
         elif command == "pnl-summary":
             send_pnl_summary()
+        elif command == "export-daily":
+            export_daily()
+        elif command == "t0-strategy":
+            run_t0_strategy()
+        elif command == "t0-daemon":
+            run_t0_daemon()
+        elif command == "t0-sync-position":
+            sync_t0_position()
+        elif command == "t0-backtest":
+            run_t0_backtest(sys.argv[2:])
         else:
             print_usage()
     else:
@@ -167,7 +188,7 @@ def test_system():
     try:
         from src.trader import QMTTrader
 
-        trader = QMTTrader()
+        trader = QMTTrader(session_id=_resolve_qmt_session_id("trading-service"))
         qmt_ok = trader.connect()
         if qmt_ok:
             trader.disconnect()
@@ -380,6 +401,146 @@ def send_pnl_summary():
         logger.error(f"发送盈亏汇总通知失败: {e}")
 
 
+def export_daily():
+    """导出每日持仓与成交记录"""
+    logger.info("导出每日持仓与成交记录")
+    logger.info("=" * 50)
+
+    try:
+        from src.daily_exporter import export_daily_data
+
+        # 执行导出
+        success = export_daily_data()
+
+        if success:
+            logger.info("✓ 每日数据导出完成")
+        else:
+            logger.error("× 每日数据导出失败")
+
+    except Exception as e:
+        logger.error(f"导出每日数据失败: {e}")
+
+
+def _notify_t0_runtime(component: str, event: str, detail: str = "", level: str = "info"):
+    """Best-effort T+0 runtime notifications."""
+    try:
+        FeishuNotifier().notify_runtime_event(component, event, detail, level)
+    except Exception as notify_error:
+        logger.error(f"T+0运行通知发送失败: {notify_error}")
+
+
+def run_t0_strategy():
+    """运行一次T+0策略"""
+    logger.info("运行T+0策略...")
+    _notify_t0_runtime("T+0策略", "启动", "开始执行一次策略信号生成", "info")
+    try:
+        from src.strategy.t0_orchestrator import T0Orchestrator
+
+        orchestrator = T0Orchestrator()
+        signal_card = orchestrator.run_once()
+        logger.info(f"策略执行完成: {signal_card['signal']['action']}")
+        _notify_t0_runtime(
+            "T+0策略",
+            "完成",
+            f"本次结果: {signal_card['signal']['action']}",
+            "success" if not signal_card.get("error") else "warning",
+        )
+    except Exception as e:
+        logger.error(f"T+0策略执行失败: {e}")
+        _notify_t0_runtime("T+0策略", "异常退出", str(e), "error")
+
+
+def run_t0_daemon():
+    """持续运行T+0策略(每分钟)"""
+    import time
+
+    logger.info("启动T+0策略守护进程...")
+    _notify_t0_runtime("T+0守护进程", "启动", "开始按分钟轮询策略信号", "info")
+
+    exit_detail = "守护进程已停止"
+    exit_level = "success"
+    try:
+        from src.strategy.t0_orchestrator import T0Orchestrator
+
+        session_id = _resolve_qmt_session_id("t0-daemon")
+        logger.info(f"T+0守护进程使用QMT Session ID: {session_id}")
+        orchestrator = T0Orchestrator()
+
+        while True:
+            try:
+                now = time.localtime()
+                if 9 <= now.tm_hour < 15:
+                    orchestrator.run_once()
+                time.sleep(60)
+            except KeyboardInterrupt:
+                logger.info("收到停止信号")
+                exit_detail = "收到停止信号，守护进程正常退出"
+                break
+            except Exception as e:
+                logger.error(f"策略执行异常: {e}")
+                _notify_t0_runtime("T+0守护进程", "轮询异常", str(e), "error")
+                time.sleep(60)
+    except Exception as e:
+        logger.error(f"T+0守护进程启动失败: {e}")
+        exit_detail = f"启动失败: {e}"
+        exit_level = "error"
+    finally:
+        _notify_t0_runtime("T+0守护进程", "停止", exit_detail, exit_level)
+
+
+def sync_t0_position():
+    """从QMT同步仓位"""
+    logger.info("同步T+0策略仓位...")
+    _notify_t0_runtime("T+0仓位同步", "启动", f"开始同步 {settings.t0_stock_code} 仓位", "info")
+    try:
+        from src.strategy.position_syncer import PositionSyncer
+        from src.trader import QMTTrader
+
+        session_id = _resolve_qmt_session_id("t0-sync")
+        logger.info(f"T+0仓位同步使用QMT Session ID: {session_id}")
+        trader = QMTTrader(session_id=session_id)
+        if not trader.connect():
+            logger.error("QMT连接失败")
+            FeishuNotifier().notify_t0_position_sync(
+                settings.t0_stock_code, False, "QMT连接失败，未能同步仓位"
+            )
+            return
+
+        syncer = PositionSyncer()
+        success = syncer.sync_from_qmt(trader, settings.t0_stock_code)
+
+        if success:
+            logger.info("仓位同步成功")
+            FeishuNotifier().notify_t0_position_sync(
+                settings.t0_stock_code, True, "已从QMT成功同步仓位"
+            )
+        else:
+            logger.error("仓位同步失败")
+            FeishuNotifier().notify_t0_position_sync(
+                settings.t0_stock_code, False, "同步过程返回失败结果"
+            )
+
+        trader.disconnect()
+    except Exception as e:
+        logger.error(f"仓位同步失败: {e}")
+        FeishuNotifier().notify_t0_position_sync(settings.t0_stock_code, False, f"同步异常: {e}")
+
+
+def run_t0_backtest(argv=None):
+    """运行 T+0 文件回测。"""
+    try:
+        from src.backtest.cli import run_backtest_cli
+
+        raise_code = run_backtest_cli(argv)
+        if raise_code:
+            logger.error(f"T+0回测执行失败，退出码: {raise_code}")
+    except SystemExit as exc:
+        if exc.code not in (0, None):
+            logger.error(f"T+0回测参数错误，退出码: {exc.code}")
+    except Exception as e:
+        logger.error(f"T+0回测执行失败: {e}")
+
+
 def print_usage():
     """打印使用说明"""
     logger.info("使用方法:")
@@ -391,6 +552,11 @@ def print_usage():
     logger.info("  python main.py stock-info        - 管理股票信息缓存")
     logger.info("  python main.py calendar          - 管理交易日历")
     logger.info("  python main.py pnl-summary       - 手动发送当日盈亏汇总通知")
+    logger.info("  python main.py export-daily      - 导出每日持仓与成交记录")
+    logger.info("  python main.py t0-strategy       - 运行一次T+0策略")
+    logger.info("  python main.py t0-daemon         - 持续运行T+0策略(每分钟)")
+    logger.info("  python main.py t0-sync-position  - 从QMT同步仓位")
+    logger.info("  python main.py t0-backtest       - 运行文件驱动的T+0回测")
     logger.info("")
     logger.info("重试参数（仅适用于 run 和 test-run）:")
     logger.info("  --max-retries=N                  - 最大重试次数（默认: 3）")
@@ -399,6 +565,9 @@ def print_usage():
     logger.info("示例:")
     logger.info("  python main.py run --max-retries=5 --retry-delay=30")
     logger.info("  python main.py test-run --max-retries=2")
+    logger.info(
+        "  python main.py t0-backtest --minute-data data.csv --daily-data daily.csv --output-dir output/backtest"
+    )
 
 
 if __name__ == "__main__":

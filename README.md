@@ -5,7 +5,7 @@
 ## 功能特性
 
 - 🔄 **实时监听**: 监听Redis频道接收交易信号
-- 📈 **自动交易**: 接收信号后自动执行买卖操作  
+- 📈 **自动交易**: 接收信号后自动执行买卖操作
 - 💾 **数据记录**: 将交易信号和订单信息存储到本地数据库
 - 📱 **飞书通知**: 实时推送交易状态到飞书群聊
 - ⏰ **计划任务**: 支持通过Windows任务计划程序自动运行
@@ -183,7 +183,28 @@ uv run python main.py stock-info
 
 # 管理交易日历
 uv run python main.py calendar
+
+# 运行 T+0 文件回测
+uv run python main.py t0-backtest --minute-data minute.csv --daily-data daily.csv
 ```
+
+### T+0 文件回测
+
+可在 Linux 或 Windows 上直接使用 csv/parquet 文件运行分钟级回测：
+
+```bash
+uv run python main.py t0-backtest \
+   --minute-data ./data/minute_601138.parquet \
+   --daily-data ./data/daily_601138.parquet \
+   --symbol 601138.SH \
+   --output-dir ./output/backtest
+```
+
+输出文件：
+
+- `signals.csv`
+- `fills.csv`
+- `summary.json`
 
 ## 监控和维护
 

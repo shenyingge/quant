@@ -26,7 +26,8 @@ from src.trading_calendar_manager import initialize_trading_calendar, trading_ca
 class TradingService:
     def __init__(self):
         self.notifier = FeishuNotifier()
-        self.trader = QMTTrader(self.notifier)
+        session_id = settings.qmt_session_id_trading_service or settings.qmt_session_id
+        self.trader = QMTTrader(self.notifier, session_id=session_id)
         self.redis_listener = None
         self.is_running = False
         self.order_monitor_thread = None
@@ -88,6 +89,9 @@ class TradingService:
 
         # 启动盈亏汇总调度器
         self._setup_pnl_summary_scheduler()
+
+        # 启动每日数据导出调度器
+        self._setup_daily_export_scheduler()
 
         # 初始化交易日历并设置自动更新
         self._setup_trading_calendar()
@@ -662,6 +666,28 @@ class TradingService:
 
         except Exception as e:
             logger.error(f"设置盈亏汇总调度器失败: {e}")
+
+    def _setup_daily_export_scheduler(self):
+        """设置每日数据导出调度器"""
+        try:
+            self.pnl_scheduler.every().day.at("15:20").do(self._run_daily_export)
+            logger.info("每日数据导出调度器设置完成：每天15:20导出并上传")
+        except Exception as e:
+            logger.error(f"设置每日导出调度器失败: {e}")
+
+    def _run_daily_export(self):
+        """执行每日数据导出"""
+        try:
+            logger.info("开始执行每日数据导出...")
+            from src.daily_exporter import export_daily_data
+
+            success = export_daily_data()
+            if success:
+                logger.info("每日数据导出完成")
+            else:
+                logger.error("每日数据导出失败")
+        except Exception as e:
+            logger.error(f"每日数据导出异常: {e}")
 
     def _send_daily_pnl_summary(self):
         """发送当日盈亏汇总通知"""

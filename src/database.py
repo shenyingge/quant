@@ -100,6 +100,46 @@ class StockInfo(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class StrategyRegimeState(Base):
+    """策略市场状态表"""
+
+    __tablename__ = "strategy_regime_state"
+
+    id = Column(Integer, primary_key=True)
+    strategy_name = Column(String(50), nullable=False, index=True)
+    trade_date = Column(Date, nullable=False, index=True)
+    regime = Column(String(20), nullable=False)
+    ma20 = Column(Float)
+    ma60 = Column(Float)
+    trend_spread = Column(Float)
+    confirmation_days = Column(Integer, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (Index("idx_strategy_date", "strategy_name", "trade_date"),)
+
+
+class StrategySignalHistory(Base):
+    """策略信号历史表"""
+
+    __tablename__ = "strategy_signal_history"
+
+    id = Column(Integer, primary_key=True)
+    strategy_name = Column(String(50), nullable=False, index=True)
+    trade_date = Column(Date, nullable=False, index=True)
+    signal_time = Column(DateTime, nullable=False)
+    regime = Column(String(20))
+    signal_action = Column(String(30))
+    branch_locked = Column(String(20), nullable=True)
+    stock_code = Column(String(20))
+    price = Column(Float)
+    suggested_volume = Column(Integer)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        Index("idx_strategy_date_time", "strategy_name", "trade_date", "signal_time"),
+    )
+
+
 engine = create_engine(settings.db_url)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 

@@ -41,6 +41,11 @@ class Settings(BaseSettings):
 
     # QMT配置
     qmt_session_id: int = Field(default=123456, env="QMT_SESSION_ID")
+    qmt_session_id_trading_service: Optional[int] = Field(
+        default=None, env="QMT_SESSION_ID_TRADING_SERVICE"
+    )
+    qmt_session_id_t0_daemon: Optional[int] = Field(default=None, env="QMT_SESSION_ID_T0_DAEMON")
+    qmt_session_id_t0_sync: Optional[int] = Field(default=None, env="QMT_SESSION_ID_T0_SYNC")
     qmt_path: str = Field(default="", env="QMT_PATH")
     qmt_account_id: str = Field(default="", env="QMT_ACCOUNT_ID")
     qmt_account_type: str = Field(default="STOCK", env="QMT_ACCOUNT_TYPE")
@@ -92,6 +97,48 @@ class Settings(BaseSettings):
     test_mode_enabled: bool = Field(
         default=False, env="TEST_MODE_ENABLED"
     )  # 测试模式（可在非交易日启动服务）
+
+    # T+0策略配置
+    t0_strategy_enabled: bool = Field(default=False, env="T0_STRATEGY_ENABLED")
+    t0_stock_code: str = Field(default="601138.SH", env="T0_STOCK_CODE")
+    t0_output_dir: str = Field(default="./output", env="T0_OUTPUT_DIR")
+    t0_notify_observe_signals: bool = Field(default=False, env="T0_NOTIFY_OBSERVE_SIGNALS")
+    t0_base_position: int = Field(default=2600, env="T0_BASE_POSITION")
+    t0_tactical_position: int = Field(default=900, env="T0_TACTICAL_POSITION")
+    t0_trade_unit: int = Field(default=100, env="T0_TRADE_UNIT")
+    t0_max_trade_value: float = Field(default=70000, env="T0_MAX_TRADE_VALUE")
+    t0_min_hold_minutes: int = Field(default=20, env="T0_MIN_HOLD_MINUTES")
+    t0_positive_sell_start_time: str = Field(default="09:45", env="T0_POSITIVE_SELL_START_TIME")
+    t0_positive_sell_end_time: str = Field(default="11:20", env="T0_POSITIVE_SELL_END_TIME")
+    t0_positive_buyback_start_time: str = Field(
+        default="13:30", env="T0_POSITIVE_BUYBACK_START_TIME"
+    )
+    t0_positive_buyback_end_time: str = Field(default="14:56", env="T0_POSITIVE_BUYBACK_END_TIME")
+    t0_reverse_buy_start_time: str = Field(default="09:50", env="T0_REVERSE_BUY_START_TIME")
+    t0_reverse_buy_end_time: str = Field(default="13:20", env="T0_REVERSE_BUY_END_TIME")
+    t0_reverse_sell_start_time: str = Field(default="13:20", env="T0_REVERSE_SELL_START_TIME")
+    t0_reverse_sell_end_time: str = Field(default="14:56", env="T0_REVERSE_SELL_END_TIME")
+    t0_positive_sell_min_rise: float = Field(default=1.0, env="T0_POSITIVE_SELL_MIN_RISE")
+    t0_positive_sell_min_pullback: float = Field(default=0.5, env="T0_POSITIVE_SELL_MIN_PULLBACK")
+    t0_reverse_buy_min_drop: float = Field(default=1.5, env="T0_REVERSE_BUY_MIN_DROP")
+    t0_reverse_buy_min_bounce: float = Field(default=0.4, env="T0_REVERSE_BUY_MIN_BOUNCE")
+    t0_reverse_sell_min_profit: float = Field(default=1.2, env="T0_REVERSE_SELL_MIN_PROFIT")
+    t0_reverse_sell_max_vwap_distance: float = Field(
+        default=0.5, env="T0_REVERSE_SELL_MAX_VWAP_DISTANCE"
+    )
+
+    # NS主机每日导出配置
+    ns_host: str = Field(default="ns", env="NS_HOST")
+    ns_scp_remote_dir: str = Field(default="~/data/trade", env="NS_SCP_REMOTE_DIR")
+
+    # Meta DB配置
+    meta_db_host: str = Field(default="", env="META_DB_HOST")
+    meta_db_port: int = Field(default=15432, env="META_DB_PORT")
+    meta_db_name: str = Field(default="", env="META_DB_NAME")
+    meta_db_user: str = Field(default="", env="META_DB_USER")
+    meta_db_password: str = Field(default="", env="META_DB_PASSWORD")
+    meta_db_type: str = Field(default="postgresql+asyncpg", env="META_DB_TYPE")
+    meta_db_schema: str = Field(default="", env="META_DB_SCHEMA")
 
     # Python路径配置
     pythonpath: Optional[str] = Field(default=None, env="PYTHONPATH")

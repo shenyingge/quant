@@ -1,0 +1,4 @@
+interface:
+  display_name: "QMT Service Dev"
+  short_description: "Service architecture, config, and ops"
+  default_prompt: "Use $qmt-service-dev to inspect the quant repository and help with trading service architecture, configuration, operations, and safe code changes."

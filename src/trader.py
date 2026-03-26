@@ -558,8 +558,8 @@ class QMTCallback(XtQuantTraderCallback):
 
 
 class QMTTrader:
-    def __init__(self, notifier=None):
-        self.session_id = settings.qmt_session_id
+    def __init__(self, notifier=None, session_id=None):
+        self.session_id = settings.qmt_session_id if session_id is None else int(session_id)
         self.is_connected = False
         self.xt_trader = None
         self.account = None
@@ -790,6 +790,50 @@ class QMTTrader:
         except Exception as e:
             logger.debug(f"QMT健康检查异常: {e}")
             return False
+
+    def query_position(self, stock_code: str) -> Optional[Dict[str, Any]]:
+        """查询单只股票持仓，返回策略同步所需的标准字段。"""
+        if not self.is_connected or not self.xt_trader or not self.account:
+            logger.error("QMT未连接或未初始化，无法查询持仓")
+            return None
+
+        try:
+            positions = self.xt_trader.query_stock_positions(self.account)
+            if positions is None:
+                logger.warning("QMT持仓查询返回空结果")
+                return None
+
+            target_code = stock_code.split(".")[0].upper()
+            for position in positions:
+                position_code = getattr(position, "stock_code", "")
+                if position_code.split(".")[0].upper() != target_code:
+                    continue
+
+                return {
+                    "stock_code": position_code,
+                    "volume": getattr(position, "volume", 0),
+                    "can_use_volume": getattr(position, "can_use_volume", 0),
+                    "open_price": getattr(
+                        position,
+                        "open_price",
+                        getattr(position, "avg_price", 0),
+                    ),
+                    "market_value": getattr(position, "market_value", 0),
+                    "last_price": getattr(position, "last_price", 0),
+                }
+
+            logger.info(f"未查询到股票持仓: {stock_code}")
+            return {
+                "stock_code": stock_code,
+                "volume": 0,
+                "can_use_volume": 0,
+                "open_price": 0,
+                "market_value": 0,
+                "last_price": 0,
+            }
+        except Exception as e:
+            logger.error(f"查询持仓失败: {e}")
+            return None
 
     def place_order(self, signal_data: Dict[str, Any]) -> Optional[str]:
         """下单（同步版本，使用异步线程但等待结果）"""

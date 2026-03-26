@@ -17,35 +17,8 @@ set PROJECT_DIR=%CD%
 echo Project directory: %PROJECT_DIR%
 echo.
 
-REM Detect MSYS2 installation
-set MSYS2_PATH=
-if exist "C:\msys64" (
-    set MSYS2_PATH=C:\msys64
-) else if exist "C:\msys2" (
-    set MSYS2_PATH=C:\msys2
-) else (
-    echo ERROR: MSYS2 not found in C:\msys64 or C:\msys2
-    echo Please install MSYS2 from: https://www.msys2.org/
-    pause
-    exit /b 1
-)
-
-echo Found MSYS2 at: %MSYS2_PATH%
-echo.
-
 REM Ensure logs directory exists
 if not exist "%PROJECT_DIR%\logs" mkdir "%PROJECT_DIR%\logs"
-
-REM Create a batch file wrapper for the task
-echo Creating task wrapper...
-(
-echo @echo off
-echo cd /d "%PROJECT_DIR%"
-echo "%MSYS2_PATH%\usr\bin\bash.exe" -l -c "cd /c/Users/shen/quant && ./scripts/task_runner.sh"
-) > "%PROJECT_DIR%\scripts\task_wrapper.bat"
-
-echo Task wrapper created: %PROJECT_DIR%\scripts\task_wrapper.bat
-echo.
 
 REM Remove existing tasks
 echo Removing existing tasks...
@@ -56,7 +29,7 @@ REM Create START task
 echo Creating START task (8:00 AM daily)...
 schtasks /create ^
     /tn "QMT_Trading_Service" ^
-    /tr "%PROJECT_DIR%\scripts\task_wrapper.bat" ^
+    /tr "%PROJECT_DIR%\scripts\task_wrapper_trading.bat" ^
     /sc DAILY ^
     /st 08:00 ^
     /f ^
@@ -75,7 +48,7 @@ REM Create STOP task
 echo Creating STOP task (9:00 PM daily)...
 schtasks /create ^
     /tn "QMT_Trading_Service_Stop" ^
-    /tr "taskkill /f /im python.exe" ^
+    /tr "%PROJECT_DIR%\scripts\stop_trading_service.bat" ^
     /sc DAILY ^
     /st 21:00 ^
     /f ^
@@ -102,7 +75,7 @@ echo To test the task manually:
 echo   schtasks /run /tn "QMT_Trading_Service"
 echo.
 echo To view logs:
-echo   type "%PROJECT_DIR%\logs\task_execution.log"
+echo   type "%PROJECT_DIR%\logs\task_execution_trading.log"
 echo.
 echo To manage tasks:
 echo   Open Task Scheduler: taskschd.msc
