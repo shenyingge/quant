@@ -3,6 +3,7 @@ import locale
 import os
 import sys
 from datetime import date
+from typing import Optional
 
 # 设置编码环境
 if sys.platform.startswith("win"):
@@ -15,14 +16,36 @@ if sys.platform.startswith("win"):
         sys.stderr.reconfigure(encoding="utf-8")
 else:
     # 非Windows系统
-    locale.setlocale(locale.LC_ALL, "zh_CN.UTF-8")
+    for locale_name in ("zh_CN.UTF-8", "C.UTF-8", ""):
+        try:
+            locale.setlocale(locale.LC_ALL, locale_name)
+            break
+        except locale.Error:
+            continue
 
 from src.config import settings
+from src.logger_config import configure_process_logger
 from src.logger_config import configured_logger as logger
-from src.notifications import FeishuNotifier
-from src.redis_listener import RedisSignalListener
 from src.trading_day_checker import is_trading_day
-from src.trading_service import TradingService
+
+
+def _resolve_app_role(command: Optional[str]) -> str:
+    role_map = {
+        "run": "trading_service",
+        "test-run": "trading_service",
+        "test": "system_test",
+        "backup": "backup_service",
+        "backup-config": "backup_service",
+        "stock-info": "stock_info",
+        "calendar": "calendar",
+        "pnl-summary": "pnl_summary",
+        "export-daily": "daily_export",
+        "t0-strategy": "t0_strategy",
+        "t0-daemon": "t0_daemon",
+        "t0-sync-position": "t0_sync_position",
+        "t0-backtest": "t0_backtest",
+    }
+    return role_map.get(command or "", "cli")
 
 
 def _resolve_qmt_session_id(mode: str) -> int:
@@ -37,12 +60,13 @@ def _resolve_qmt_session_id(mode: str) -> int:
 
 def main():
     """主程序入口"""
+    command = sys.argv[1].lower() if len(sys.argv) > 1 else None
+    configure_process_logger(_resolve_app_role(command))
+
     logger.info(f"QMT自动交易服务 v{settings.__dict__.get('version', '1.0.0')}")
     logger.info("=" * 50)
 
     if len(sys.argv) > 1:
-        command = sys.argv[1].lower()
-
         # 解析重试参数
         max_retries = 3
         retry_delay = 60
@@ -115,6 +139,8 @@ def main():
 
 def run_service(test_mode: bool = False, max_retries: int = 3, retry_delay: int = 60):
     """直接运行服务，支持重试机制"""
+    from src.trading_service import TradingService
+
     if test_mode:
         logger.info("启动交易服务（测试模式）...")
         # 临时启用测试模式
@@ -186,6 +212,8 @@ def run_service(test_mode: bool = False, max_retries: int = 3, retry_delay: int 
 
 def test_system():
     """测试系统连接"""
+    from src.redis_listener import RedisSignalListener
+
     logger.info("正在测试系统连接...")
 
     # 测试Redis连接
@@ -473,6 +501,8 @@ def export_minute_daily(argv=None):
 def _notify_t0_runtime(component: str, event: str, detail: str = "", level: str = "info"):
     """Best-effort T+0 runtime notifications."""
     try:
+        from src.notifications import FeishuNotifier
+
         FeishuNotifier().notify_runtime_event(component, event, detail, level)
     except Exception as notify_error:
         logger.error(f"T+0运行通知发送失败: {notify_error}")
@@ -542,6 +572,7 @@ def sync_t0_position():
     logger.info("同步T+0策略仓位...")
     _notify_t0_runtime("T+0仓位同步", "启动", f"开始同步 {settings.t0_stock_code} 仓位", "info")
     try:
+        from src.notifications import FeishuNotifier
         from src.strategy.position_syncer import PositionSyncer
         from src.trader import QMTTrader
 

@@ -1,12 +1,13 @@
 """日内特征计算模块"""
 
+import logging
 from typing import Dict, Optional
 
-import numpy as np
 import pandas as pd
 
-from src.logger_config import logger
 from src.strategy.core.models import FeatureSnapshot
+
+logger = logging.getLogger(__name__)
 
 
 class FeatureCalculator:

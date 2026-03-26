@@ -67,6 +67,16 @@ class PositionSyncer:
             logger.warning("仓位文件不存在，使用默认值")
             return self._get_default_position()
 
+        try:
+            with open(self.position_file, "r", encoding="utf-8") as f:
+                position = json.load(f)
+            position = self._normalize_position_state(position)
+            logger.debug(f"加载仓位: {position.get('stock_code')}")
+            return position
+        except Exception as e:
+            logger.error(f"加载仓位失败: {e}")
+            return self._get_default_position()
+
     def load_portfolio_state(self) -> PortfolioState:
         """加载标准化仓位状态对象。"""
         position = self.load_position() or self._get_default_position()
@@ -86,16 +96,6 @@ class PositionSyncer:
             t0_buy_capacity=int(position.get("t0_buy_capacity", 0)),
             cash_available=float(position.get("cash_available", 0) or 0),
         )
-
-        try:
-            with open(self.position_file, "r", encoding="utf-8") as f:
-                position = json.load(f)
-            position = self._normalize_position_state(position)
-            logger.debug(f"加载仓位: {position.get('stock_code')}")
-            return position
-        except Exception as e:
-            logger.error(f"加载仓位失败: {e}")
-            return self._get_default_position()
 
     def _save_position(self, position: dict):
         """保存仓位到文件"""

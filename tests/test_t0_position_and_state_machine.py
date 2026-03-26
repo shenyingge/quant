@@ -1,4 +1,5 @@
 from datetime import date, datetime
+import json
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -36,6 +37,30 @@ def test_position_syncer_normalizes_base_and_tactical_capacity():
     assert position["max_position"] == 3500
     assert position["t0_sell_available"] == 900
     assert position["t0_buy_capacity"] == 0
+
+
+def test_position_syncer_loads_existing_position_file(tmp_path):
+    syncer = PositionSyncer(output_dir=str(tmp_path))
+    syncer.position_file.write_text(
+        json.dumps(
+            {
+                "stock_code": "601138.SH",
+                "total_position": 3500,
+                "available_volume": 3500,
+                "cost_price": 72.68,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    position = syncer.load_position()
+    portfolio = syncer.load_portfolio_state()
+
+    assert position is not None
+    assert position["total_position"] == 3500
+    assert position["t0_sell_available"] == 900
+    assert portfolio.total_position == 3500
+    assert portfolio.t0_sell_available == 900
 
 
 def test_reverse_t_buy_is_blocked_when_tactical_buy_capacity_is_zero():
