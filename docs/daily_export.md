@@ -1,77 +1,85 @@
-# 每日持仓与成交记录导出
+# 每日持仓与成交导出
 
 ## 功能说明
 
-每日收盘后从 QMT 查询当日持仓和委托成交数据：
-- CSV 文件导出到 `data/daily_export/` 目录
-- 通过 SCP 上传到 NS 主机 (`~/data/trade/YYYYMMDD/`)
+收盘后从 QMT 查询当日持仓和委托成交数据，并执行两件事：
+
+- 导出 CSV 到 `data/daily_export/`
+- 通过 `rsync` 同步到 NS 主机的 `~/data/trade/YYYYMMDD/`
 
 ## 使用方式
 
 ```bash
-# 手动执行导出
 uv run python main.py export-daily
 ```
 
-服务运行时自动调度于每天 15:20 执行导出。
+服务运行时会在每天 `15:20` 自动调度执行。
 
 ## 导出文件
 
-### positions_YYYYMMDD.csv — 持仓数据
+### `positions_YYYYMMDD.csv`
 
-| 字段 | 说明 |
-|------|------|
-| stock_code | 股票代码 |
-| volume | 持仓数量 |
-| can_use_volume | 可用数量 |
-| avg_price | 成本价 |
-| last_price | 最新价 |
-| market_value | 市值 |
-| float_profit | 浮动盈亏 |
-| profit_rate | 盈亏比例 |
+字段：
 
-### trades_YYYYMMDD.csv — 委托成交数据
+- `stock_code`
+- `volume`
+- `can_use_volume`
+- `avg_price`
+- `last_price`
+- `market_value`
+- `float_profit`
+- `profit_rate`
 
-| 字段 | 说明 |
-|------|------|
-| order_id | 委托编号 |
-| stock_code | 股票代码 |
-| order_type | 委托类型 |
-| order_volume | 委托数量 |
-| price | 委托价格 |
-| traded_volume | 成交数量 |
-| traded_price | 成交价格 |
-| order_status | 委托状态码 |
-| order_time | 委托时间 |
-| status_desc | 状态描述 |
+### `trades_YYYYMMDD.csv`
 
-## SCP 上传
+字段：
 
-导出完成后自动通过 `scp` 命令上传到 NS 主机，按日期子目录组织。
+- `order_id`
+- `stock_code`
+- `order_type`
+- `order_volume`
+- `price`
+- `traded_volume`
+- `traded_price`
+- `order_status`
+- `order_time`
+- `status_desc`
 
-### 远程目录结构
+## rsync 同步
 
-```
+导出完成后，程序会自动执行 `rsync`，按日期子目录上传。
+
+远端目录结构示例：
+
+```text
 ~/data/trade/
-├── 20260312/
-│   ├── positions_20260312.csv
-│   └── trades_20260312.csv
-├── 20260313/
-│   ├── positions_20260313.csv
-│   └── trades_20260313.csv
+  20260312/
+    positions_20260312.csv
+    trades_20260312.csv
+  20260313/
+    positions_20260313.csv
+    trades_20260313.csv
 ```
 
-### 配置 (.env)
+## 配置
 
 ```bash
-NS_HOST=ns                        # SSH config 别名
-NS_SCP_REMOTE_DIR=~/data/trade    # 远程基础目录
+NS_HOST=ns
+NS_SCP_REMOTE_DIR=~/data/trade
+
+# 当 NS_HOST 不是 ssh config 别名时可显式指定
+NS_SSH_USERNAME=shen
+NS_SSH_KEY_FILE=C:/Users/shen/.ssh/trading_backup_key
+NS_SSH_PORT=22
+
+RSYNC_BIN=rsync
+SSH_BIN=ssh
 ```
 
-`scp` 命令直接读取 `~/.ssh/config` 中的 Host、User、IdentityFile 等配置，无需在 `.env` 中重复设置。
+`rsync`/`ssh` 会直接复用本机的 `~/.ssh/config`、agent 和密钥配置；如果 `NS_HOST` 是别名，通常不需要再在 `.env` 里重复填写用户名或密钥。
 
-### 注意事项
+## 注意事项
 
-- SCP 上传失败不会阻塞 CSV 导出，仅记录警告日志
-- 同一天重复执行会覆盖远程和本地的同名文件
-- 需确保 `~/.ssh/config` 中已配置 `ns` 主机的连接信息
+- `rsync` 失败不会阻塞 CSV 导出，只会记录 warning 日志。
+- 同一天重复执行会覆盖远端和本地同名文件。
+- 运行机器需要能直接执行 `rsync` 和 `ssh`。

@@ -130,6 +130,11 @@ class Settings(BaseSettings):
     # NS主机每日导出配置
     ns_host: str = Field(default="ns", env="NS_HOST")
     ns_scp_remote_dir: str = Field(default="~/data/trade", env="NS_SCP_REMOTE_DIR")
+    ns_ssh_username: Optional[str] = Field(default=None, env="NS_SSH_USERNAME")
+    ns_ssh_key_file: Optional[str] = Field(default=None, env="NS_SSH_KEY_FILE")
+    ns_ssh_port: int = Field(default=22, env="NS_SSH_PORT")
+    rsync_bin: str = Field(default="rsync", env="RSYNC_BIN")
+    ssh_bin: str = Field(default="ssh", env="SSH_BIN")
 
     # Meta DB配置
     meta_db_host: str = Field(default="", env="META_DB_HOST")
