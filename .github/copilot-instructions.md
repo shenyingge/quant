@@ -27,6 +27,7 @@ This repository mixes three different concerns that should stay separated when m
 - Do not run order-placement tests or scripts unless the user explicitly wants live or simulated trading validation.
 - Preserve configuration symmetry. When adding strategy or runtime parameters, update `src/config.py`, `.env.example`, and the consuming adapter/core code together.
 - Preserve existing JSON and notification contracts when editing signal-card or export payloads.
+- Treat `output/` as runtime state, not source. Files like `output/live_signal_card.json` and `output/position_state.json` may be inspected for debugging, but should generally stay out of version control.
 
 ## Testing Guidance
 

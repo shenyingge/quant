@@ -12,6 +12,8 @@
 - 📊 **订单监控**: 实时监控订单状态和成交情况
 - 🔧 **自动备份**: 每日自动备份交易数据
 - 📅 **交易日历**: 使用akshare获取准确的交易日历，非交易日自动跳过
+- ♻️ **T+0信号引擎**: 支持单次运行、守护轮询、仓位同步与纯文件回测
+- 📤 **收盘导出**: 支持每日持仓与成交记录导出并上传到远端主机
 
 ## 系统要求
 
@@ -40,15 +42,23 @@ quant/
 │   ├── backup_service.py  # 数据备份服务
 │   ├── stock_info.py      # 股票信息缓存
 │   ├── trading_calendar_manager.py # 交易日历管理
-│   └── trading_day_checker.py # 交易日检查
+│   ├── trading_day_checker.py # 交易日检查
+│   ├── daily_exporter.py  # 每日持仓与成交导出
+│   ├── data_manager/      # 市场数据下载/标准化/校验
+│   ├── strategy/          # T+0 实时适配器与纯策略核心
+│   └── backtest/          # Linux/文件驱动回测组件
 ├── scripts/               # 脚本文件
 │   ├── README.md          # 脚本使用说明
 │   ├── setup_task_simple.bat # 设置计划任务（推荐）
-│   ├── task_runner.sh     # 定时任务执行脚本
+│   ├── setup_t0_tasks.bat # 设置 T+0 计划任务
+│   ├── task_runner.ps1    # Windows 定时任务执行脚本
+│   ├── task_runner.sh     # 旧版 shell 定时任务执行脚本
 │   ├── run_console.bat    # 手动运行脚本
 │   └── load_env.sh        # 环境变量加载
 ├── logs/                  # 日志文件目录
-│   ├── task_execution.log # 任务执行日志
+│   ├── task_execution_trading.log # 交易服务计划任务日志
+│   ├── task_execution_t0_daemon.log # T+0 守护进程任务日志
+│   ├── task_execution_t0_sync.log # T+0 仓位同步任务日志
 │   └── trading_service.log # 交易服务日志
 ├── backups/               # 数据备份目录
 ├── tests/                 # 测试文件
@@ -84,10 +94,19 @@ REDIS_SIGNAL_CHANNEL=trading_signals
 QMT_SESSION_ID=666  # 会话ID（自动检测可用）
 QMT_PATH=C:/国金QMT交易端模拟/userdata_mini
 QMT_ACCOUNT_ID=39266820
+QMT_SESSION_ID_TRADING_SERVICE=666
+QMT_SESSION_ID_T0_DAEMON=667
+QMT_SESSION_ID_T0_SYNC=668
 
 # 飞书通知配置
 FEISHU_WEBHOOK_URL=https://open.feishu.cn/open-apis/bot/v2/hook/your-webhook
 FEISHU_SECRET=your-secret-key
+
+# T+0 配置
+T0_STOCK_CODE=601138.SH
+T0_BASE_POSITION=2600
+T0_TACTICAL_POSITION=900
+T0_NOTIFY_OBSERVE_SIGNALS=false
 
 # 日志配置
 LOG_LEVEL=INFO
@@ -135,7 +154,7 @@ scripts\setup_task_simple.bat
 - 每天 8:00 AM 自动启动交易服务
 - 每天 9:00 PM 自动停止服务
 - 非交易日自动跳过
-- 日志输出到 `logs/task_execution.log`
+- 日志输出到 `logs/task_execution_trading.log`
 
 ## 交易信号格式
 
@@ -184,6 +203,21 @@ uv run python main.py stock-info
 # 管理交易日历
 uv run python main.py calendar
 
+# 手动发送当日盈亏汇总
+uv run python main.py pnl-summary
+
+# 导出每日持仓和成交
+uv run python main.py export-daily
+
+# 运行一次 T+0 信号生成
+uv run python main.py t0-strategy
+
+# 启动 T+0 守护进程
+uv run python main.py t0-daemon
+
+# 从 QMT 同步 T+0 仓位
+uv run python main.py t0-sync-position
+
 # 运行 T+0 文件回测
 uv run python main.py t0-backtest --minute-data minute.csv --daily-data daily.csv
 ```
@@ -206,13 +240,24 @@ uv run python main.py t0-backtest \
 - `fills.csv`
 - `summary.json`
 
+### T+0 运行产物
+
+实时 T+0 会在 `output/` 目录写入运行态文件，例如：
+
+- `live_signal_card.json`
+- `position_state.json`
+
+这些文件属于本地运行产物，当前已加入 Git 忽略规则，不再纳入版本控制。
+
 ## 监控和维护
 
 ### 日志文件
 
-- `logs/task_execution.log` - 任务执行日志（包含启动、停止、错误信息）
+- `logs/task_execution_trading.log` - 交易服务计划任务日志（包含启动、停止、错误信息）
 - `logs/trading_service.log` - 交易服务详细日志
 - `logs/task_debug.log` - 调试日志（如有）
+- `logs/task_execution_t0_daemon.log` - T+0 守护进程任务日志
+- `logs/task_execution_t0_sync.log` - T+0 仓位同步任务日志
 
 ### 数据备份
 
@@ -252,7 +297,7 @@ uv run python main.py t0-backtest \
 
 4. **计划任务不执行**
    - 检查Windows任务计划程序中的任务状态
-   - 查看 `logs/task_execution.log` 中的错误信息
+   - 查看 `logs/task_execution_trading.log` 中的错误信息
    - 确保以管理员权限创建任务
 
 ## 开发和测试

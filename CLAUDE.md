@@ -55,6 +55,21 @@ uv run python main.py calendar
 # Send daily P&L summary notification
 uv run python main.py pnl-summary
 
+# Export daily holdings and trades
+uv run python main.py export-daily
+
+# Run T+0 once
+uv run python main.py t0-strategy
+
+# Run T+0 daemon
+uv run python main.py t0-daemon
+
+# Sync T+0 position from QMT
+uv run python main.py t0-sync-position
+
+# Run file-driven T+0 backtest
+uv run python main.py t0-backtest --minute-data minute.csv --daily-data daily.csv
+
 # Database migration (run after updates)
 uv run python migrate_db.py
 ```
@@ -125,9 +140,28 @@ uv run python tests/run_tests.py --pytest
 ### Windows Service Integration
 
 The system can run as a Windows scheduled task using scripts in the `scripts/` directory:
-- `setup_task.bat`: Creates scheduled task for daily automated trading
-- `task_runner.sh`: MINGW64 runner script for the scheduled task
-- Session ID auto-detection for QMT connection
+- `setup_task_simple.bat`: Creates scheduled tasks for the main trading service
+- `setup_t0_tasks.bat`: Creates scheduled tasks for T+0 daemon and position sync
+- `task_runner.ps1`: Primary Windows scheduled-task runner
+- `task_runner.sh`: Legacy shell runner kept for older environments
+- Mode-specific QMT session IDs are supported for trading service, T+0 daemon, and T+0 sync
+
+## T+0 Strategy And Backtest
+
+The repository now contains a separated T+0 stack:
+
+- `src/strategy/core/`: pure strategy models, params, regime classifier, and state machine
+- `src/strategy/`: realtime adapters, repositories, notifier/output integration
+- `src/backtest/`: file-driven Linux-friendly backtest loader, simulator, and CLI
+
+Key T+0 commands:
+
+- `python main.py t0-strategy`: run once and write the latest signal card
+- `python main.py t0-daemon`: poll every minute during market hours
+- `python main.py t0-sync-position`: sync current QMT position into local T+0 state
+- `python main.py t0-backtest ...`: run file-driven backtests that emit `signals.csv`, `fills.csv`, and `summary.json`
+
+Runtime outputs under `output/` are generated local state, not source files to keep under version control.
 
 ### Important Considerations
 

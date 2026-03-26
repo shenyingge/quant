@@ -65,6 +65,8 @@ Outputs:
 - `fills.csv`
 - `summary.json`
 
+These backtest outputs are generated files. Keep them out of committed source changes unless the user explicitly asks to version sample artifacts.
+
 ## Simulator Behavior
 
 `T0BacktestSimulator` currently:

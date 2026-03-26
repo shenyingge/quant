@@ -37,6 +37,7 @@ Start with [references/core-and-runtime.md](references/core-and-runtime.md) for 
 - When adding parameters, update all three places together:
   `src/config.py`, `.env.example`, and `src/strategy/core/params.py`.
 - When changing signal-card output, update both realtime tests and notifier expectations.
+- Treat `output/` files as generated runtime artifacts. They are useful for inspection, but should not be treated as durable source files.
 
 ## References
 

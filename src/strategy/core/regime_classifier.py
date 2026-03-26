@@ -1,0 +1,52 @@
+"""纯市场状态识别逻辑。"""
+
+import pandas as pd
+
+
+class RegimeClassifier:
+    """不依赖缓存和持久化的市场状态分类器。"""
+
+    def calculate(self, df: pd.DataFrame) -> str:
+        if len(df) < 60:
+            return "transition"
+
+        working = df.copy()
+        working["ma20"] = working["close"].rolling(20).mean()
+        working["ma60"] = working["close"].rolling(60).mean()
+
+        latest = working.iloc[-1]
+        ma20 = latest["ma20"]
+        ma60 = latest["ma60"]
+        close = latest["close"]
+        trend_spread = ((ma20 / ma60) - 1) * 100 if ma60 > 0 else 0
+        ma20_slope = self._calculate_slope(working["ma20"], 5)
+        ma60_slope = self._calculate_slope(working["ma60"], 10)
+
+        if (
+            ma20 > ma60
+            and trend_spread >= 1.5
+            and close > ma20
+            and ma20_slope > 0
+            and ma60_slope >= 0
+        ):
+            return "uptrend"
+
+        if (
+            ma20 < ma60
+            and trend_spread <= -1.5
+            and close < ma20
+            and ma20_slope < 0
+            and ma60_slope <= 0
+        ):
+            return "downtrend"
+
+        return "transition"
+
+    def _calculate_slope(self, series: pd.Series, window: int) -> float:
+        recent = series.tail(window).values
+        if len(recent) < 2:
+            return 0.0
+        base = recent[0]
+        if not base:
+            return 0.0
+        return float((recent[-1] - base) / base * 100)

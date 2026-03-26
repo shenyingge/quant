@@ -7,8 +7,15 @@
 ```
 scripts/
 ├── setup_task_simple.bat   # ⭐ 创建定时任务（推荐）
+├── setup_t0_tasks.bat      # ⭐ 创建 T+0 定时任务
 ├── run_console.bat         # 手动运行服务
-├── task_runner.sh          # 定时任务执行脚本
+├── task_runner.ps1         # Windows 定时任务执行脚本
+├── task_runner.sh          # 旧版 shell 执行脚本
+├── task_wrapper_trading.bat # 交易服务任务包装器
+├── task_wrapper_t0_daemon.bat # T+0 守护进程任务包装器
+├── task_wrapper_t0_sync.bat # T+0 同步任务包装器
+├── stop_trading_service.bat # 停止交易服务
+├── stop_t0_daemon.bat      # 停止 T+0 守护进程
 └── load_env.sh            # 环境变量加载辅助脚本
 ```
 
@@ -18,13 +25,19 @@ scripts/
 - **用途**：创建 Windows 计划任务
 - **使用方法**：右键"以管理员身份运行"
 - **功能**：
-  - 自动检测 MSYS2 安装路径
-  - 创建 task_wrapper.bat 避免引号问题
   - 创建每日 8:00 AM 启动任务
   - 创建每日 9:00 PM 停止任务
   - 任务名称：QMT_Trading_Service
 
-### 2. `run_console.bat`
+### 2. `setup_t0_tasks.bat`
+- **用途**：创建 T+0 守护与仓位同步计划任务
+- **功能**：
+  - 创建 `QMT_T0_Daemon`
+  - 创建 `QMT_T0_Sync_Position`
+  - 创建 `QMT_T0_Daemon_Stop`
+  - 输出独立的 T+0 日志文件
+
+### 3. `run_console.bat`
 - **用途**：手动在控制台运行交易服务
 - **使用场景**：开发测试、手动交易
 - **运行方式**：双击运行或命令行执行
@@ -33,18 +46,21 @@ scripts/
   - 优先使用 uv 运行服务
   - 按 Ctrl+C 停止服务
 
-### 3. `task_runner.sh`
-- **用途**：定时任务的实际执行脚本
-- **运行环境**：MINGW64/MSYS2
+### 4. `task_runner.ps1`
+- **用途**：当前 Windows 定时任务主执行脚本
+- **运行环境**：PowerShell
 - **功能**：
   - 加载 .env 环境变量
   - 检查 QMT 是否运行
-  - 检查是否为交易日
   - 同步依赖包
-  - 运行交易服务
-  - 记录日志到 `logs/task_execution.log`
+  - 按模式运行交易服务、T+0 守护进程或仓位同步
+  - 分模式记录日志到 `logs/task_execution_trading.log`、`logs/task_execution_t0_daemon.log`、`logs/task_execution_t0_sync.log`
 
-### 4. `load_env.sh`
+### 5. `task_runner.sh`
+- **用途**：旧版 shell 任务执行脚本
+- **状态**：保留兼容，不再是主推荐路径
+
+### 6. `load_env.sh`
 - **用途**：辅助脚本，加载环境变量
 - **调用者**：task_runner.sh
 - **功能**：解析 .env 文件并导出环境变量
@@ -90,7 +106,11 @@ uv run python main.py run
 schtasks /run /tn "QMT_Trading_Service"
 
 # 查看执行日志
-type logs\task_execution.log
+type logs\task_execution_trading.log
+
+# 手动触发 T+0 任务
+schtasks /run /tn "QMT_T0_Daemon"
+schtasks /run /tn "QMT_T0_Sync_Position"
 
 # 查看服务日志
 type logs\trading_service.log
@@ -117,20 +137,21 @@ schtasks /query /tn "QMT_Trading_Service" /v
 
 | 日志文件 | 说明 |
 |---------|------|
-| `logs/task_execution.log` | 定时任务执行日志（脚本级别） |
+| `logs/task_execution_trading.log` | 交易服务定时任务日志 |
+| `logs/task_execution_t0_daemon.log` | T+0 守护进程任务日志 |
+| `logs/task_execution_t0_sync.log` | T+0 仓位同步任务日志 |
 | `logs/trading_service.log` | 交易服务运行日志（应用级别） |
 | `trading.db` | SQLite 数据库（交易记录） |
 
 ## 常见问题
 
 ### 1. 定时任务不执行
-- 检查 MSYS2 是否安装在 C:\msys64 或 C:\msys2
 - 确认任务是否启用（在任务计划程序中查看）
 - 查看 Windows 事件查看器中的错误
 
 ### 2. 服务启动后立即退出
 - 检查是否为交易日（周末和节假日会自动退出）
-- 查看 logs/task_execution.log 中的错误信息
+- 查看 logs/task_execution_trading.log 中的错误信息
 - 确认 QMT 客户端是否已启动并登录
 
 ### 3. 无法连接 QMT
@@ -149,5 +170,5 @@ TRADING_DAY_CHECK_ENABLED=false
 1. **管理员权限**：创建定时任务需要管理员权限
 2. **QMT 依赖**：服务运行前必须启动 QMT 客户端
 3. **交易日检查**：使用 akshare 获取准确的交易日历
-4. **自动停止**：每晚 9:00 PM 自动停止所有 Python 进程（包括交易服务）
+4. **自动停止**：当前通过针对命令行模式的停止脚本结束对应进程，而不是粗暴停止所有 Python 进程
 5. **日志轮转**：建议定期清理或归档日志文件

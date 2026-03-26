@@ -2,7 +2,7 @@
 
 ## Entry Points
 
-- `main.py` is the only CLI entry. It dispatches `run`, `test-run`, `test`, `backup`, `backup-config`, `stock-info`, `calendar`, `pnl-summary`, and `export-daily`.
+- `main.py` is the only CLI entry. It dispatches `run`, `test-run`, `test`, `backup`, `backup-config`, `stock-info`, `calendar`, `pnl-summary`, `export-daily`, `t0-strategy`, `t0-daemon`, `t0-sync-position`, and `t0-backtest`.
 - `run` and `test-run` both end up in `run_service()`, which creates `TradingService` and manages startup retries.
 - Trading-day gating happens before the service loop unless test mode is enabled.
 
@@ -49,3 +49,4 @@
 - `src/redis_listener.py`: message parsing, delivery guarantees, Redis mode behavior.
 - `src/config.py`: environment contract for the rest of the repo.
 - `src/database.py`: tables used by live workflows and operator tooling.
+- `src/daily_exporter.py`: end-of-day positions and trades export flow.

@@ -25,6 +25,9 @@ xtquant/
 logs/
 *.log
 
+# Runtime outputs
+output/
+
 # Data files (keep data directory but ignore backup contents)
 data/backups/
 data/factors/*.parquet
@@ -49,4 +52,4 @@ examples/
 
 data/
 
-strategy/
+/strategy/

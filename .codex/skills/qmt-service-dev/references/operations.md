@@ -12,6 +12,10 @@
 - Manage trading calendar: `uv run python main.py calendar`
 - Send daily summary manually: `uv run python main.py pnl-summary`
 - Export daily holdings and trades: `uv run python main.py export-daily`
+- Run T+0 once: `uv run python main.py t0-strategy`
+- Run T+0 daemon: `uv run python main.py t0-daemon`
+- Sync T+0 position: `uv run python main.py t0-sync-position`
+- Run file-driven T+0 backtest: `uv run python main.py t0-backtest --minute-data minute.csv --daily-data daily.csv`
 
 ## Key Environment Variables
 
@@ -26,15 +30,18 @@
 ## Logs And State
 
 - Main log file is usually `logs/trading_service.log`.
-- Scheduled-task wrapper logs may land in `logs/task_execution.log`.
+- Scheduled-task wrapper logs usually land in `logs/task_execution_trading.log`, `logs/task_execution_t0_daemon.log`, or `logs/task_execution_t0_sync.log`.
 - SQLite DB defaults to `trading.db`.
 - Daily export output goes to `data/daily_export/`.
+- Runtime T+0 snapshots are written under `output/` and should be treated as generated local state.
 
 ## Scheduled Operation
 
 - Windows task helpers are in `scripts/`.
 - `scripts/setup_task_simple.bat` is the primary repo-level automation entrypoint.
-- `scripts/run_console.bat`, `scripts/task_runner.sh`, and `scripts/load_env.sh` are relevant when debugging environment-loading or task execution.
+- `scripts/setup_t0_tasks.bat` manages the T+0 scheduled tasks.
+- `scripts/run_console.bat`, `scripts/task_runner.ps1`, and the `task_wrapper_*.bat` files are the main Windows execution path.
+- `scripts/task_runner.sh` and `scripts/load_env.sh` remain relevant for older shell-based environments.
 
 ## Safe Testing
 

@@ -59,6 +59,12 @@ Responsibilities:
 - write `output/live_signal_card.json`
 - send T+0 notifications
 
+Runtime artifacts:
+
+- `output/live_signal_card.json` is a generated snapshot for operators and debugging
+- `output/position_state.json` is generated state, not source of truth for strategy logic changes
+- `output/` should be treated as local runtime output rather than committed project content
+
 ### Entry points
 
 Files:
