@@ -1,5 +1,5 @@
 @echo off
-echo Starting QMT Trading Service (Console Mode)...
+echo Starting QMT Trading Engine (Console Mode)...
 echo.
 
 REM Switch to project directory
@@ -16,15 +16,15 @@ if not exist ".env" (
     echo.
 )
 
-echo Starting trading service (Console Mode)...
-echo Press Ctrl+C to stop the service
+echo Starting trading engine (Console Mode)...
+echo Press Ctrl+C to stop the engine
 echo.
 
 REM Run service directly (non-Windows service mode)
 REM Try uv first, fallback to direct python if uv not available
 uv --version >nul 2>&1
 if %errorLevel% == 0 (
-    echo Using uv to run the service...
+    echo Using uv to run the engine...
     uv run python main.py run
 ) else (
     echo uv not found in PATH, using direct python execution...
@@ -42,5 +42,5 @@ if %errorLevel% == 0 (
 )
 
 echo.
-echo Trading service exited
+echo Trading engine exited
 pause

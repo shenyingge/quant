@@ -1,6 +1,6 @@
 @echo off
-echo QMT T0 Strategy - Task Setup
-echo ============================
+echo QMT Strategy Engine - Task Setup
+echo =================================
 echo.
 
 REM Check if running as administrator
@@ -22,14 +22,17 @@ if not exist "%PROJECT_DIR%\logs" mkdir "%PROJECT_DIR%\logs"
 
 REM Remove existing tasks
 echo Removing existing tasks...
+schtasks /delete /tn "QMT_Strategy_Engine" /f >nul 2>&1
+schtasks /delete /tn "QMT_Strategy_Position_Sync" /f >nul 2>&1
+schtasks /delete /tn "QMT_Strategy_Engine_Stop" /f >nul 2>&1
 schtasks /delete /tn "QMT_T0_Daemon" /f >nul 2>&1
 schtasks /delete /tn "QMT_T0_Sync_Position" /f >nul 2>&1
 schtasks /delete /tn "QMT_T0_Daemon_Stop" /f >nul 2>&1
 
-REM Create daemon start task
-echo Creating daemon START task (09:25 AM daily)...
+REM Create strategy engine start task
+echo Creating strategy engine START task (09:25 AM daily)...
 schtasks /create ^
-    /tn "QMT_T0_Daemon" ^
+    /tn "QMT_Strategy_Engine" ^
     /tr "%PROJECT_DIR%\scripts\task_wrapper_t0_daemon.bat" ^
     /sc DAILY ^
     /st 09:25 ^
@@ -37,18 +40,18 @@ schtasks /create ^
     /rl HIGHEST
 
 if %errorLevel% == 0 (
-    echo [OK] Daemon START task created successfully
+    echo [OK] Strategy engine START task created successfully
 ) else (
-    echo [ERROR] Daemon START task creation failed
+    echo [ERROR] Strategy engine START task creation failed
     echo Error code: %errorLevel%
     pause
     exit /b 1
 )
 
 REM Create position sync task
-echo Creating position SYNC task (03:00 PM daily)...
+echo Creating strategy position SYNC task (03:00 PM daily)...
 schtasks /create ^
-    /tn "QMT_T0_Sync_Position" ^
+    /tn "QMT_Strategy_Position_Sync" ^
     /tr "%PROJECT_DIR%\scripts\task_wrapper_t0_sync.bat" ^
     /sc DAILY ^
     /st 15:00 ^
@@ -63,10 +66,10 @@ if %errorLevel% == 0 (
     exit /b 1
 )
 
-REM Create daemon stop task
-echo Creating daemon STOP task (03:01 PM daily)...
+REM Create strategy engine stop task
+echo Creating strategy engine STOP task (03:01 PM daily)...
 schtasks /create ^
-    /tn "QMT_T0_Daemon_Stop" ^
+    /tn "QMT_Strategy_Engine_Stop" ^
     /tr "%PROJECT_DIR%\scripts\stop_t0_daemon.bat" ^
     /sc DAILY ^
     /st 15:01 ^
@@ -74,9 +77,9 @@ schtasks /create ^
     /rl HIGHEST
 
 if %errorLevel% == 0 (
-    echo [OK] Daemon STOP task created successfully
+    echo [OK] Strategy engine STOP task created successfully
 ) else (
-    echo [ERROR] Daemon STOP task creation failed
+    echo [ERROR] Strategy engine STOP task creation failed
     pause
     exit /b 1
 )
@@ -87,13 +90,13 @@ echo Setup Complete!
 echo ============================================
 echo.
 echo Created Tasks:
-echo - QMT_T0_Daemon (09:25 AM daily)
-echo - QMT_T0_Sync_Position (03:00 PM daily)
-echo - QMT_T0_Daemon_Stop (03:01 PM daily)
+echo - QMT_Strategy_Engine (09:25 AM daily)
+echo - QMT_Strategy_Position_Sync (03:00 PM daily)
+echo - QMT_Strategy_Engine_Stop (03:01 PM daily)
 echo.
 echo To test the tasks manually:
-echo   schtasks /run /tn "QMT_T0_Daemon"
-echo   schtasks /run /tn "QMT_T0_Sync_Position"
+echo   schtasks /run /tn "QMT_Strategy_Engine"
+echo   schtasks /run /tn "QMT_Strategy_Position_Sync"
 echo.
 echo To view logs:
 echo   type "%PROJECT_DIR%\logs\task_execution_t0_daemon.log"
@@ -102,6 +105,6 @@ echo.
 echo IMPORTANT:
 echo 1. Make sure QMT client is running before 09:25 AM
 echo 2. Check .env file configuration
-echo 3. T0 daemon only evaluates during market hours
+echo 3. Strategy engine only evaluates during market hours
 echo.
 pause

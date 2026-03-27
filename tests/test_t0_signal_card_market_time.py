@@ -4,7 +4,7 @@ import pandas as pd
 
 from src.strategy.core.models import FeatureSnapshot, PortfolioState
 from src.strategy.feature_calculator import FeatureCalculator
-from src.strategy.t0_orchestrator import T0Orchestrator
+from src.strategy.strategy_engine import StrategyEngine
 
 
 def test_feature_calculator_includes_latest_bar_time():
@@ -27,9 +27,9 @@ def test_feature_calculator_includes_latest_bar_time():
 
 
 def test_signal_card_market_contains_bar_time():
-    orchestrator = T0Orchestrator()
+    strategy_engine = StrategyEngine()
 
-    signal_card = orchestrator._build_signal_card(
+    signal_card = strategy_engine._build_signal_card(
         trade_date=datetime(2026, 3, 26).date(),
         regime="transition",
         features=FeatureSnapshot(
@@ -62,9 +62,9 @@ def test_signal_card_market_contains_bar_time():
 
 
 def test_signal_card_market_uses_realtime_snapshot_when_available():
-    orchestrator = T0Orchestrator()
+    strategy_engine = StrategyEngine()
 
-    signal_card = orchestrator._build_signal_card(
+    signal_card = strategy_engine._build_signal_card(
         trade_date=datetime(2026, 3, 26).date(),
         regime="transition",
         features=FeatureSnapshot(

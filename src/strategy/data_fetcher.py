@@ -1,12 +1,15 @@
-"""数据获取模块 - 从QMT获取分钟和日线数据"""
+"""Data fetching for T+0 strategy intraday and daily inputs."""
 
+import re
 import time
 from datetime import date, datetime
 from pathlib import Path
 from typing import Optional
 
+import numpy as np
 import pandas as pd
 
+from src.config import settings
 from src.logger_config import logger
 
 try:
@@ -17,62 +20,47 @@ except ImportError:
 
 
 class DataFetcher:
-    """数据获取器"""
+    """Fetches intraday bars, daily bars, and realtime snapshots."""
 
-    def __init__(self, cache_dir: str = "./cache"):
+    _PERIOD_RE = re.compile(r"^(?P<value>\d+)(?P<unit>[sm])$", re.IGNORECASE)
+
+    def __init__(self, cache_dir: str = "./cache", intraday_period: Optional[str] = None):
         self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self._daily_cache = {}
+        raw_period = intraday_period or getattr(settings, "t0_intraday_bar_period", "1m")
+        self.intraday_period = self._normalize_intraday_period(raw_period)
+        self.intraday_period_seconds = self._period_to_seconds(self.intraday_period)
 
     def fetch_minute_data(
         self, stock_code: str, trade_date: date, retry: int = 3
     ) -> Optional[pd.DataFrame]:
-        """获取分钟数据
-
-        Args:
-            stock_code: 股票代码
-            trade_date: 交易日期
-            retry: 重试次数
-
-        Returns:
-            分钟数据DataFrame或None
-        """
+        """Fetches the configured intraday bars for one trade date."""
         if xtdata is None:
             logger.error("xtdata未安装")
             return None
 
         for attempt in range(retry):
             try:
-                # 使用count方式获取最近的分钟数据
-                data = xtdata.get_market_data(
-                    stock_list=[stock_code],
-                    period="1m",
-                    count=240,
-                    dividend_type="front",
-                )
-
-                if data is None:
-                    raise ValueError("数据为空")
-
-                df = self._normalize_market_data(data, stock_code)
+                local_df = self._fetch_minute_data_from_local_cache(stock_code, trade_date)
+                market_df = self._fetch_recent_minute_data(stock_code, trade_date)
+                df = self._choose_preferred_minute_data(local_df, market_df)
 
                 if df is None or df.empty:
-                    raise ValueError("数据为空")
+                    raise ValueError(f"未获取到 {trade_date} 的日内数据")
 
-                df = self._filter_minute_data_for_trade_date(df, trade_date)
+                self._warn_if_minute_data_is_stale(df, stock_code, trade_date)
 
-                if df is None or df.empty:
-                    df = self._fetch_minute_data_from_local_cache(stock_code, trade_date)
-
-                if df is None or df.empty:
-                    raise ValueError(f"未获取到 {trade_date} 的分钟数据")
-
-                # 验证数据
                 valid, msg = self._validate_minute_data(df, trade_date)
                 if not valid:
                     raise ValueError(msg)
 
-                logger.info(f"获取分钟数据成功: {stock_code}, {len(df)}条")
+                logger.info(
+                    "获取日内数据成功: %s, period=%s, rows=%s",
+                    stock_code,
+                    self.intraday_period,
+                    len(df),
+                )
                 return df
 
             except Exception as e:
@@ -83,20 +71,84 @@ class DataFetcher:
                     logger.error("数据获取失败且无缓存")
                     return None
 
+        return None
+
+    def _fetch_recent_minute_data(
+        self, stock_code: str, trade_date: date
+    ) -> Optional[pd.DataFrame]:
+        """Reads recent live intraday data and converts it to the configured bar period."""
+        if self._uses_tick_source():
+            tick_df = self._fetch_recent_tick_data(stock_code, trade_date)
+            if tick_df is not None and not tick_df.empty:
+                return self._aggregate_intraday_bars(tick_df, source="tick")
+
+            logger.warning(
+                "tick行情不可用，回退到1分钟K线: stock=%s period=%s",
+                stock_code,
+                self.intraday_period,
+            )
+
+        base_df = self._fetch_recent_base_minute_data(stock_code, trade_date)
+        return self._aggregate_intraday_bars(base_df, source="minute")
+
+    def _fetch_recent_base_minute_data(
+        self, stock_code: str, trade_date: date
+    ) -> Optional[pd.DataFrame]:
+        """Reads 1m bars from xtdata recent window and filters to one trade date."""
+        data = xtdata.get_market_data(
+            stock_list=[stock_code],
+            period="1m",
+            count=self._estimate_recent_minute_count(),
+            dividend_type="front",
+        )
+
+        if data is None:
+            return None
+
+        df = self._normalize_market_data(data, stock_code)
+        if df is None or df.empty:
+            return None
+
+        return self._filter_minute_data_for_trade_date(df, trade_date)
+
+    def _fetch_recent_tick_data(self, stock_code: str, trade_date: date) -> Optional[pd.DataFrame]:
+        """Reads recent tick data when sub-minute bars are requested."""
+        try:
+            data = xtdata.get_market_data(
+                stock_list=[stock_code],
+                period="tick",
+                count=self._estimate_recent_tick_count(),
+                dividend_type="front",
+            )
+        except Exception as exc:
+            logger.warning(f"实时tick拉取失败: {exc}")
+            return None
+
+        if data is None:
+            return None
+
+        df = self._normalize_market_data(data, stock_code)
+        if df is None or df.empty:
+            return None
+
+        return self._filter_minute_data_for_trade_date(df, trade_date)
+
+    def _choose_preferred_minute_data(
+        self, *candidates: Optional[pd.DataFrame]
+    ) -> Optional[pd.DataFrame]:
+        """Chooses the freshest non-empty candidate."""
+        available = [
+            candidate for candidate in candidates if candidate is not None and not candidate.empty
+        ]
+        if not available:
+            return None
+
+        return max(available, key=lambda df: (df.index.max(), len(df)))
+
     def fetch_daily_data(
         self, stock_code: str, days: int = 100, retry: int = 3
     ) -> Optional[pd.DataFrame]:
-        """获取日线数据
-
-        Args:
-            stock_code: 股票代码
-            days: 获取天数
-            retry: 重试次数
-
-        Returns:
-            日线数据DataFrame或None
-        """
-        # 检查内存缓存
+        """Fetches daily data."""
         cache_key = f"{stock_code}_{days}"
         if cache_key in self._daily_cache:
             cached_time, cached_data = self._daily_cache[cache_key]
@@ -131,7 +183,6 @@ class DataFetcher:
                 if len(df) < 20:
                     raise ValueError(f"数据不足: {len(df)}天")
 
-                # 缓存到内存
                 self._daily_cache[cache_key] = (datetime.now(), df)
                 logger.info(f"获取日线数据成功: {stock_code}, {len(df)}天")
                 return df
@@ -144,8 +195,10 @@ class DataFetcher:
                     logger.error("日线数据获取失败")
                     return None
 
+        return None
+
     def fetch_realtime_snapshot(self, stock_code: str) -> Optional[dict]:
-        """获取实时快照，用于补齐分钟K线滞后时的最新市场价格。"""
+        """Fetches the latest tick snapshot."""
         if xtdata is None or not hasattr(xtdata, "get_full_tick"):
             return None
 
@@ -181,7 +234,7 @@ class DataFetcher:
     def _fetch_daily_data_from_local_cache(
         self, stock_code: str, days: int
     ) -> Optional[pd.DataFrame]:
-        """从QMT本地缓存回退获取日线数据。"""
+        """Reads daily data from local QMT cache as fallback."""
         if xtdata is None:
             return None
 
@@ -207,9 +260,20 @@ class DataFetcher:
     def _fetch_minute_data_from_local_cache(
         self, stock_code: str, trade_date: date
     ) -> Optional[pd.DataFrame]:
-        """从QMT本地缓存回退获取指定交易日分钟数据。"""
+        """Reads configured intraday bars from local QMT cache."""
         if xtdata is None:
             return None
+
+        if self._uses_tick_source():
+            tick_df = self._fetch_tick_data_from_local_cache(stock_code, trade_date)
+            if tick_df is not None and not tick_df.empty:
+                return self._aggregate_intraday_bars(tick_df, source="tick")
+
+            logger.warning(
+                "本地tick缓存不可用，回退到1分钟K线: stock=%s period=%s",
+                stock_code,
+                self.intraday_period,
+            )
 
         trade_date_str = trade_date.strftime("%Y%m%d")
 
@@ -222,21 +286,49 @@ class DataFetcher:
                 end_time=trade_date_str,
             )
             df = self._normalize_market_data(data, stock_code)
-            return self._filter_minute_data_for_trade_date(df, trade_date)
+            df = self._filter_minute_data_for_trade_date(df, trade_date)
+            return self._aggregate_intraday_bars(df, source="minute")
         except Exception as e:
             logger.warning(f"本地缓存分钟数据回退失败: {e}")
             return None
 
+    def _fetch_tick_data_from_local_cache(
+        self, stock_code: str, trade_date: date
+    ) -> Optional[pd.DataFrame]:
+        """Reads tick data from local cache when available."""
+        trade_date_str = trade_date.strftime("%Y%m%d")
+
+        try:
+            xtdata.download_history_data(stock_code, "tick", trade_date_str, trade_date_str)
+            data = xtdata.get_local_data(
+                stock_list=[stock_code],
+                period="tick",
+                start_time=trade_date_str,
+                end_time=trade_date_str,
+            )
+        except Exception as exc:
+            logger.warning(f"本地tick缓存回退失败: {exc}")
+            return None
+
+        df = self._normalize_market_data(data, stock_code)
+        return self._filter_minute_data_for_trade_date(df, trade_date)
+
     def _normalize_market_data(self, data, stock_code: str) -> pd.DataFrame:
-        """将xtdata返回结果转换为按时间索引的标准DataFrame。"""
+        """Normalizes xtdata results into a time-indexed DataFrame."""
         if isinstance(data, pd.DataFrame):
             return self._finalize_market_dataframe(data)
 
         if not isinstance(data, dict):
             raise ValueError(f"未知的数据格式: {type(data)}")
 
-        if stock_code in data and isinstance(data[stock_code], pd.DataFrame):
-            return self._finalize_market_dataframe(data[stock_code])
+        if stock_code in data:
+            stock_data = data[stock_code]
+            if isinstance(stock_data, pd.DataFrame):
+                return self._finalize_market_dataframe(stock_data)
+            if isinstance(stock_data, dict):
+                return self._normalize_market_record_dict(stock_data)
+            if self._is_structured_market_array(stock_data):
+                return self._normalize_market_structured_array(stock_data)
 
         normalized_fields = {}
         for field_name, field_value in data.items():
@@ -255,7 +347,12 @@ class DataFetcher:
             normalized_fields[field_name] = series
 
         if not normalized_fields:
-            logger.error(f"无法识别xtdata返回结构, keys={list(data.keys())[:5]}")
+            inner_type = type(data.get(stock_code)).__name__ if stock_code in data else "missing"
+            logger.error(
+                "无法识别xtdata返回结构, keys=%s, stock_value_type=%s",
+                list(data.keys())[:5],
+                inner_type,
+            )
             raise ValueError("未知的dict结构")
 
         df = pd.DataFrame(normalized_fields)
@@ -271,8 +368,41 @@ class DataFetcher:
         df.index = index
         return self._finalize_market_dataframe(df)
 
+    def _normalize_market_record_dict(self, record: dict) -> pd.DataFrame:
+        """Normalizes stock-code keyed dict payloads from xtdata."""
+        if not record:
+            return pd.DataFrame()
+
+        list_like_lengths = []
+        for value in record.values():
+            if isinstance(value, (str, bytes, dict)):
+                continue
+            if pd.api.types.is_list_like(value):
+                try:
+                    list_like_lengths.append(len(value))
+                except TypeError:
+                    continue
+
+        if any(length > 1 for length in list_like_lengths):
+            df = pd.DataFrame(record)
+        else:
+            df = pd.DataFrame([record])
+        return self._finalize_market_dataframe(df)
+
+    def _normalize_market_structured_array(self, values: np.ndarray) -> pd.DataFrame:
+        """Normalizes xtdata structured arrays returned by tick queries."""
+        if values is None or len(values) == 0:
+            return pd.DataFrame()
+
+        df = pd.DataFrame.from_records(values, columns=values.dtype.names)
+        return self._finalize_market_dataframe(df)
+
+    def _is_structured_market_array(self, values) -> bool:
+        """Checks whether a value is a numpy structured array."""
+        return isinstance(values, np.ndarray) and values.dtype.names is not None
+
     def _finalize_market_dataframe(self, df: pd.DataFrame) -> pd.DataFrame:
-        """统一整理市场数据DataFrame的时间索引和数值列。"""
+        """Normalizes index, field aliases, and numeric columns."""
         if df is None or df.empty:
             return df
 
@@ -284,6 +414,18 @@ class DataFetcher:
         elif not isinstance(normalized.index, pd.DatetimeIndex):
             normalized.index = self._convert_market_timestamp(normalized.index)
 
+        alias_map = {
+            "lastPrice": "close",
+            "price": "close",
+            "turnover": "amount",
+            "preClose": "pre_close",
+            "lastClose": "pre_close",
+            "openInt": "openInterest",
+        }
+        for source, target in alias_map.items():
+            if source in normalized.columns and target not in normalized.columns:
+                normalized = normalized.rename(columns={source: target})
+
         normalized.index.name = "datetime"
         normalized = normalized.sort_index()
 
@@ -294,7 +436,7 @@ class DataFetcher:
             "close",
             "volume",
             "amount",
-            "preClose",
+            "pre_close",
             "settelementPrice",
             "openInterest",
         ]
@@ -305,7 +447,7 @@ class DataFetcher:
         return normalized
 
     def _convert_market_timestamp(self, values) -> pd.DatetimeIndex:
-        """将QMT时间戳统一转换为北京时间的无时区时间索引。"""
+        """Converts QMT timestamps to naive Asia/Shanghai datetimes."""
         if pd.api.types.is_numeric_dtype(values):
             converted = pd.to_datetime(values, unit="ms", utc=True)
             if isinstance(converted, pd.Series):
@@ -319,7 +461,7 @@ class DataFetcher:
     def _filter_minute_data_for_trade_date(
         self, df: pd.DataFrame, trade_date: date
     ) -> Optional[pd.DataFrame]:
-        """仅保留目标交易日的分钟数据，避免旧交易日数据混入实时卡片。"""
+        """Keeps only rows that belong to one trade date."""
         if df is None or df.empty:
             return df
 
@@ -332,31 +474,87 @@ class DataFetcher:
 
         return filtered
 
+    def _warn_if_minute_data_is_stale(
+        self, df: pd.DataFrame, stock_code: str, trade_date: date, max_lag_minutes: int = 10
+    ) -> None:
+        """Warns if the latest intraday bar lags the latest tick snapshot too much."""
+        if df is None or df.empty or trade_date != date.today():
+            return
+
+        snapshot = self.fetch_realtime_snapshot(stock_code)
+        snapshot_time = snapshot.get("time") if snapshot else None
+        if not snapshot_time:
+            return
+
+        try:
+            snapshot_dt = pd.Timestamp(snapshot_time)
+        except Exception:
+            return
+
+        latest_bar_time = pd.Timestamp(df.index.max())
+        lag_minutes = (snapshot_dt - latest_bar_time).total_seconds() / 60
+        if lag_minutes > max_lag_minutes:
+            logger.warning(
+                "分钟数据明显滞后: stock=%s latest_bar=%s snapshot_time=%s lag=%.1fmin",
+                stock_code,
+                latest_bar_time,
+                snapshot_dt,
+                lag_minutes,
+            )
+
+    def _get_min_required_minute_rows(
+        self, trade_date: date, bar_seconds: Optional[int] = None
+    ) -> int:
+        """Calculates the minimum number of rows expected for the configured bar period."""
+        effective_bar_seconds = max(int(bar_seconds or self.intraday_period_seconds), 1)
+        if trade_date != date.today():
+            return self._bars_for_seconds(30 * 60, bar_seconds=effective_bar_seconds)
+
+        current_time = datetime.now().time()
+        first_signal_time = min(
+            datetime.strptime(settings.t0_positive_sell_start_time, "%H:%M").time(),
+            datetime.strptime(settings.t0_reverse_buy_start_time, "%H:%M").time(),
+        )
+        if current_time < first_signal_time:
+            return 1
+
+        market_open_time = datetime.strptime("09:30", "%H:%M").time()
+        elapsed_seconds = int(
+            (
+                datetime.combine(trade_date, first_signal_time)
+                - datetime.combine(trade_date, market_open_time)
+            ).total_seconds()
+        )
+        return max(self._bars_for_seconds(elapsed_seconds, bar_seconds=effective_bar_seconds), 1)
+
     def _validate_minute_data(self, df: pd.DataFrame, trade_date: date) -> tuple[bool, str]:
-        """验证分钟数据完整性"""
+        """Validates intraday bar completeness."""
         if df is None or df.empty:
             return False, "数据为空"
 
         required = ["open", "high", "low", "close", "volume"]
-        missing = [f for f in required if f not in df.columns]
+        missing = [field for field in required if field not in df.columns]
         if missing:
             return False, f"缺少字段: {missing}"
 
         if any(index_date != trade_date for index_date in df.index.date):
             return False, f"存在非目标交易日数据: {trade_date}"
 
-        if len(df) < 30:
-            return False, f"数据点不足: {len(df)}"
+        min_required_rows = self._get_min_required_minute_rows(
+            trade_date,
+            bar_seconds=self._infer_bar_seconds(df),
+        )
+        if len(df) < min_required_rows:
+            return False, f"数据点不足: {len(df)} < {min_required_rows}"
 
         return True, "OK"
 
     def _load_cached_minute_data(self, stock_code: str, trade_date: date) -> Optional[pd.DataFrame]:
-        """从缓存加载分钟数据"""
+        """Loads previously cached parquet intraday data when present."""
         cache_file = self.cache_dir / "minute_data" / f"{stock_code}_{trade_date}.parquet"
         if cache_file.exists():
             try:
                 df = pd.read_parquet(cache_file)
-                # 检查缓存是否过期(超过5分钟)
                 if (
                     datetime.now() - datetime.fromtimestamp(cache_file.stat().st_mtime)
                 ).seconds < 300:
@@ -364,3 +562,155 @@ class DataFetcher:
             except Exception as e:
                 logger.warning(f"缓存加载失败: {e}")
         return None
+
+    def _aggregate_intraday_bars(
+        self, df: Optional[pd.DataFrame], *, source: str
+    ) -> Optional[pd.DataFrame]:
+        """Converts raw minute/tick data into the configured bar period."""
+        if df is None or df.empty:
+            return df
+
+        if self.intraday_period_seconds == 60:
+            return df.copy()
+
+        if self._uses_tick_source():
+            if source != "tick":
+                return df.copy()
+            return self._aggregate_tick_data(df)
+
+        return self._resample_ohlcv(df, self._period_to_rule(self.intraday_period))
+
+    def _aggregate_tick_data(self, df: pd.DataFrame) -> Optional[pd.DataFrame]:
+        """Aggregates tick rows into OHLCV bars."""
+        if df is None or df.empty:
+            return df
+
+        working = df.copy().sort_index()
+        if "close" not in working.columns:
+            return None
+
+        if "volume" not in working.columns:
+            working["volume"] = 0.0
+        if "amount" not in working.columns:
+            working["amount"] = working["close"] * working["volume"]
+
+        working["trade_volume"] = self._normalize_tick_accumulator(working["volume"])
+        working["trade_amount"] = self._normalize_tick_accumulator(working["amount"])
+
+        aggregated = working.resample(
+            self._period_to_rule(self.intraday_period),
+            label="right",
+            closed="right",
+        ).agg(
+            open=("close", "first"),
+            high=("close", "max"),
+            low=("close", "min"),
+            close=("close", "last"),
+            volume=("trade_volume", "sum"),
+            amount=("trade_amount", "sum"),
+        )
+        aggregated = aggregated.dropna(subset=["close"])
+
+        if "pre_close" in working.columns:
+            pre_close = (
+                working["pre_close"]
+                .ffill()
+                .resample(
+                    self._period_to_rule(self.intraday_period),
+                    label="right",
+                    closed="right",
+                )
+                .last()
+            )
+            aggregated["pre_close"] = pre_close.reindex(aggregated.index)
+
+        return aggregated
+
+    def _resample_ohlcv(self, df: pd.DataFrame, rule: str) -> Optional[pd.DataFrame]:
+        """Resamples bar data to a slower bar frequency."""
+        if df is None or df.empty:
+            return df
+
+        aggregations = {
+            "open": "first",
+            "high": "max",
+            "low": "min",
+            "close": "last",
+            "volume": "sum",
+        }
+        if "amount" in df.columns:
+            aggregations["amount"] = "sum"
+        if "pre_close" in df.columns:
+            aggregations["pre_close"] = "last"
+
+        aggregated = df.resample(rule, label="right", closed="right").agg(aggregations)
+        return aggregated.dropna(subset=["close"])
+
+    def _normalize_tick_accumulator(self, series: pd.Series) -> pd.Series:
+        """Turns cumulative tick fields into per-tick deltas when needed."""
+        numeric = pd.to_numeric(series, errors="coerce").fillna(0.0)
+        diffs = numeric.diff()
+        if not diffs.dropna().empty and (diffs.dropna() >= 0).all():
+            per_tick = diffs.clip(lower=0.0)
+            per_tick.iloc[0] = max(float(numeric.iloc[0]), 0.0)
+            return per_tick
+        return numeric.clip(lower=0.0)
+
+    def _normalize_intraday_period(self, value: str) -> str:
+        period = str(value or "1m").strip().lower()
+        match = self._PERIOD_RE.match(period)
+        if not match:
+            raise ValueError(f"Unsupported intraday period: {value}")
+        if int(match.group("value")) <= 0:
+            raise ValueError(f"Unsupported intraday period: {value}")
+        return period
+
+    def _period_to_seconds(self, value: str) -> int:
+        match = self._PERIOD_RE.match(value)
+        if not match:
+            raise ValueError(f"Unsupported intraday period: {value}")
+
+        amount = int(match.group("value"))
+        unit = match.group("unit").lower()
+        return amount if unit == "s" else amount * 60
+
+    def _period_to_rule(self, value: str) -> str:
+        match = self._PERIOD_RE.match(value)
+        if not match:
+            raise ValueError(f"Unsupported intraday period: {value}")
+
+        amount = int(match.group("value"))
+        unit = match.group("unit").lower()
+        return f"{amount}{'s' if unit == 's' else 'min'}"
+
+    def _uses_tick_source(self) -> bool:
+        return self.intraday_period_seconds < 60
+
+    def _bars_for_seconds(self, elapsed_seconds: int, bar_seconds: Optional[int] = None) -> int:
+        effective_bar_seconds = max(int(bar_seconds or self.intraday_period_seconds), 1)
+        return max(
+            (max(int(elapsed_seconds), 0) + effective_bar_seconds - 1) // effective_bar_seconds,
+            1,
+        )
+
+    def _infer_bar_seconds(self, df: pd.DataFrame) -> int:
+        if df is None or len(df.index) < 2:
+            return self.intraday_period_seconds
+
+        deltas = df.index.to_series().diff().dropna().dt.total_seconds()
+        if deltas.empty:
+            return self.intraday_period_seconds
+
+        positive_deltas = deltas[deltas > 0]
+        if positive_deltas.empty:
+            return self.intraday_period_seconds
+
+        return max(int(positive_deltas.median()), 1)
+
+    def _estimate_recent_minute_count(self) -> int:
+        # 240 trading minutes plus a small buffer for stale cross-day rows.
+        return 260
+
+    def _estimate_recent_tick_count(self) -> int:
+        # Active symbols can produce many ticks; use a generous window for one session.
+        return 20000

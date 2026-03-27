@@ -46,4 +46,4 @@ def test_notify_t0_signal_accepts_typed_signal_card():
 
     assert notifier.notify_t0_signal(signal_card, "601138.SH") is True
     assert "reverse_t_buy" in captured["message"]
-    assert captured["title"] == "📮 T+0交易信号"
+    assert captured["title"] == "📮 策略引擎交易信号"

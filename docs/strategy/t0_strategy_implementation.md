@@ -585,7 +585,7 @@ src/backtest/
 
 实时系统中的现有模块：
 
-- [src/strategy/t0_orchestrator.py](src/strategy/t0_orchestrator.py)
+- [src/strategy/strategy_engine.py](src/strategy/strategy_engine.py)
 - [src/strategy/signal_generator.py](src/strategy/signal_generator.py)
 - [src/strategy/position_syncer.py](src/strategy/position_syncer.py)
 
@@ -593,7 +593,7 @@ src/backtest/
 
 特别是：
 
-- [src/strategy/t0_orchestrator.py](src/strategy/t0_orchestrator.py) 应只负责调度和输出
+- [src/strategy/strategy_engine.py](src/strategy/strategy_engine.py) 应只负责调度和输出
 - [src/strategy/signal_generator.py](src/strategy/signal_generator.py) 应继续下沉为纯策略核心
 - 行情抓取和仓位同步不应继续混在策略判断过程中
 
@@ -752,7 +752,7 @@ params = {
 1. 先抽 `models.py` 和 `params.py`
 2. 再把 `signal_generator.py` 改成纯状态机，不直接查数据库
 3. 抽出 `MarketDataProvider` 和 `PortfolioStateProvider` 接口
-4. 让 `t0_orchestrator.py` 只负责接入实时数据和落地输出
+4. 让 `strategy_engine.py` 只负责接入实时数据和落地输出
 5. 最后在 Linux 平台写独立 `simulator.py`
 
 ---

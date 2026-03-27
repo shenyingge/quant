@@ -202,7 +202,6 @@ def _run_rsync(
         "--partial",
         "--append-verify",
         f"--timeout={timeout}",
-        f"--contimeout={timeout}",
         "-e",
         _build_rsync_transport(ssh_command),
         *sources,

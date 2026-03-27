@@ -55,7 +55,7 @@ def test_notification_template():
             "title": "订单成交",
             "message": "订单已成交:\n• 订单ID: 987654321\n• 股票信息: 600519(贵州茅台)\n• 成交数量: 10\n• 成交价格: 1580.50\n• 成交金额: 15805.00元",
         },
-        {"title": "服务状态", "message": "服务状态: 已启动\n详情: 交易服务成功启动"},
+        {"title": "交易引擎状态", "message": "交易引擎状态: 已启动\n详情: 交易引擎成功启动"},
     ]
 
     for i, test_case in enumerate(test_cases, 1):

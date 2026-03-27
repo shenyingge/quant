@@ -69,3 +69,8 @@ def test_export_minute_daily_uses_trade_date_defaults(monkeypatch):
         "--skip-zip",
         "--skip-upload",
     ]
+
+
+def test_resolve_app_role_includes_minute_export_commands():
+    assert main_module._resolve_app_role("export-minute-history") == "minute_history_export"
+    assert main_module._resolve_app_role("export-minute-daily") == "minute_history_export"

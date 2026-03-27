@@ -14,11 +14,11 @@ class CaptureNotifier(FeishuNotifier):
 def test_runtime_notification_uses_readable_chinese():
     notifier = CaptureNotifier()
 
-    notifier.notify_runtime_event("T+0策略", "启动", "开始执行一次策略信号生成", "info")
+    notifier.notify_runtime_event("策略引擎", "启动", "开始执行一次策略信号生成", "info")
 
     payload = notifier.sent_messages[-1]
-    assert payload["title"] == "🔔 T+0策略"
-    assert "组件: T+0策略" in payload["message"]
+    assert payload["title"] == "🔔 策略引擎"
+    assert "组件: 策略引擎" in payload["message"]
     assert "事件: 启动" in payload["message"]
     assert "详情: 开始执行一次策略信号生成" in payload["message"]
 
@@ -43,7 +43,7 @@ def test_t0_signal_notification_uses_readable_chinese():
     notifier.notify_t0_signal(signal_card, "601138.SH")
 
     payload = notifier.sent_messages[-1]
-    assert payload["title"] == "📮 T+0交易信号"
+    assert payload["title"] == "📮 策略引擎交易信号"
     assert "股票:" in payload["message"]
     assert "时间: 2026-03-26 10:30:00" in payload["message"]
     assert "市场状态: uptrend" in payload["message"]
@@ -62,7 +62,7 @@ def test_t0_position_sync_notification_uses_readable_chinese():
     notifier.notify_t0_position_sync("601138.SH", True, "已从QMT成功同步仓位")
 
     payload = notifier.sent_messages[-1]
-    assert payload["title"] == "✅ T+0仓位同步"
+    assert payload["title"] == "✅ 策略引擎仓位同步"
     assert "股票:" in payload["message"]
     assert "结果: 成功" in payload["message"]
     assert "详情: 已从QMT成功同步仓位" in payload["message"]

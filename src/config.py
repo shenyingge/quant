@@ -66,10 +66,13 @@ class Settings(BaseSettings):
 
     # 飞书配置
     feishu_webhook_url: Optional[str] = Field(default=None, env="FEISHU_WEBHOOK_URL")
+    feishu_failure_notify_cooldown_seconds: int = Field(
+        default=300, env="FEISHU_FAILURE_NOTIFY_COOLDOWN_SECONDS"
+    )
 
     # 日志配置
     log_level: str = Field(default="INFO", env="LOG_LEVEL")
-    log_file: str = Field(default="./logs/trading_service.log", env="LOG_FILE")
+    log_file: str = Field(default="./logs/trading_engine.log", env="LOG_FILE")
 
     # 服务配置
     max_retry_attempts: int = Field(default=3, env="MAX_RETRY_ATTEMPTS")
@@ -107,6 +110,8 @@ class Settings(BaseSettings):
     t0_tactical_position: int = Field(default=900, env="T0_TACTICAL_POSITION")
     t0_trade_unit: int = Field(default=100, env="T0_TRADE_UNIT")
     t0_max_trade_value: float = Field(default=70000, env="T0_MAX_TRADE_VALUE")
+    t0_intraday_bar_period: str = Field(default="1m", env="T0_INTRADAY_BAR_PERIOD")
+    t0_poll_interval_seconds: int = Field(default=60, env="T0_POLL_INTERVAL_SECONDS")
     t0_min_hold_minutes: int = Field(default=20, env="T0_MIN_HOLD_MINUTES")
     t0_positive_sell_start_time: str = Field(default="09:45", env="T0_POSITIVE_SELL_START_TIME")
     t0_positive_sell_end_time: str = Field(default="11:20", env="T0_POSITIVE_SELL_END_TIME")

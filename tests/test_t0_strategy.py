@@ -100,10 +100,10 @@ def test_orchestrator():
     logger.info("=" * 50)
     logger.info("测试4: 完整策略流程")
     try:
-        from src.strategy.t0_orchestrator import T0Orchestrator
+        from src.strategy.strategy_engine import StrategyEngine
 
-        orchestrator = T0Orchestrator()
-        signal_card = orchestrator.run_once()
+        strategy_engine = StrategyEngine()
+        signal_card = strategy_engine.run_once()
 
         if signal_card:
             logger.info(f"✓ 策略执行成功:")

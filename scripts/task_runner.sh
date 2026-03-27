@@ -100,7 +100,7 @@ export PYTHONUTF8=1
 uv run python main.py run >> "$LOG_FILE" 2>&1
 EXIT_CODE=$?
 
-log_message "Trading service exited with code: $EXIT_CODE"
+log_message "Trading engine exited with code: $EXIT_CODE"
 log_message "Task ended"
 echo "=========================================" >> "$LOG_FILE"
 

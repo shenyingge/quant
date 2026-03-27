@@ -5,7 +5,7 @@
 import threading
 import time
 
-from src.trading_service import TradingService
+from src.trading_engine import TradingEngine
 
 
 class MockFeishuNotifier:
@@ -43,7 +43,7 @@ def test_stop_notification_fix():
     print("=== 测试服务停止通知重复问题修复 ===")
 
     # 创建交易服务
-    service = TradingService()
+    service = TradingEngine()
 
     # 替换通知器为模拟版本
     mock_notifier = MockFeishuNotifier()

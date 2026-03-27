@@ -436,7 +436,7 @@ class QMTCallback(XtQuantTraderCallback):
                                 str(order_id), signal_data, "submitted"
                             )
 
-                            # 调用外部回调，通知TradingService真实的order_id
+                            # 调用外部回调，通知TradingEngine真实的order_id
                             callback = order_info.get("callback")
                             if callback:
                                 callback(str(order_id), None)
@@ -625,10 +625,10 @@ class QMTTrader:
             # 添加回调测试信息
             logger.info(f"回调对象引用: {self.callback is not None}")
 
-            # 启动交易服务
+            # 启动交易引擎
             try:
                 self.xt_trader.start()
-                logger.info("QMT交易服务启动成功")
+                logger.info("QMT交易引擎启动成功")
             except Exception as e:
                 logger.warning(f"启动QMT服务异常: {e}，尝试继续连接")
 

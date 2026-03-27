@@ -1,4 +1,6 @@
 import json
+import threading
+import time
 from datetime import datetime
 from typing import Any, Dict, Optional
 
@@ -10,8 +12,14 @@ from src.qmt_constants import get_account_status_name, get_status_name
 from src.stock_info import get_stock_display_name
 from src.strategy.core.models import SignalCard
 
+STRATEGY_ENGINE_NAME = "策略引擎"
+TRADING_ENGINE_NAME = "交易引擎"
+
 
 class FeishuNotifier:
+    _failure_notification_cache = {}
+    _failure_notification_lock = threading.Lock()
+
     def __init__(self):
         self.webhook_url = settings.feishu_webhook_url
         self._notification_cache = {}  # 通知去重缓存
@@ -80,6 +88,52 @@ class FeishuNotifier:
 
         return f"{number:,.{digits}f}"
 
+    @staticmethod
+    def _normalize_failure_key(*parts: Any) -> str:
+        """Builds a stable throttle key for repeated failure notifications."""
+        normalized_parts = []
+        for part in parts:
+            text = " ".join(str(part or "").split())
+            normalized_parts.append(text[:200])
+        return "|".join(normalized_parts)
+
+    def _should_send_failure_notification(self, category: str, *parts: Any) -> bool:
+        """Rate-limits repeated failure notifications across notifier instances."""
+        cooldown_seconds = max(
+            int(getattr(settings, "feishu_failure_notify_cooldown_seconds", 300) or 0),
+            0,
+        )
+        if cooldown_seconds <= 0:
+            return True
+
+        now = time.time()
+        cache_key = f"{category}:{self._normalize_failure_key(*parts)}"
+
+        with FeishuNotifier._failure_notification_lock:
+            expired_keys = [
+                key
+                for key, sent_at in FeishuNotifier._failure_notification_cache.items()
+                if now - sent_at >= cooldown_seconds
+            ]
+            for key in expired_keys:
+                del FeishuNotifier._failure_notification_cache[key]
+
+            last_sent_at = FeishuNotifier._failure_notification_cache.get(cache_key)
+            if last_sent_at is not None and now - last_sent_at < cooldown_seconds:
+                logger.debug(f"失败通知限频跳过: {cache_key}")
+                return False
+
+            FeishuNotifier._failure_notification_cache[cache_key] = now
+
+            if len(FeishuNotifier._failure_notification_cache) > 512:
+                oldest_key = min(
+                    FeishuNotifier._failure_notification_cache,
+                    key=FeishuNotifier._failure_notification_cache.get,
+                )
+                del FeishuNotifier._failure_notification_cache[oldest_key]
+
+        return True
+
     def notify_runtime_event(
         self,
         component: str,
@@ -99,6 +153,11 @@ class FeishuNotifier:
         if detail:
             message += f"\n详情: {detail}"
 
+        if level in {"warning", "error"} and not self._should_send_failure_notification(
+            "runtime_event", component, event, detail, level
+        ):
+            return True
+
         return self.send_message(message, title_map.get(level, title_map["info"]))
 
     def notify_t0_signal(self, signal_card: Any, stock_code: Optional[str] = None) -> bool:
@@ -111,7 +170,9 @@ class FeishuNotifier:
         is_error = bool(signal_card.get("error"))
 
         if action == "observe" and not is_error and not settings.t0_notify_observe_signals:
-            logger.info("T+0 observe 信号通知已跳过，可通过 T0_NOTIFY_OBSERVE_SIGNALS=true 开启")
+            logger.info(
+                "策略引擎 observe 信号通知已跳过，可通过 T0_NOTIFY_OBSERVE_SIGNALS=true 开启"
+            )
             return True
 
         stock_code = stock_code or settings.t0_stock_code
@@ -150,11 +211,15 @@ class FeishuNotifier:
             )
 
         if is_error:
-            title = "❌ T+0策略异常"
+            if not self._should_send_failure_notification(
+                "t0_signal_error", stock_code, signal.get("reason"), signal.get("action")
+            ):
+                return True
+            title = f"❌ {STRATEGY_ENGINE_NAME}异常"
         elif action == "observe":
-            title = "👀 T+0观察信号"
+            title = f"👀 {STRATEGY_ENGINE_NAME}观察信号"
         else:
-            title = "📮 T+0交易信号"
+            title = f"📮 {STRATEGY_ENGINE_NAME}交易信号"
 
         return self.send_message(message, title)
 
@@ -164,7 +229,9 @@ class FeishuNotifier:
         action = signal_card.signal.action
 
         if action == "observe" and not settings.t0_notify_observe_signals:
-            logger.info("T+0 observe 信号通知已跳过，可通过 T0_NOTIFY_OBSERVE_SIGNALS=true 开启")
+            logger.info(
+                "策略引擎 observe 信号通知已跳过，可通过 T0_NOTIFY_OBSERVE_SIGNALS=true 开启"
+            )
             return True
 
         stock_code = stock_code or settings.t0_stock_code
@@ -191,7 +258,11 @@ class FeishuNotifier:
             f" / {self._format_number(signal_card.scores.get('absorption'))}"
         )
 
-        title = "👀 T+0观察信号" if action == "observe" else "📮 T+0交易信号"
+        title = (
+            f"👀 {STRATEGY_ENGINE_NAME}观察信号"
+            if action == "observe"
+            else f"📮 {STRATEGY_ENGINE_NAME}交易信号"
+        )
         return self.send_message(message, title)
 
     def notify_t0_position_sync(self, stock_code: str, success: bool, detail: str = "") -> bool:
@@ -201,7 +272,16 @@ class FeishuNotifier:
         if detail:
             message += f"\n详情: {detail}"
 
-        title = "✅ T+0仓位同步" if success else "❌ T+0仓位同步"
+        if not success and not self._should_send_failure_notification(
+            "t0_position_sync_failure", stock_code, detail
+        ):
+            return True
+
+        title = (
+            f"✅ {STRATEGY_ENGINE_NAME}仓位同步"
+            if success
+            else f"❌ {STRATEGY_ENGINE_NAME}仓位同步"
+        )
         return self.send_message(message, title)
 
     def notify_signal_received(self, signal_data: Dict[str, Any]) -> bool:
@@ -329,15 +409,22 @@ class FeishuNotifier:
         if context:
             message += f"• 上下文: {context}"
 
+        if not self._should_send_failure_notification("system_error", error_message, context):
+            return True
+
         return self.send_message(message, "❌ 系统错误")
 
     def notify_service_status(self, status: str, message: str = "") -> bool:
         """通知服务状态"""
-        msg = f"服务状态: {status}"
+        msg = f"{TRADING_ENGINE_NAME}状态: {status}"
         if message:
             msg += f"\n详情: {message}"
 
-        title = "🔄 服务状态" if status == "运行中" else "⚠️ 服务状态"
+        title = (
+            f"🔄 {TRADING_ENGINE_NAME}状态"
+            if status == "运行中"
+            else f"⚠️ {TRADING_ENGINE_NAME}状态"
+        )
         return self.send_message(msg, title)
 
     def notify_daily_pnl_summary(self, pnl_data: Dict[str, Any]) -> bool:
@@ -464,7 +551,7 @@ class FeishuNotifier:
         message += f"• 网络连接状态\n"
         message += f"• {connection_name} 服务状态\n"
         message += f"• 防火墙或安全软件设置\n"
-        message += f"• 手动重启交易服务"
+        message += f"• 手动重启{TRADING_ENGINE_NAME}"
 
         return self.send_message(message, "❌ 重连失败")
 

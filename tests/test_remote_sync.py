@@ -109,5 +109,7 @@ def test_sync_file_via_rsync_runs_ssh_mkdir_then_rsync(monkeypatch, tmp_path):
 
     rsync_command = commands[1]["command"]
     assert rsync_command[0] == "rsync"
+    assert "--timeout=20" in rsync_command
+    assert "--contimeout=20" not in rsync_command
     assert "-e" in rsync_command
     assert rsync_command[-1] == "10.10.1.12:~/data/trade/minute_history/"

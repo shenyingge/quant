@@ -19,12 +19,12 @@ if (-not (Test-Path $LogsDir)) {
 switch ($Mode) {
     "trading-service" {
         $LogPath = Join-Path $LogsDir "task_execution_trading.log"
-        $DisplayName = "Trading service"
+        $DisplayName = "Trading engine"
         $MainArgs = @("main.py", "run")
     }
     "t0-daemon" {
         $LogPath = Join-Path $LogsDir "task_execution_t0_daemon.log"
-        $DisplayName = "T0 daemon"
+        $DisplayName = "Strategy engine"
         $MainArgs = @("main.py", "t0-daemon")
     }
     "t0-sync-position" {
@@ -169,46 +169,210 @@ function Resolve-Python {
     return $null
 }
 
+function Get-EnvIntSetting {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Name,
+
+        [Parameter(Mandatory = $true)]
+        [int]$DefaultValue
+    )
+
+    $rawValue = [Environment]::GetEnvironmentVariable($Name, "Process")
+    if ([string]::IsNullOrWhiteSpace($rawValue)) {
+        return $DefaultValue
+    }
+
+    $parsedValue = 0
+    if ([int]::TryParse($rawValue, [ref]$parsedValue)) {
+        return $parsedValue
+    }
+
+    Write-TaskLog "Invalid integer for ${Name}: $rawValue, using default $DefaultValue"
+    return $DefaultValue
+}
+
+function Get-EnvBoolSetting {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Name,
+
+        [Parameter(Mandatory = $true)]
+        [bool]$DefaultValue
+    )
+
+    $rawValue = [Environment]::GetEnvironmentVariable($Name, "Process")
+    if ([string]::IsNullOrWhiteSpace($rawValue)) {
+        return $DefaultValue
+    }
+
+    switch ($rawValue.Trim().ToLowerInvariant()) {
+        "1" { return $true }
+        "true" { return $true }
+        "yes" { return $true }
+        "on" { return $true }
+        "0" { return $false }
+        "false" { return $false }
+        "no" { return $false }
+        "off" { return $false }
+        default {
+            Write-TaskLog "Invalid boolean for ${Name}: $rawValue, using default $DefaultValue"
+            return $DefaultValue
+        }
+    }
+}
+
 function Invoke-LoggedProcess {
     param(
         [Parameter(Mandatory = $true)]
         [string]$FilePath,
 
-        [string[]]$Arguments = @()
+        [string[]]$Arguments = @(),
+
+        [int]$TimeoutSeconds = 0
     )
 
-    $startInfo = New-Object System.Diagnostics.ProcessStartInfo
-    $startInfo.FileName = $FilePath
-    $startInfo.WorkingDirectory = $ProjectDir
-    $startInfo.UseShellExecute = $false
-    $startInfo.CreateNoWindow = $true
-    $startInfo.RedirectStandardOutput = $true
-    $startInfo.RedirectStandardError = $true
-    $startInfo.Arguments = [string]::Join(" ", ($Arguments | ForEach-Object {
-        if ($_ -match '[\s"]') {
-            '"{0}"' -f ($_.Replace('"', '\"'))
+    $stdoutPath = [System.IO.Path]::GetTempFileName()
+    $stderrPath = [System.IO.Path]::GetTempFileName()
+
+    try {
+        $process = Start-Process `
+            -FilePath $FilePath `
+            -ArgumentList $Arguments `
+            -WorkingDirectory $ProjectDir `
+            -NoNewWindow `
+            -PassThru `
+            -RedirectStandardOutput $stdoutPath `
+            -RedirectStandardError $stderrPath
+
+        if ($TimeoutSeconds -gt 0) {
+            if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
+                try {
+                    Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+                }
+                catch {
+                }
+                throw "Process timed out after $TimeoutSeconds seconds: $FilePath $($Arguments -join ' ')"
+            }
         } else {
-            $_
+            $process.WaitForExit()
         }
-    }))
 
-    $process = New-Object System.Diagnostics.Process
-    $process.StartInfo = $startInfo
-    [void]$process.Start()
+        $stdout = Get-Content -Path $stdoutPath -Raw -ErrorAction SilentlyContinue
+        $stderr = Get-Content -Path $stderrPath -Raw -ErrorAction SilentlyContinue
 
-    $stdout = $process.StandardOutput.ReadToEnd()
-    $stderr = $process.StandardError.ReadToEnd()
-    $process.WaitForExit()
+        if ($stdout) {
+            Append-LogContent $stdout.TrimEnd("`r", "`n")
+        }
 
-    if ($stdout) {
-        Append-LogContent $stdout.TrimEnd("`r", "`n")
+        if ($stderr) {
+            Append-LogContent $stderr.TrimEnd("`r", "`n")
+        }
+
+        return $process.ExitCode
+    }
+    finally {
+        Remove-Item -LiteralPath $stdoutPath -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $stderrPath -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Test-QmtReady {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$PythonPath
+    )
+
+    $probeScript = @'
+from src.config import settings
+from src.trader import QMTTrader
+
+session_id = int(settings.qmt_session_id_trading_service or settings.qmt_session_id)
+trader = QMTTrader(session_id=session_id)
+
+try:
+    connected = trader.connect()
+    healthy = trader.is_healthy() if connected else False
+    raise SystemExit(0 if connected and healthy else 2)
+finally:
+    try:
+        trader.disconnect()
+    except Exception:
+        pass
+'@
+
+    $probePath = Join-Path $ProjectDir ("qmt_ready_probe_{0}.py" -f [Guid]::NewGuid().ToString("N"))
+    try {
+        [System.IO.File]::WriteAllText($probePath, $probeScript, [System.Text.UTF8Encoding]::new($false))
+        $probeTimeoutSeconds = Get-EnvIntSetting -Name "QMT_READY_PROBE_TIMEOUT_SECONDS" -DefaultValue 45
+        $probeExitCode = Invoke-LoggedProcess -FilePath $PythonPath -Arguments @($probePath) -TimeoutSeconds $probeTimeoutSeconds
+        return ($probeExitCode -eq 0)
+    }
+    finally {
+        Remove-Item -LiteralPath $probePath -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Wait-ForQmtReady {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$PythonPath
+    )
+
+    $timeoutSeconds = Get-EnvIntSetting -Name "QMT_READY_TIMEOUT_SECONDS" -DefaultValue 900
+    $retryIntervalSeconds = Get-EnvIntSetting -Name "QMT_READY_RETRY_INTERVAL_SECONDS" -DefaultValue 15
+    $minimumAgeSeconds = Get-EnvIntSetting -Name "QMT_READY_PROCESS_AGE_SECONDS" -DefaultValue 20
+    $stableChecksRequired = Get-EnvIntSetting -Name "QMT_READY_STABLE_CHECKS" -DefaultValue 2
+    $usePythonProbe = Get-EnvBoolSetting -Name "QMT_READY_USE_PYTHON_PROBE" -DefaultValue $false
+    $deadline = (Get-Date).AddSeconds($timeoutSeconds)
+    $lastPid = $null
+    $stableChecks = 0
+
+    Write-TaskLog "Waiting for QMT readiness (timeout=${timeoutSeconds}s, interval=${retryIntervalSeconds}s, minimum_age=${minimumAgeSeconds}s, stable_checks=${stableChecksRequired}, python_probe=${usePythonProbe})"
+
+    while ((Get-Date) -lt $deadline) {
+        $qmtProcess = Get-Process -Name "XtMiniQmt" -ErrorAction SilentlyContinue | Sort-Object StartTime | Select-Object -First 1
+        if (-not $qmtProcess) {
+            $lastPid = $null
+            $stableChecks = 0
+            Write-TaskLog "QMT process not found yet, retrying..."
+        } else {
+            if ($qmtProcess.Id -eq $lastPid) {
+                $stableChecks += 1
+            } else {
+                $lastPid = $qmtProcess.Id
+                $stableChecks = 1
+            }
+
+            $processAgeSeconds = [int]((Get-Date) - $qmtProcess.StartTime).TotalSeconds
+            $isResponding = $true
+            try {
+                if ($null -ne $qmtProcess.Responding) {
+                    $isResponding = [bool]$qmtProcess.Responding
+                }
+            }
+            catch {
+                $isResponding = $true
+            }
+
+            if (-not $isResponding) {
+                Write-TaskLog "QMT process is not responding yet (pid=$($qmtProcess.Id)), retrying..."
+            } elseif ($processAgeSeconds -lt $minimumAgeSeconds) {
+                Write-TaskLog "QMT process is too new (pid=$($qmtProcess.Id), age=${processAgeSeconds}s), retrying..."
+            } elseif ($stableChecks -lt $stableChecksRequired) {
+                Write-TaskLog "QMT process has not been stable long enough (pid=$($qmtProcess.Id), stable_checks=${stableChecks}/${stableChecksRequired}), retrying..."
+            } elseif ($usePythonProbe -and -not (Test-QmtReady -PythonPath $PythonPath)) {
+                Write-TaskLog "QMT process is stable but the optional Python readiness probe failed, retrying..."
+            } else {
+                Write-TaskLog "QMT process is ready (pid=$($qmtProcess.Id), age=${processAgeSeconds}s, stable_checks=${stableChecks})"
+                return
+            }
+        }
+
+        Start-Sleep -Seconds $retryIntervalSeconds
     }
 
-    if ($stderr) {
-        Append-LogContent $stderr.TrimEnd("`r", "`n")
-    }
-
-    return $process.ExitCode
+    throw "QMT client did not become ready within $timeoutSeconds seconds"
 }
 
 Set-Location $ProjectDir
@@ -223,30 +387,36 @@ try {
     Import-DotEnv -Path $EnvFile
     Write-TaskLog "Loaded environment variables from .env"
 
-    $qmtProcess = Get-Process -Name "XtMiniQmt" -ErrorAction SilentlyContinue
-    if (-not $qmtProcess) {
-        throw "QMT client is not running"
+    $pythonPath = Resolve-Python
+    if (-not $pythonPath) {
+        throw "Python was not found for the QMT readiness probe"
     }
-    Write-TaskLog "QMT client is running"
+    Write-TaskLog "Using python for QMT readiness probe: $pythonPath"
+    Wait-ForQmtReady -PythonPath $pythonPath
 
+    $preferUv = Get-EnvBoolSetting -Name "TASK_RUNNER_USE_UV" -DefaultValue $false
+    $syncOnStart = Get-EnvBoolSetting -Name "TASK_RUNNER_SYNC_ON_START" -DefaultValue $false
     $uvPath = Resolve-Uv
-    if ($uvPath) {
+    if ($preferUv -and $uvPath) {
         Write-TaskLog "Using uv at: $uvPath"
-        Write-TaskLog "Syncing dependencies with uv"
-        $syncExitCode = Invoke-LoggedProcess -FilePath $uvPath -Arguments @("sync")
-        if ($syncExitCode -ne 0) {
-            throw "uv sync failed with exit code $syncExitCode"
+        if ($syncOnStart) {
+            Write-TaskLog "Syncing dependencies with uv"
+            $syncExitCode = Invoke-LoggedProcess -FilePath $uvPath -Arguments @("sync")
+            if ($syncExitCode -ne 0) {
+                throw "uv sync failed with exit code $syncExitCode"
+            }
+        } else {
+            Write-TaskLog "Skipping uv sync on startup"
         }
 
         Write-TaskLog "Starting $DisplayName with uv"
         $exitCode = Invoke-LoggedProcess -FilePath $uvPath -Arguments (@("run", "python") + $MainArgs)
     } else {
-        $pythonPath = Resolve-Python
-        if (-not $pythonPath) {
-            throw "Neither uv nor python was found"
+        if ($preferUv -and -not $uvPath) {
+            Write-TaskLog "uv was requested but not found, falling back to python: $pythonPath"
+        } else {
+            Write-TaskLog "Using python directly: $pythonPath"
         }
-
-        Write-TaskLog "uv not found, falling back to python: $pythonPath"
         Write-TaskLog "Starting $DisplayName with python"
         $exitCode = Invoke-LoggedProcess -FilePath $pythonPath -Arguments $MainArgs
     }

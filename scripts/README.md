@@ -25,17 +25,17 @@ scripts/
 - **用途**：创建 Windows 计划任务
 - **使用方法**：右键"以管理员身份运行"
 - **功能**：
-  - 创建每日 8:00 AM 启动任务
+  - 创建每日 8:40 AM 启动任务
   - 创建每日 9:00 PM 停止任务
-  - 任务名称：QMT_Trading_Service
+  - 任务名称：QMT_Trading_Engine
 
 ### 2. `setup_t0_tasks.bat`
 - **用途**：创建 T+0 守护与仓位同步计划任务
 - **功能**：
-  - 创建 `QMT_T0_Daemon`
-  - 创建 `QMT_T0_Sync_Position`
-  - 创建 `QMT_T0_Daemon_Stop`
-  - 输出独立的 T+0 日志文件
+  - 创建 `QMT_Strategy_Engine`
+  - 创建 `QMT_Strategy_Position_Sync`
+  - 创建 `QMT_Strategy_Engine_Stop`
+  - 输出独立的策略引擎日志文件
 
 ### 3. `run_console.bat`
 - **用途**：手动在控制台运行交易服务
@@ -103,14 +103,14 @@ uv run python main.py run
 
 ```cmd
 # 手动触发任务
-schtasks /run /tn "QMT_Trading_Service"
+schtasks /run /tn "QMT_Trading_Engine"
 
 # 查看执行日志
 type logs\task_execution_trading.log
 
-# 手动触发 T+0 任务
-schtasks /run /tn "QMT_T0_Daemon"
-schtasks /run /tn "QMT_T0_Sync_Position"
+# 手动触发策略任务
+schtasks /run /tn "QMT_Strategy_Engine"
+schtasks /run /tn "QMT_Strategy_Position_Sync"
 
 # 查看服务日志
 type logs\trading_service.log
@@ -120,17 +120,17 @@ type logs\trading_service.log
 
 ```cmd
 # 启用任务
-schtasks /change /tn "QMT_Trading_Service" /enable
+schtasks /change /tn "QMT_Trading_Engine" /enable
 
 # 禁用任务
-schtasks /change /tn "QMT_Trading_Service" /disable
+schtasks /change /tn "QMT_Trading_Engine" /disable
 
 # 删除任务
-schtasks /delete /tn "QMT_Trading_Service" /f
-schtasks /delete /tn "QMT_Trading_Service_Stop" /f
+schtasks /delete /tn "QMT_Trading_Engine" /f
+schtasks /delete /tn "QMT_Trading_Engine_Stop" /f
 
 # 查询任务状态
-schtasks /query /tn "QMT_Trading_Service" /v
+schtasks /query /tn "QMT_Trading_Engine" /v
 ```
 
 ## 日志文件

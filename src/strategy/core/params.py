@@ -10,6 +10,7 @@ class T0StrategyParams:
     t0_tactical_position: int = 900
     t0_trade_unit: int = 100
     t0_max_trade_value: float = 70000
+    t0_intraday_bar_period: str = "1m"
     t0_commission_rate: float = 0.0
     t0_min_commission: float = 0.0
     t0_transfer_fee_rate: float = 0.0
@@ -37,6 +38,7 @@ class T0StrategyParams:
             t0_tactical_position=settings_obj.t0_tactical_position,
             t0_trade_unit=settings_obj.t0_trade_unit,
             t0_max_trade_value=settings_obj.t0_max_trade_value,
+            t0_intraday_bar_period=getattr(settings_obj, "t0_intraday_bar_period", "1m"),
             t0_commission_rate=getattr(settings_obj, "t0_commission_rate", 0.0),
             t0_min_commission=getattr(settings_obj, "t0_min_commission", 0.0),
             t0_transfer_fee_rate=getattr(settings_obj, "t0_transfer_fee_rate", 0.0),

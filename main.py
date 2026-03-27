@@ -2,6 +2,7 @@ import codecs
 import locale
 import os
 import sys
+import time
 from datetime import date
 from typing import Optional
 
@@ -28,11 +29,14 @@ from src.logger_config import configure_process_logger
 from src.logger_config import configured_logger as logger
 from src.trading_day_checker import is_trading_day
 
+STRATEGY_ENGINE_NAME = "策略引擎"
+TRADING_ENGINE_NAME = "交易引擎"
+
 
 def _resolve_app_role(command: Optional[str]) -> str:
     role_map = {
-        "run": "trading_service",
-        "test-run": "trading_service",
+        "run": "trading_engine",
+        "test-run": "trading_engine",
         "test": "system_test",
         "backup": "backup_service",
         "backup-config": "backup_service",
@@ -40,10 +44,12 @@ def _resolve_app_role(command: Optional[str]) -> str:
         "calendar": "calendar",
         "pnl-summary": "pnl_summary",
         "export-daily": "daily_export",
-        "t0-strategy": "t0_strategy",
-        "t0-daemon": "t0_daemon",
-        "t0-sync-position": "t0_sync_position",
-        "t0-backtest": "t0_backtest",
+        "export-minute-history": "minute_history_export",
+        "export-minute-daily": "minute_history_export",
+        "t0-strategy": "strategy_engine",
+        "t0-daemon": "strategy_engine",
+        "t0-sync-position": "strategy_engine",
+        "t0-backtest": "strategy_engine",
     }
     return role_map.get(command or "", "cli")
 
@@ -63,7 +69,7 @@ def main():
     command = sys.argv[1].lower() if len(sys.argv) > 1 else None
     configure_process_logger(_resolve_app_role(command))
 
-    logger.info(f"QMT自动交易服务 v{settings.__dict__.get('version', '1.0.0')}")
+    logger.info(f"QMT自动交易系统 v{settings.__dict__.get('version', '1.0.0')}")
     logger.info("=" * 50)
 
     if len(sys.argv) > 1:
@@ -139,10 +145,10 @@ def main():
 
 def run_service(test_mode: bool = False, max_retries: int = 3, retry_delay: int = 60):
     """直接运行服务，支持重试机制"""
-    from src.trading_service import TradingService
+    from src.trading_engine import TradingEngine
 
     if test_mode:
-        logger.info("启动交易服务（测试模式）...")
+        logger.info(f"启动{TRADING_ENGINE_NAME}（测试模式）...")
         # 临时启用测试模式
         os.environ["TEST_MODE_ENABLED"] = "true"
         # 重新加载配置
@@ -151,7 +157,7 @@ def run_service(test_mode: bool = False, max_retries: int = 3, retry_delay: int 
         global settings
         settings = Settings()
     else:
-        logger.info("启动交易服务（控制台模式）...")
+        logger.info(f"启动{TRADING_ENGINE_NAME}（控制台模式）...")
 
     # 检查是否为交易日
     if not is_trading_day():
@@ -170,7 +176,7 @@ def run_service(test_mode: bool = False, max_retries: int = 3, retry_delay: int 
             if retry_count > 0:
                 logger.info(f"第 {retry_count}/{max_retries} 次重试启动服务...")
 
-            service = TradingService()
+            service = TradingEngine()
 
             # 尝试启动服务
             start_success = service.start()
@@ -207,7 +213,7 @@ def run_service(test_mode: bool = False, max_retries: int = 3, retry_delay: int 
             if service:
                 service.stop()
 
-    logger.info("交易服务已退出")
+    logger.info(f"{TRADING_ENGINE_NAME}已退出")
 
 
 def test_system():
@@ -508,76 +514,100 @@ def _notify_t0_runtime(component: str, event: str, detail: str = "", level: str 
         logger.error(f"T+0运行通知发送失败: {notify_error}")
 
 
+def _get_t0_poll_interval_seconds() -> int:
+    raw_value = getattr(settings, "t0_poll_interval_seconds", 60)
+    if raw_value is None:
+        raw_value = 60
+    return max(int(raw_value), 1)
+
+
+def _sleep_until_next_t0_poll(interval_seconds: int) -> None:
+    import time
+
+    aligned_sleep = interval_seconds - (time.time() % interval_seconds)
+    if aligned_sleep <= 0 or aligned_sleep > interval_seconds:
+        aligned_sleep = interval_seconds
+    time.sleep(aligned_sleep)
+
+
 def run_t0_strategy():
     """运行一次T+0策略"""
-    logger.info("运行T+0策略...")
-    _notify_t0_runtime("T+0策略", "启动", "开始执行一次策略信号生成", "info")
+    logger.info(f"运行{STRATEGY_ENGINE_NAME}...")
+    _notify_t0_runtime(STRATEGY_ENGINE_NAME, "启动", "开始执行一次策略信号生成", "info")
     try:
-        from src.strategy.t0_orchestrator import T0Orchestrator
+        from src.strategy.strategy_engine import StrategyEngine
 
-        orchestrator = T0Orchestrator()
-        signal_card = orchestrator.run_once()
+        strategy_engine = StrategyEngine()
+        signal_card = strategy_engine.run_once()
         logger.info(f"策略执行完成: {signal_card['signal']['action']}")
         _notify_t0_runtime(
-            "T+0策略",
+            STRATEGY_ENGINE_NAME,
             "完成",
             f"本次结果: {signal_card['signal']['action']}",
             "success" if not signal_card.get("error") else "warning",
         )
     except Exception as e:
-        logger.error(f"T+0策略执行失败: {e}")
-        _notify_t0_runtime("T+0策略", "异常退出", str(e), "error")
+        logger.error(f"{STRATEGY_ENGINE_NAME}执行失败: {e}")
+        _notify_t0_runtime(STRATEGY_ENGINE_NAME, "异常退出", str(e), "error")
 
 
 def run_t0_daemon():
-    """持续运行T+0策略(每分钟)"""
-    import time
+    """持续运行T+0策略。"""
 
-    logger.info("启动T+0策略守护进程...")
-    _notify_t0_runtime("T+0守护进程", "启动", "开始按分钟轮询策略信号", "info")
+    logger.info(f"启动{STRATEGY_ENGINE_NAME}...")
+    poll_interval_seconds = _get_t0_poll_interval_seconds()
+    intraday_bar_period = getattr(settings, "t0_intraday_bar_period", "1m")
+    _notify_t0_runtime(
+        STRATEGY_ENGINE_NAME,
+        "启动",
+        f"开始轮询策略信号: interval={poll_interval_seconds}s, bar_period={intraday_bar_period}",
+        "info",
+    )
 
     exit_detail = "守护进程已停止"
     exit_level = "success"
     try:
-        from src.strategy.t0_orchestrator import T0Orchestrator
+        from src.strategy.strategy_engine import StrategyEngine
 
         session_id = _resolve_qmt_session_id("t0-daemon")
-        logger.info(f"T+0守护进程使用QMT Session ID: {session_id}")
-        orchestrator = T0Orchestrator()
+        logger.info(f"{STRATEGY_ENGINE_NAME}使用QMT Session ID: {session_id}")
+        strategy_engine = StrategyEngine()
 
         while True:
             try:
                 now = time.localtime()
                 if 9 <= now.tm_hour < 15:
-                    orchestrator.run_once()
-                time.sleep(60)
+                    strategy_engine.run_once()
+                _sleep_until_next_t0_poll(poll_interval_seconds)
             except KeyboardInterrupt:
                 logger.info("收到停止信号")
                 exit_detail = "收到停止信号，守护进程正常退出"
                 break
             except Exception as e:
                 logger.error(f"策略执行异常: {e}")
-                _notify_t0_runtime("T+0守护进程", "轮询异常", str(e), "error")
-                time.sleep(60)
+                _notify_t0_runtime(STRATEGY_ENGINE_NAME, "轮询异常", str(e), "error")
+                _sleep_until_next_t0_poll(poll_interval_seconds)
     except Exception as e:
-        logger.error(f"T+0守护进程启动失败: {e}")
+        logger.error(f"{STRATEGY_ENGINE_NAME}启动失败: {e}")
         exit_detail = f"启动失败: {e}"
         exit_level = "error"
     finally:
-        _notify_t0_runtime("T+0守护进程", "停止", exit_detail, exit_level)
+        _notify_t0_runtime(STRATEGY_ENGINE_NAME, "停止", exit_detail, exit_level)
 
 
 def sync_t0_position():
     """从QMT同步仓位"""
-    logger.info("同步T+0策略仓位...")
-    _notify_t0_runtime("T+0仓位同步", "启动", f"开始同步 {settings.t0_stock_code} 仓位", "info")
+    logger.info(f"同步{STRATEGY_ENGINE_NAME}仓位...")
+    _notify_t0_runtime(
+        STRATEGY_ENGINE_NAME, "仓位同步启动", f"开始同步 {settings.t0_stock_code} 仓位", "info"
+    )
     try:
         from src.notifications import FeishuNotifier
         from src.strategy.position_syncer import PositionSyncer
         from src.trader import QMTTrader
 
         session_id = _resolve_qmt_session_id("t0-sync")
-        logger.info(f"T+0仓位同步使用QMT Session ID: {session_id}")
+        logger.info(f"{STRATEGY_ENGINE_NAME}仓位同步使用QMT Session ID: {session_id}")
         trader = QMTTrader(session_id=session_id)
         if not trader.connect():
             logger.error("QMT连接失败")
@@ -624,8 +654,10 @@ def run_t0_backtest(argv=None):
 def print_usage():
     """打印使用说明"""
     logger.info("使用方法:")
-    logger.info("  python main.py run               - 直接运行服务（控制台模式）")
-    logger.info("  python main.py test-run          - 测试模式运行服务（跳过交易日检查）")
+    logger.info(f"  python main.py run               - 直接运行{TRADING_ENGINE_NAME}（控制台模式）")
+    logger.info(
+        f"  python main.py test-run          - 测试模式运行{TRADING_ENGINE_NAME}（跳过交易日检查）"
+    )
     logger.info("  python main.py test              - 测试系统连接")
     logger.info("  python main.py backup            - 手动执行数据备份")
     logger.info("  python main.py backup-config     - 显示备份配置")
@@ -633,8 +665,8 @@ def print_usage():
     logger.info("  python main.py calendar          - 管理交易日历")
     logger.info("  python main.py pnl-summary       - 手动发送当日盈亏汇总通知")
     logger.info("  python main.py export-daily      - 导出每日持仓与成交记录")
-    logger.info("  python main.py t0-strategy       - 运行一次T+0策略")
-    logger.info("  python main.py t0-daemon         - 持续运行T+0策略(每分钟)")
+    logger.info(f"  python main.py t0-strategy       - 运行一次{STRATEGY_ENGINE_NAME}")
+    logger.info(f"  python main.py t0-daemon         - 持续运行{STRATEGY_ENGINE_NAME}")
     logger.info("  python main.py t0-sync-position  - 从QMT同步仓位")
     logger.info("  python main.py t0-backtest       - 运行文件驱动的T+0回测")
     logger.info("  python main.py export-minute-history - 导出分钟历史行情包")
