@@ -530,8 +530,19 @@ def _sleep_until_next_t0_poll(interval_seconds: int) -> None:
     time.sleep(aligned_sleep)
 
 
+def _should_skip_non_trading_day(component_name: str) -> bool:
+    if is_trading_day():
+        return False
+
+    logger.info(f"今天不是交易日，跳过启动{component_name}")
+    return True
+
+
 def run_t0_strategy():
     """运行一次T+0策略"""
+    if _should_skip_non_trading_day(STRATEGY_ENGINE_NAME):
+        return
+
     logger.info(f"运行{STRATEGY_ENGINE_NAME}...")
     _notify_t0_runtime(STRATEGY_ENGINE_NAME, "启动", "开始执行一次策略信号生成", "info")
     try:
@@ -553,6 +564,8 @@ def run_t0_strategy():
 
 def run_t0_daemon():
     """持续运行T+0策略。"""
+    if _should_skip_non_trading_day(STRATEGY_ENGINE_NAME):
+        return
 
     logger.info(f"启动{STRATEGY_ENGINE_NAME}...")
     poll_interval_seconds = _get_t0_poll_interval_seconds()
@@ -597,6 +610,9 @@ def run_t0_daemon():
 
 def sync_t0_position():
     """从QMT同步仓位"""
+    if _should_skip_non_trading_day(STRATEGY_ENGINE_NAME):
+        return
+
     logger.info(f"同步{STRATEGY_ENGINE_NAME}仓位...")
     _notify_t0_runtime(
         STRATEGY_ENGINE_NAME, "仓位同步启动", f"开始同步 {settings.t0_stock_code} 仓位", "info"
@@ -608,11 +624,38 @@ def sync_t0_position():
 
         session_id = _resolve_qmt_session_id("t0-sync")
         logger.info(f"{STRATEGY_ENGINE_NAME}仓位同步使用QMT Session ID: {session_id}")
-        trader = QMTTrader(session_id=session_id)
-        if not trader.connect():
+        connect_retry_attempts = max(int(settings.t0_sync_connect_retry_attempts), 1)
+        connect_retry_delay_seconds = max(int(settings.t0_sync_connect_retry_delay_seconds), 1)
+        connected = False
+        trader = None
+
+        for attempt in range(1, connect_retry_attempts + 1):
+            trader = QMTTrader(session_id=session_id)
+            if trader.connect():
+                connected = True
+                break
+
+            logger.warning(
+                "QMT连接失败，仓位同步尝试 %s/%s",
+                attempt,
+                connect_retry_attempts,
+            )
+            try:
+                trader.disconnect()
+            except Exception:
+                pass
+            if attempt < connect_retry_attempts:
+                time.sleep(connect_retry_delay_seconds)
+
+        if not connected:
             logger.error("QMT连接失败")
             FeishuNotifier().notify_t0_position_sync(
-                settings.t0_stock_code, False, "QMT连接失败，未能同步仓位"
+                settings.t0_stock_code,
+                False,
+                (
+                    f"QMT连接失败，未能同步仓位"
+                    f"（已重试{connect_retry_attempts}次，间隔{connect_retry_delay_seconds}秒）"
+                ),
             )
             return
 

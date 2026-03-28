@@ -39,6 +39,10 @@ switch ($Mode) {
     }
 }
 
+if ($Mode -eq "minute-history-daily") {
+    $DisplayName = "每日分钟行情导出"
+}
+
 function Write-TaskLog {
     param([string]$Message)
     $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
@@ -119,7 +123,7 @@ function Import-DotEnv {
         throw ".env file not found at $Path"
     }
 
-    foreach ($line in Get-Content -Path $Path) {
+    foreach ($line in Get-Content -Path $Path -Encoding UTF8) {
         $trimmed = $line.Trim()
         if (-not $trimmed -or $trimmed.StartsWith("#") -or -not $trimmed.Contains("=")) {
             continue
@@ -258,8 +262,8 @@ function Invoke-LoggedProcess {
             $process.WaitForExit()
         }
 
-        $stdout = Get-Content -Path $stdoutPath -Raw -ErrorAction SilentlyContinue
-        $stderr = Get-Content -Path $stderrPath -Raw -ErrorAction SilentlyContinue
+        $stdout = Get-Content -Path $stdoutPath -Raw -Encoding UTF8 -ErrorAction SilentlyContinue
+        $stderr = Get-Content -Path $stderrPath -Raw -Encoding UTF8 -ErrorAction SilentlyContinue
 
         if ($stdout) {
             Append-LogContent $stdout.TrimEnd("`r", "`n")
@@ -277,58 +281,18 @@ function Invoke-LoggedProcess {
     }
 }
 
-function Test-QmtReady {
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$PythonPath
-    )
-
-    $probeScript = @'
-from src.config import settings
-from src.trader import QMTTrader
-
-session_id = int(settings.qmt_session_id_trading_service or settings.qmt_session_id)
-trader = QMTTrader(session_id=session_id)
-
-try:
-    connected = trader.connect()
-    healthy = trader.is_healthy() if connected else False
-    raise SystemExit(0 if connected and healthy else 2)
-finally:
-    try:
-        trader.disconnect()
-    except Exception:
-        pass
-'@
-
-    $probePath = Join-Path $ProjectDir ("qmt_ready_probe_{0}.py" -f [Guid]::NewGuid().ToString("N"))
-    try {
-        [System.IO.File]::WriteAllText($probePath, $probeScript, [System.Text.UTF8Encoding]::new($false))
-        $probeTimeoutSeconds = Get-EnvIntSetting -Name "QMT_READY_PROBE_TIMEOUT_SECONDS" -DefaultValue 45
-        $probeExitCode = Invoke-LoggedProcess -FilePath $PythonPath -Arguments @($probePath) -TimeoutSeconds $probeTimeoutSeconds
-        return ($probeExitCode -eq 0)
-    }
-    finally {
-        Remove-Item -LiteralPath $probePath -Force -ErrorAction SilentlyContinue
-    }
-}
-
 function Wait-ForQmtReady {
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$PythonPath
-    )
+    param()
 
     $timeoutSeconds = Get-EnvIntSetting -Name "QMT_READY_TIMEOUT_SECONDS" -DefaultValue 900
     $retryIntervalSeconds = Get-EnvIntSetting -Name "QMT_READY_RETRY_INTERVAL_SECONDS" -DefaultValue 15
     $minimumAgeSeconds = Get-EnvIntSetting -Name "QMT_READY_PROCESS_AGE_SECONDS" -DefaultValue 20
     $stableChecksRequired = Get-EnvIntSetting -Name "QMT_READY_STABLE_CHECKS" -DefaultValue 2
-    $usePythonProbe = Get-EnvBoolSetting -Name "QMT_READY_USE_PYTHON_PROBE" -DefaultValue $false
     $deadline = (Get-Date).AddSeconds($timeoutSeconds)
     $lastPid = $null
     $stableChecks = 0
 
-    Write-TaskLog "Waiting for QMT readiness (timeout=${timeoutSeconds}s, interval=${retryIntervalSeconds}s, minimum_age=${minimumAgeSeconds}s, stable_checks=${stableChecksRequired}, python_probe=${usePythonProbe})"
+    Write-TaskLog "Waiting for QMT readiness (timeout=${timeoutSeconds}s, interval=${retryIntervalSeconds}s, minimum_age=${minimumAgeSeconds}s, stable_checks=${stableChecksRequired})"
 
     while ((Get-Date) -lt $deadline) {
         $qmtProcess = Get-Process -Name "XtMiniQmt" -ErrorAction SilentlyContinue | Sort-Object StartTime | Select-Object -First 1
@@ -361,8 +325,6 @@ function Wait-ForQmtReady {
                 Write-TaskLog "QMT process is too new (pid=$($qmtProcess.Id), age=${processAgeSeconds}s), retrying..."
             } elseif ($stableChecks -lt $stableChecksRequired) {
                 Write-TaskLog "QMT process has not been stable long enough (pid=$($qmtProcess.Id), stable_checks=${stableChecks}/${stableChecksRequired}), retrying..."
-            } elseif ($usePythonProbe -and -not (Test-QmtReady -PythonPath $PythonPath)) {
-                Write-TaskLog "QMT process is stable but the optional Python readiness probe failed, retrying..."
             } else {
                 Write-TaskLog "QMT process is ready (pid=$($qmtProcess.Id), age=${processAgeSeconds}s, stable_checks=${stableChecks})"
                 return
@@ -389,10 +351,10 @@ try {
 
     $pythonPath = Resolve-Python
     if (-not $pythonPath) {
-        throw "Python was not found for the QMT readiness probe"
+        throw "Python was not found for task startup"
     }
-    Write-TaskLog "Using python for QMT readiness probe: $pythonPath"
-    Wait-ForQmtReady -PythonPath $pythonPath
+    Write-TaskLog "Using python for task startup: $pythonPath"
+    Wait-ForQmtReady
 
     $preferUv = Get-EnvBoolSetting -Name "TASK_RUNNER_USE_UV" -DefaultValue $false
     $syncOnStart = Get-EnvBoolSetting -Name "TASK_RUNNER_SYNC_ON_START" -DefaultValue $false

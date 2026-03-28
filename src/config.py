@@ -100,6 +100,10 @@ class Settings(BaseSettings):
     test_mode_enabled: bool = Field(
         default=False, env="TEST_MODE_ENABLED"
     )  # 测试模式（可在非交易日启动服务）
+    tushare_token: Optional[str] = Field(default=None, env="TUSHARE_TOKEN")
+    tushare_trade_calendar_exchange: str = Field(
+        default="SSE", env="TUSHARE_TRADE_CALENDAR_EXCHANGE"
+    )
 
     # T+0策略配置
     t0_strategy_enabled: bool = Field(default=False, env="T0_STRATEGY_ENABLED")
@@ -112,6 +116,10 @@ class Settings(BaseSettings):
     t0_max_trade_value: float = Field(default=70000, env="T0_MAX_TRADE_VALUE")
     t0_intraday_bar_period: str = Field(default="1m", env="T0_INTRADAY_BAR_PERIOD")
     t0_poll_interval_seconds: int = Field(default=60, env="T0_POLL_INTERVAL_SECONDS")
+    t0_sync_connect_retry_attempts: int = Field(default=3, env="T0_SYNC_CONNECT_RETRY_ATTEMPTS")
+    t0_sync_connect_retry_delay_seconds: int = Field(
+        default=5, env="T0_SYNC_CONNECT_RETRY_DELAY_SECONDS"
+    )
     t0_min_hold_minutes: int = Field(default=20, env="T0_MIN_HOLD_MINUTES")
     t0_positive_sell_start_time: str = Field(default="09:45", env="T0_POSITIVE_SELL_START_TIME")
     t0_positive_sell_end_time: str = Field(default="11:20", env="T0_POSITIVE_SELL_END_TIME")

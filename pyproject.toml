@@ -17,6 +17,7 @@ dependencies = [
     "pydantic-settings>=2.10.1",
     "schedule>=1.2.0",
     "akshare",
+    "tushare",
     "pre-commit>=4.3.0",
     "pyarrow>=21.0.0",
     "ipykernel>=6.30.1",
