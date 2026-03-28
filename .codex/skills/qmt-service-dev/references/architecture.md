@@ -2,13 +2,16 @@
 
 ## Entry Points
 
-- `main.py` is the only CLI entry. It dispatches `run`, `test-run`, `test`, `backup`, `backup-config`, `stock-info`, `calendar`, `pnl-summary`, `export-daily`, `t0-strategy`, `t0-daemon`, `t0-sync-position`, and `t0-backtest`.
+- `main.py` is the only CLI entry. It dispatches `run`, `test-run`, `test`, `backup`, `backup-config`, `stock-info`, `calendar`, `pnl-summary`, `export-daily`, `t0-strategy`, `t0-daemon`, `t0-sync-position`, `t0-backtest`, `health-check`, and `health-server`.
 - `run` and `test-run` both end up in `run_service()`, which creates `TradingService` and manages startup retries.
 - Trading-day gating happens before the service loop unless test mode is enabled.
+- `health-server` runs independently of the trading and strategy engines and should be treated as a separate always-on operator service.
 
 ## Runtime Graph
 
 - `TradingService` is the orchestrator.
+- `ProjectHealthChecker` builds standardized health snapshots.
+- `HealthSnapshotStore` refreshes health data in the background so `/health` returns cached snapshots quickly.
 - `RedisSignalListener` receives messages from Redis.
 - `QMTTrader` submits orders and exposes order health/status helpers.
 - `FeishuNotifier` sends operator notifications.
@@ -48,5 +51,6 @@
 - `src/trading_service.py`: orchestration, callbacks, retry behavior, monitoring, notifications.
 - `src/redis_listener.py`: message parsing, delivery guarantees, Redis mode behavior.
 - `src/config.py`: environment contract for the rest of the repo.
+- `src/healthcheck.py`: standalone health endpoint, cached snapshot refresh loop, and process-level checks.
 - `src/database.py`: tables used by live workflows and operator tooling.
 - `src/daily_exporter.py`: end-of-day positions and trades export flow.

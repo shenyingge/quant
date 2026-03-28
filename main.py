@@ -65,12 +65,13 @@ def _resolve_qmt_session_id(mode: str) -> int:
 
 
 def main():
-    """主程序入口"""
+    """命令行入口。"""
     command = sys.argv[1].lower() if len(sys.argv) > 1 else None
     configure_process_logger(_resolve_app_role(command))
 
-    logger.info(f"QMT自动交易系统 v{settings.__dict__.get('version', '1.0.0')}")
-    logger.info("=" * 50)
+    if command != "health-check":
+        logger.info(f"QMT服务 v{settings.__dict__.get('version', '1.0.0')}")
+        logger.info("=" * 50)
 
     if len(sys.argv) > 1:
         # 解析重试参数
@@ -133,6 +134,10 @@ def main():
         elif command == "t0-backtest":
             run_t0_backtest(sys.argv[2:])
             return 0
+        elif command == "health-check":
+            return run_health_check(sys.argv[2:])
+        elif command == "health-server":
+            return run_health_server(sys.argv[2:])
         else:
             print_usage()
             return 1
@@ -477,8 +482,8 @@ def export_daily():
 
 
 def export_minute_history(argv=None):
-    """?????????"""
-    logger.info("????????")
+    """导出分钟历史行情"""
+    logger.info("导出分钟历史行情...")
     logger.info("=" * 50)
 
     try:
@@ -486,17 +491,17 @@ def export_minute_history(argv=None):
 
         return export_main(argv)
     except Exception as e:
-        logger.error(f"??????????: {e}")
+        logger.error(f"导出分钟历史行情失败: {e}")
         return 1
 
 
 def export_minute_daily(argv=None):
-    """?????????"""
-    logger.info("????????")
+    """导出当日分钟行情。"""
+    logger.info("导出当日分钟行情...")
     logger.info("=" * 50)
 
     if not is_trading_day():
-        logger.info("????????????????")
+        logger.info("今天不是交易日，跳过导出当日分钟行情")
         return 0
 
     trade_date = date.today().strftime("%Y%m%d")
@@ -505,13 +510,13 @@ def export_minute_daily(argv=None):
 
 
 def _notify_t0_runtime(component: str, event: str, detail: str = "", level: str = "info"):
-    """Best-effort T+0 runtime notifications."""
+    """尽力发送 T+0 运行时通知。"""
     try:
         from src.notifications import FeishuNotifier
 
         FeishuNotifier().notify_runtime_event(component, event, detail, level)
     except Exception as notify_error:
-        logger.error(f"T+0运行通知发送失败: {notify_error}")
+        logger.error(f"T+0 运行通知发送失败: {notify_error}")
 
 
 def _get_t0_poll_interval_seconds() -> int:
@@ -534,23 +539,23 @@ def _should_skip_non_trading_day(component_name: str) -> bool:
     if is_trading_day():
         return False
 
-    logger.info(f"今天不是交易日，跳过启动{component_name}")
+    logger.info(f"今天不是交易日，跳过启动 {component_name}")
     return True
 
 
 def run_t0_strategy():
-    """运行一次T+0策略"""
+    """运行一次策略引擎。"""
     if _should_skip_non_trading_day(STRATEGY_ENGINE_NAME):
         return
 
-    logger.info(f"运行{STRATEGY_ENGINE_NAME}...")
+    logger.info(f"运行 {STRATEGY_ENGINE_NAME} 一次")
     _notify_t0_runtime(STRATEGY_ENGINE_NAME, "启动", "开始执行一次策略信号生成", "info")
     try:
         from src.strategy.strategy_engine import StrategyEngine
 
         strategy_engine = StrategyEngine()
         signal_card = strategy_engine.run_once()
-        logger.info(f"策略执行完成: {signal_card['signal']['action']}")
+        logger.info(f"Strategy execution completed: {signal_card['signal']['action']}")
         _notify_t0_runtime(
             STRATEGY_ENGINE_NAME,
             "完成",
@@ -558,16 +563,16 @@ def run_t0_strategy():
             "success" if not signal_card.get("error") else "warning",
         )
     except Exception as e:
-        logger.error(f"{STRATEGY_ENGINE_NAME}执行失败: {e}")
-        _notify_t0_runtime(STRATEGY_ENGINE_NAME, "异常退出", str(e), "error")
+        logger.error(f"{STRATEGY_ENGINE_NAME} execution failed: {e}")
+        _notify_t0_runtime(STRATEGY_ENGINE_NAME, "轮询异常", str(e), "error")
 
 
 def run_t0_daemon():
-    """持续运行T+0策略。"""
+    """持续运行策略引擎守护进程。"""
     if _should_skip_non_trading_day(STRATEGY_ENGINE_NAME):
         return
 
-    logger.info(f"启动{STRATEGY_ENGINE_NAME}...")
+    logger.info(f"启动 {STRATEGY_ENGINE_NAME}")
     poll_interval_seconds = _get_t0_poll_interval_seconds()
     intraday_bar_period = getattr(settings, "t0_intraday_bar_period", "1m")
     _notify_t0_runtime(
@@ -583,7 +588,7 @@ def run_t0_daemon():
         from src.strategy.strategy_engine import StrategyEngine
 
         session_id = _resolve_qmt_session_id("t0-daemon")
-        logger.info(f"{STRATEGY_ENGINE_NAME}使用QMT Session ID: {session_id}")
+        logger.info(f"{STRATEGY_ENGINE_NAME} 使用 QMT Session ID: {session_id}")
         strategy_engine = StrategyEngine()
 
         while True:
@@ -601,7 +606,7 @@ def run_t0_daemon():
                 _notify_t0_runtime(STRATEGY_ENGINE_NAME, "轮询异常", str(e), "error")
                 _sleep_until_next_t0_poll(poll_interval_seconds)
     except Exception as e:
-        logger.error(f"{STRATEGY_ENGINE_NAME}启动失败: {e}")
+        logger.error(f"{STRATEGY_ENGINE_NAME} 启动失败: {e}")
         exit_detail = f"启动失败: {e}"
         exit_level = "error"
     finally:
@@ -609,11 +614,11 @@ def run_t0_daemon():
 
 
 def sync_t0_position():
-    """从QMT同步仓位"""
+    """从 QMT 同步 T0 仓位。"""
     if _should_skip_non_trading_day(STRATEGY_ENGINE_NAME):
         return
 
-    logger.info(f"同步{STRATEGY_ENGINE_NAME}仓位...")
+    logger.info(f"同步 {STRATEGY_ENGINE_NAME} 仓位")
     _notify_t0_runtime(
         STRATEGY_ENGINE_NAME, "仓位同步启动", f"开始同步 {settings.t0_stock_code} 仓位", "info"
     )
@@ -623,7 +628,7 @@ def sync_t0_position():
         from src.trader import QMTTrader
 
         session_id = _resolve_qmt_session_id("t0-sync")
-        logger.info(f"{STRATEGY_ENGINE_NAME}仓位同步使用QMT Session ID: {session_id}")
+        logger.info(f"{STRATEGY_ENGINE_NAME} 仓位同步使用 QMT Session ID: {session_id}")
         connect_retry_attempts = max(int(settings.t0_sync_connect_retry_attempts), 1)
         connect_retry_delay_seconds = max(int(settings.t0_sync_connect_retry_delay_seconds), 1)
         connected = False
@@ -635,11 +640,7 @@ def sync_t0_position():
                 connected = True
                 break
 
-            logger.warning(
-                "QMT连接失败，仓位同步尝试 %s/%s",
-                attempt,
-                connect_retry_attempts,
-            )
+            logger.warning(f"QMT 连接失败，仓位同步重试 {attempt}/{connect_retry_attempts}")
             try:
                 trader.disconnect()
             except Exception:
@@ -648,13 +649,13 @@ def sync_t0_position():
                 time.sleep(connect_retry_delay_seconds)
 
         if not connected:
-            logger.error("QMT连接失败")
+            logger.error("QMT 连接失败")
             FeishuNotifier().notify_t0_position_sync(
                 settings.t0_stock_code,
                 False,
                 (
-                    f"QMT连接失败，未能同步仓位"
-                    f"（已重试{connect_retry_attempts}次，间隔{connect_retry_delay_seconds}秒）"
+                    f"QMT 连接失败，未能同步仓位"
+                    f"（已重试 {connect_retry_attempts} 次，间隔 {connect_retry_delay_seconds} 秒）"
                 ),
             )
             return
@@ -665,7 +666,7 @@ def sync_t0_position():
         if success:
             logger.info("仓位同步成功")
             FeishuNotifier().notify_t0_position_sync(
-                settings.t0_stock_code, True, "已从QMT成功同步仓位"
+                settings.t0_stock_code, True, "已从 QMT 成功同步仓位"
             )
         else:
             logger.error("仓位同步失败")
@@ -686,46 +687,77 @@ def run_t0_backtest(argv=None):
 
         raise_code = run_backtest_cli(argv)
         if raise_code:
-            logger.error(f"T+0回测执行失败，退出码: {raise_code}")
+            logger.error(f"T+0 回测执行失败，退出码: {raise_code}")
     except SystemExit as exc:
         if exc.code not in (0, None):
-            logger.error(f"T+0回测参数错误，退出码: {exc.code}")
+            logger.error(f"T+0 回测参数错误，退出码: {exc.code}")
     except Exception as e:
-        logger.error(f"T+0回测执行失败: {e}")
+        logger.error(f"T+0 回测执行失败: {e}")
+
+
+def run_health_check(argv=None):
+    """输出一次标准化 health check 结果。"""
+    import json
+
+    from src.healthcheck import ProjectHealthChecker
+
+    logger.remove()
+    snapshot = ProjectHealthChecker(scope="project").build_snapshot().to_dict()
+    pretty = not argv or "--compact" not in argv
+    print(json.dumps(snapshot, ensure_ascii=False, indent=2 if pretty else None))
+    return 0 if snapshot["status"] != "down" else 1
+
+
+def run_health_server(argv=None):
+    """启动轻量级 HTTP health check 服务。"""
+    from src.healthcheck import serve_healthcheck
+
+    host = settings.healthcheck_host
+    port = settings.healthcheck_port
+
+    for arg in argv or []:
+        if arg.startswith("--host="):
+            host = arg.split("=", 1)[1].strip() or host
+        elif arg.startswith("--port="):
+            try:
+                port = int(arg.split("=", 1)[1].strip())
+            except ValueError:
+                logger.warning(f"无效的 health check 端口参数: {arg}")
+
+    serve_healthcheck(host=host, port=port, scope="project")
+    return 0
 
 
 def print_usage():
-    """打印使用说明"""
+    """打印命令行使用说明。"""
     logger.info("使用方法:")
-    logger.info(f"  python main.py run               - 直接运行{TRADING_ENGINE_NAME}（控制台模式）")
-    logger.info(
-        f"  python main.py test-run          - 测试模式运行{TRADING_ENGINE_NAME}（跳过交易日检查）"
-    )
-    logger.info("  python main.py test              - 测试系统连接")
-    logger.info("  python main.py backup            - 手动执行数据备份")
-    logger.info("  python main.py backup-config     - 显示备份配置")
-    logger.info("  python main.py stock-info        - 管理股票信息缓存")
-    logger.info("  python main.py calendar          - 管理交易日历")
-    logger.info("  python main.py pnl-summary       - 手动发送当日盈亏汇总通知")
-    logger.info("  python main.py export-daily      - 导出每日持仓与成交记录")
-    logger.info(f"  python main.py t0-strategy       - 运行一次{STRATEGY_ENGINE_NAME}")
-    logger.info(f"  python main.py t0-daemon         - 持续运行{STRATEGY_ENGINE_NAME}")
-    logger.info("  python main.py t0-sync-position  - 从QMT同步仓位")
-    logger.info("  python main.py t0-backtest       - 运行文件驱动的T+0回测")
-    logger.info("  python main.py export-minute-history - 导出分钟历史行情包")
-    logger.info("  python main.py export-minute-daily   - 拉取当日分钟行情")
+    logger.info(f"  python main.py run                    - 运行 {TRADING_ENGINE_NAME}")
+    logger.info(f"  python main.py test-run               - 测试模式运行 {TRADING_ENGINE_NAME}")
+    logger.info("  python main.py test                   - 运行系统连接检查")
+    logger.info("  python main.py backup                 - 手动执行数据备份")
+    logger.info("  python main.py backup-config          - 显示备份配置")
+    logger.info("  python main.py stock-info             - 管理股票信息缓存")
+    logger.info("  python main.py calendar               - 管理交易日历")
+    logger.info("  python main.py pnl-summary            - 发送当日盈亏汇总通知")
+    logger.info("  python main.py export-daily           - 导出每日持仓与成交记录")
+    logger.info(f"  python main.py t0-strategy            - 运行一次 {STRATEGY_ENGINE_NAME}")
+    logger.info(f"  python main.py t0-daemon              - 持续运行 {STRATEGY_ENGINE_NAME}")
+    logger.info("  python main.py t0-sync-position       - 从 QMT 同步 T0 仓位")
+    logger.info("  python main.py t0-backtest            - 运行 T+0 文件回测")
+    logger.info("  python main.py export-minute-history  - 导出分钟历史行情")
+    logger.info("  python main.py export-minute-daily    - 导出当日分钟行情")
+    logger.info("  python main.py health-check           - 输出 health check JSON 结果")
+    logger.info("  python main.py health-server          - 启动独立常驻的 HTTP /health 服务")
     logger.info("")
-    logger.info("重试参数（仅适用于 run 和 test-run）:")
-    logger.info("  --max-retries=N                  - 最大重试次数（默认: 3）")
-    logger.info("  --retry-delay=N                  - 重试间隔秒数（默认: 60）")
+    logger.info("重试参数（仅适用于 run / test-run）:")
+    logger.info("  --max-retries=N                       - 最大重试次数（默认: 3）")
+    logger.info("  --retry-delay=N                       - 重试间隔秒数（默认: 60）")
     logger.info("")
     logger.info("示例:")
     logger.info("  python main.py run --max-retries=5 --retry-delay=30")
     logger.info("  python main.py test-run --max-retries=2")
-    logger.info("  python main.py export-minute-daily --skip-upload")
-    logger.info(
-        "  python main.py t0-backtest --minute-data data.csv --daily-data daily.csv --output-dir output/backtest"
-    )
+    logger.info("  python main.py health-check")
+    logger.info("  python main.py health-server --port=8780")
 
 
 if __name__ == "__main__":

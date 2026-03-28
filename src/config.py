@@ -6,40 +6,26 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    # Redis配置
     redis_host: str = Field(default="localhost", env="REDIS_HOST")
     redis_port: int = Field(default=6379, env="REDIS_PORT")
     redis_password: Optional[str] = Field(default=None, env="REDIS_PASSWORD")
     redis_signal_channel: str = Field(default="trading_signals", env="REDIS_SIGNAL_CHANNEL")
-    redis_trade_records_enabled: bool = Field(
-        default=True, env="REDIS_TRADE_RECORDS_ENABLED"
-    )  # 是否启用Redis交易记录存储
+    redis_trade_records_enabled: bool = Field(default=True, env="REDIS_TRADE_RECORDS_ENABLED")
     redis_trade_records_prefix: str = Field(
         default="trade_record:", env="REDIS_TRADE_RECORDS_PREFIX"
-    )  # 交易记录key前缀
-    redis_trade_cleanup_time: str = Field(
-        default="20:30", env="REDIS_TRADE_CLEANUP_TIME"
-    )  # 每日清理时间
+    )
+    redis_trade_cleanup_time: str = Field(default="20:30", env="REDIS_TRADE_CLEANUP_TIME")
 
-    # Redis消息持久化配置
-    redis_message_mode: str = Field(
-        default="stream", env="REDIS_MESSAGE_MODE"
-    )  # 消息模式: pubsub, list, stream
-    redis_stream_name: str = Field(
-        default="trading_signals_stream", env="REDIS_STREAM_NAME"
-    )  # Stream名称
-    redis_consumer_group: str = Field(
-        default="trading_service", env="REDIS_CONSUMER_GROUP"
-    )  # 消费者组名称
-    redis_consumer_name: str = Field(default="consumer1", env="REDIS_CONSUMER_NAME")  # 消费者名称
-    redis_list_name: str = Field(default="trading_signals_list", env="REDIS_LIST_NAME")  # List名称
-    redis_stream_max_len: int = Field(default=10000, env="REDIS_STREAM_MAX_LEN")  # Stream最大长度
-    redis_block_timeout: int = Field(default=1000, env="REDIS_BLOCK_TIMEOUT")  # 阻塞等待超时(毫秒)
+    redis_message_mode: str = Field(default="stream", env="REDIS_MESSAGE_MODE")
+    redis_stream_name: str = Field(default="trading_signals_stream", env="REDIS_STREAM_NAME")
+    redis_consumer_group: str = Field(default="trading_service", env="REDIS_CONSUMER_GROUP")
+    redis_consumer_name: str = Field(default="consumer1", env="REDIS_CONSUMER_NAME")
+    redis_list_name: str = Field(default="trading_signals_list", env="REDIS_LIST_NAME")
+    redis_stream_max_len: int = Field(default=10000, env="REDIS_STREAM_MAX_LEN")
+    redis_block_timeout: int = Field(default=1000, env="REDIS_BLOCK_TIMEOUT")
 
-    # 数据库配置
     db_url: str = Field(default="sqlite:///./trading.db", env="DATABASE_URL")
 
-    # QMT配置
     qmt_session_id: int = Field(default=123456, env="QMT_SESSION_ID")
     qmt_session_id_trading_service: Optional[int] = Field(
         default=None, env="QMT_SESSION_ID_TRADING_SERVICE"
@@ -50,62 +36,43 @@ class Settings(BaseSettings):
     qmt_account_id: str = Field(default="", env="QMT_ACCOUNT_ID")
     qmt_account_type: str = Field(default="STOCK", env="QMT_ACCOUNT_TYPE")
 
-    # 交易配置
-    order_timeout_seconds: int = Field(
-        default=60, env="ORDER_TIMEOUT_SECONDS"
-    )  # 订单超时时间（秒）
-    auto_cancel_enabled: bool = Field(default=True, env="AUTO_CANCEL_ENABLED")  # 是否启用自动撤单
-    order_submit_timeout: int = Field(
-        default=10, env="ORDER_SUBMIT_TIMEOUT"
-    )  # 下单操作超时时间（秒）
-    order_retry_attempts: int = Field(default=3, env="ORDER_RETRY_ATTEMPTS")  # 下单重试次数
-    order_retry_delay: int = Field(default=2, env="ORDER_RETRY_DELAY")  # 下单重试间隔（秒）
-    auto_cancel_timeout: int = Field(
-        default=300, env="AUTO_CANCEL_TIMEOUT"
-    )  # 超时自动撤单时间（秒）
+    order_timeout_seconds: int = Field(default=60, env="ORDER_TIMEOUT_SECONDS")
+    auto_cancel_enabled: bool = Field(default=True, env="AUTO_CANCEL_ENABLED")
+    order_submit_timeout: int = Field(default=10, env="ORDER_SUBMIT_TIMEOUT")
+    order_retry_attempts: int = Field(default=3, env="ORDER_RETRY_ATTEMPTS")
+    order_retry_delay: int = Field(default=2, env="ORDER_RETRY_DELAY")
+    auto_cancel_timeout: int = Field(default=300, env="AUTO_CANCEL_TIMEOUT")
 
-    # 飞书配置
     feishu_webhook_url: Optional[str] = Field(default=None, env="FEISHU_WEBHOOK_URL")
     feishu_failure_notify_cooldown_seconds: int = Field(
         default=300, env="FEISHU_FAILURE_NOTIFY_COOLDOWN_SECONDS"
     )
 
-    # 日志配置
     log_level: str = Field(default="INFO", env="LOG_LEVEL")
     log_file: str = Field(default="./logs/trading_engine.log", env="LOG_FILE")
 
-    # 服务配置
     max_retry_attempts: int = Field(default=3, env="MAX_RETRY_ATTEMPTS")
 
-    # 自动重连配置
-    auto_reconnect_enabled: bool = Field(
-        default=True, env="AUTO_RECONNECT_ENABLED"
-    )  # 是否启用自动重连
-    reconnect_max_attempts: int = Field(default=5, env="RECONNECT_MAX_ATTEMPTS")  # 最大重连尝试次数
-    reconnect_initial_delay: int = Field(
-        default=10, env="RECONNECT_INITIAL_DELAY"
-    )  # 初始重连延迟（秒）
-    reconnect_max_delay: int = Field(default=300, env="RECONNECT_MAX_DELAY")  # 最大重连延迟（秒）
-    reconnect_backoff_factor: float = Field(
-        default=2.0, env="RECONNECT_BACKOFF_FACTOR"
-    )  # 重连延迟递增因子
-    health_check_interval: int = Field(
-        default=30, env="HEALTH_CHECK_INTERVAL"
-    )  # 连接健康检查间隔（秒）
+    auto_reconnect_enabled: bool = Field(default=True, env="AUTO_RECONNECT_ENABLED")
+    reconnect_max_attempts: int = Field(default=5, env="RECONNECT_MAX_ATTEMPTS")
+    reconnect_initial_delay: int = Field(default=10, env="RECONNECT_INITIAL_DELAY")
+    reconnect_max_delay: int = Field(default=300, env="RECONNECT_MAX_DELAY")
+    reconnect_backoff_factor: float = Field(default=2.0, env="RECONNECT_BACKOFF_FACTOR")
+    health_check_interval: int = Field(default=30, env="HEALTH_CHECK_INTERVAL")
+    healthcheck_host: str = Field(default="127.0.0.1", env="HEALTHCHECK_HOST")
+    healthcheck_port: int = Field(default=8780, env="HEALTHCHECK_PORT")
+    healthcheck_timeout_seconds: int = Field(default=2, env="HEALTHCHECK_TIMEOUT_SECONDS")
+    healthcheck_refresh_interval_seconds: int = Field(
+        default=15, env="HEALTHCHECK_REFRESH_INTERVAL_SECONDS"
+    )
 
-    # 交易日检查配置
-    trading_day_check_enabled: bool = Field(
-        default=True, env="TRADING_DAY_CHECK_ENABLED"
-    )  # 是否启用交易日检查
-    test_mode_enabled: bool = Field(
-        default=False, env="TEST_MODE_ENABLED"
-    )  # 测试模式（可在非交易日启动服务）
+    trading_day_check_enabled: bool = Field(default=True, env="TRADING_DAY_CHECK_ENABLED")
+    test_mode_enabled: bool = Field(default=False, env="TEST_MODE_ENABLED")
     tushare_token: Optional[str] = Field(default=None, env="TUSHARE_TOKEN")
     tushare_trade_calendar_exchange: str = Field(
         default="SSE", env="TUSHARE_TRADE_CALENDAR_EXCHANGE"
     )
 
-    # T+0策略配置
     t0_strategy_enabled: bool = Field(default=False, env="T0_STRATEGY_ENABLED")
     t0_stock_code: str = Field(default="601138.SH", env="T0_STOCK_CODE")
     t0_output_dir: str = Field(default="./output", env="T0_OUTPUT_DIR")
@@ -140,7 +107,6 @@ class Settings(BaseSettings):
         default=0.5, env="T0_REVERSE_SELL_MAX_VWAP_DISTANCE"
     )
 
-    # NS主机每日导出配置
     ns_host: str = Field(default="ns", env="NS_HOST")
     ns_scp_remote_dir: str = Field(default="~/data/trade", env="NS_SCP_REMOTE_DIR")
     ns_ssh_username: Optional[str] = Field(default=None, env="NS_SSH_USERNAME")
@@ -149,7 +115,6 @@ class Settings(BaseSettings):
     rsync_bin: str = Field(default="rsync", env="RSYNC_BIN")
     ssh_bin: str = Field(default="ssh", env="SSH_BIN")
 
-    # Meta DB配置
     meta_db_host: str = Field(default="", env="META_DB_HOST")
     meta_db_port: int = Field(default=15432, env="META_DB_PORT")
     meta_db_name: str = Field(default="", env="META_DB_NAME")
@@ -158,7 +123,6 @@ class Settings(BaseSettings):
     meta_db_type: str = Field(default="postgresql+asyncpg", env="META_DB_TYPE")
     meta_db_schema: str = Field(default="", env="META_DB_SCHEMA")
 
-    # Python路径配置
     pythonpath: Optional[str] = Field(default=None, env="PYTHONPATH")
 
     model_config = ConfigDict(env_file=".env", case_sensitive=False, extra="ignore")
