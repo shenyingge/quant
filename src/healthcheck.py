@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import os
+import re
+import socket
 import subprocess
 import threading
 import time as time_module
@@ -27,6 +29,7 @@ _server_lock = threading.Lock()
 _server_instance: Optional[ThreadingHTTPServer] = None
 _server_thread: Optional[threading.Thread] = None
 _snapshot_store: Optional["HealthSnapshotStore"] = None
+_TAILSCALE_HOST_SENTINEL = "tailscale"
 
 
 def _timestamp_now() -> str:
@@ -38,6 +41,92 @@ def _project_version() -> str:
         return version("quant")
     except PackageNotFoundError:
         return "0.1.0"
+
+
+def _is_valid_ipv4_address(value: str) -> bool:
+    try:
+        socket.inet_aton(value)
+    except OSError:
+        return False
+    return value.count(".") == 3
+
+
+def _extract_ipv4_address(value: str) -> Optional[str]:
+    for match in re.findall(r"\b(?:\d{1,3}\.){3}\d{1,3}\b", value or ""):
+        if _is_valid_ipv4_address(match):
+            return match
+    return None
+
+
+def _resolve_tailscale_ipv4_from_cli() -> Optional[str]:
+    for command in (["tailscale", "ip", "-4"], ["tailscale.exe", "ip", "-4"]):
+        try:
+            result = subprocess.run(
+                command,
+                capture_output=True,
+                check=True,
+                text=True,
+                timeout=3,
+            )
+        except (FileNotFoundError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+            continue
+
+        for line in result.stdout.splitlines():
+            address = line.strip()
+            if _is_valid_ipv4_address(address):
+                return address
+
+    return None
+
+
+def _resolve_tailscale_ipv4_from_ipconfig() -> Optional[str]:
+    if os.name != "nt":
+        return None
+
+    try:
+        result = subprocess.run(
+            ["ipconfig"],
+            capture_output=True,
+            check=True,
+            text=True,
+            timeout=5,
+            errors="ignore",
+        )
+    except (FileNotFoundError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        return None
+
+    in_tailscale_adapter = False
+    for raw_line in result.stdout.splitlines():
+        line = raw_line.strip()
+        if raw_line and raw_line == raw_line.lstrip() and line.endswith(":"):
+            in_tailscale_adapter = "tailscale" in line.lower()
+            continue
+
+        if not in_tailscale_adapter:
+            continue
+
+        address = _extract_ipv4_address(line)
+        if address:
+            return address
+
+    return None
+
+
+def resolve_healthcheck_host(host: str) -> str:
+    candidate = (host or "").strip()
+    if not candidate:
+        return "127.0.0.1"
+
+    if candidate.lower() != _TAILSCALE_HOST_SENTINEL:
+        return candidate
+
+    resolved_host = _resolve_tailscale_ipv4_from_cli() or _resolve_tailscale_ipv4_from_ipconfig()
+    if resolved_host:
+        return resolved_host
+
+    raise RuntimeError(
+        "HEALTHCHECK_HOST=tailscale，但未解析到 Tailscale IPv4 地址，请确认 Tailscale 已启动。"
+    )
 
 
 @dataclass
@@ -506,6 +595,7 @@ class _HealthRequestHandler(BaseHTTPRequestHandler):
 
 
 def serve_healthcheck(host: str, port: int, scope: str = "project") -> None:
+    bind_host = resolve_healthcheck_host(host)
     snapshot_store = HealthSnapshotStore(
         scope=scope,
         refresh_interval_seconds=settings.healthcheck_refresh_interval_seconds,
@@ -514,8 +604,8 @@ def serve_healthcheck(host: str, port: int, scope: str = "project") -> None:
     handler = type(
         "HealthRequestHandler", (_HealthRequestHandler,), {"snapshot_store": snapshot_store}
     )
-    server = ThreadingHTTPServer((host, port), handler)
-    logger.info("Health check server listening on http://%s:%s/health", host, port)
+    server = ThreadingHTTPServer((bind_host, port), handler)
+    logger.info("Health check server listening on http://%s:%s/health", bind_host, port)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
@@ -529,13 +619,17 @@ def start_healthcheck_server(host: str, port: int, scope: str = "project") -> bo
     """Start the HTTP health check server in a background daemon thread."""
     global _server_instance, _server_thread, _snapshot_store
 
+    bind_host = resolve_healthcheck_host(host)
+
     with _server_lock:
         if (
             _server_instance is not None
             and _server_thread is not None
             and _server_thread.is_alive()
         ):
-            logger.debug("Health check server already running on http://%s:%s/health", host, port)
+            logger.debug(
+                "Health check server already running on http://%s:%s/health", bind_host, port
+            )
             return True
 
         snapshot_store = HealthSnapshotStore(
@@ -549,12 +643,12 @@ def start_healthcheck_server(host: str, port: int, scope: str = "project") -> bo
             {"snapshot_store": snapshot_store},
         )
         try:
-            server = ThreadingHTTPServer((host, port), handler)
+            server = ThreadingHTTPServer((bind_host, port), handler)
         except OSError as exc:
             snapshot_store.stop()
             logger.warning(
                 "Health check server could not bind to http://%s:%s/health: %s",
-                host,
+                bind_host,
                 port,
                 exc,
             )
@@ -562,14 +656,14 @@ def start_healthcheck_server(host: str, port: int, scope: str = "project") -> bo
 
         thread = threading.Thread(
             target=server.serve_forever,
-            name=f"healthcheck-{host}:{port}",
+            name=f"healthcheck-{bind_host}:{port}",
             daemon=True,
         )
         thread.start()
         _server_instance = server
         _server_thread = thread
         _snapshot_store = snapshot_store
-        logger.info("Health check server started on http://%s:%s/health", host, port)
+        logger.info("Health check server started on http://%s:%s/health", bind_host, port)
         return True
 
 

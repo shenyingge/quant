@@ -1,5 +1,6 @@
 import json
 import socket
+import subprocess
 import time
 from pathlib import Path
 
@@ -192,3 +193,44 @@ def test_background_health_server_is_idempotent(monkeypatch):
         assert healthcheck.start_healthcheck_server(host, port, scope="project") is True
     finally:
         healthcheck.stop_healthcheck_server()
+
+
+def test_resolve_healthcheck_host_returns_explicit_host():
+    assert healthcheck.resolve_healthcheck_host("127.0.0.1") == "127.0.0.1"
+
+
+def test_resolve_healthcheck_host_uses_tailscale_cli(monkeypatch):
+    def fake_run(command, capture_output, check, text, timeout):
+        return subprocess.CompletedProcess(command, 0, stdout="100.92.140.63\n", stderr="")
+
+    monkeypatch.setattr(healthcheck.subprocess, "run", fake_run)
+
+    assert healthcheck.resolve_healthcheck_host("tailscale") == "100.92.140.63"
+
+
+def test_resolve_healthcheck_host_uses_ipconfig_fallback(monkeypatch):
+    outputs = [
+        FileNotFoundError(),
+        FileNotFoundError(),
+        subprocess.CompletedProcess(
+            ["ipconfig"],
+            0,
+            stdout=(
+                "Windows IP Configuration\n\n"
+                "Unknown adapter Tailscale:\n\n"
+                "   IPv4 Address. . . . . . . . . . . : 100.92.140.63\n"
+            ),
+            stderr="",
+        ),
+    ]
+
+    def fake_run(command, capture_output, check, text, timeout, errors=None):
+        result = outputs.pop(0)
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+    monkeypatch.setattr(healthcheck, "os", type("FakeOS", (), {"name": "nt"})())
+    monkeypatch.setattr(healthcheck.subprocess, "run", fake_run)
+
+    assert healthcheck.resolve_healthcheck_host("tailscale") == "100.92.140.63"

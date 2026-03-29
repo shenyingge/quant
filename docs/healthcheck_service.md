@@ -36,6 +36,8 @@ Use the helper script:
 .\scripts\start_healthcheck_service.ps1
 ```
 
+The helper script respects `.env` / `HEALTHCHECK_HOST`. If you set `HEALTHCHECK_HOST=tailscale`, it resolves that sentinel to the machine's current Tailscale IPv4 and binds the HTTP server to that address only.
+
 ## Default Checks
 
 The current `/health` output includes:
@@ -79,6 +81,21 @@ HEALTHCHECK_TIMEOUT_SECONDS=2
 HEALTHCHECK_REFRESH_INTERVAL_SECONDS=15
 ```
 
+`HEALTHCHECK_HOST` supports a special value:
+
+- `tailscale`: auto-detect the current Tailscale IPv4 and bind to that interface only
+
+Recommended usage:
+
+- Keep `HEALTHCHECK_HOST=127.0.0.1` as the default safe setting
+- Set `HEALTHCHECK_HOST=tailscale` only on hosts where you explicitly want Tailscale access
+
+To add a Windows Firewall rule that allows only Tailscale CGNAT addresses to reach the port:
+
+```powershell
+.\scripts\configure_healthcheck_tailscale_firewall.ps1
+```
+
 ## Windows Registration
 
 Register the service as a startup scheduled task:
@@ -111,6 +128,12 @@ Query the endpoint locally:
 
 ```powershell
 curl http://127.0.0.1:8780/health
+```
+
+Query the endpoint over Tailscale from another node:
+
+```powershell
+curl http://100.x.y.z:8780/health
 ```
 
 If local HTTP tooling is affected by system proxy settings, use a browser or a direct socket-based check instead.
