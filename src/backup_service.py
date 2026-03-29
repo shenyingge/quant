@@ -124,7 +124,6 @@ class DatabaseBackupService:
                 "backup_time": datetime.now().isoformat(),
                 "trading_signals": [],
                 "order_records": [],
-                "service_logs": [],
             }
 
             cursor.execute(
@@ -145,28 +144,12 @@ class DatabaseBackupService:
             )
             data["order_records"] = [dict(row) for row in cursor.fetchall()]
 
-            try:
-                cursor.execute(
-                    """
-                    SELECT * FROM service_logs
-                    WHERE DATE(timestamp) = ?
-                    """,
-                    (today,),
-                )
-                data["service_logs"] = [dict(row) for row in cursor.fetchall()]
-            except sqlite3.OperationalError:
-                data["service_logs"] = []
-
             conn.close()
 
-            total_records = (
-                len(data["trading_signals"])
-                + len(data["order_records"])
-                + len(data["service_logs"])
-            )
+            total_records = len(data["trading_signals"]) + len(data["order_records"])
             logger.info(
                 f"Fetched today data: signals={len(data['trading_signals'])}, "
-                f"orders={len(data['order_records'])}, logs={len(data['service_logs'])}"
+                f"orders={len(data['order_records'])}"
             )
             return data if total_records > 0 else {}
         except Exception as exc:

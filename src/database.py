@@ -56,16 +56,6 @@ class OrderRecord(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
-class ServiceLog(Base):
-    __tablename__ = "service_logs"
-
-    id = Column(Integer, primary_key=True, index=True)
-    level = Column(String(10), nullable=False)
-    message = Column(Text, nullable=False)
-    module = Column(String(50), nullable=True)
-    timestamp = Column(DateTime, default=datetime.utcnow)
-
-
 class TradingCalendar(Base):
     """交易日历表，缓存交易日数据"""
 
