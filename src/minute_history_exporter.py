@@ -21,6 +21,7 @@ from xtquant import xtdata
 
 from src.config import settings
 from src.data_manager.storage import MarketDataStorage
+from src.meta_db import validate_meta_db_config
 from src.remote_sync import sync_file_via_rsync, sync_tree_via_rsync
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -128,18 +129,9 @@ def build_bundle_name(start_date: str, end_date: str) -> str:
 
 
 def ensure_meta_db_config() -> None:
-    missing = [
-        key
-        for key, value in {
-            "META_DB_HOST": settings.meta_db_host,
-            "META_DB_NAME": settings.meta_db_name,
-            "META_DB_USER": settings.meta_db_user,
-            "META_DB_PASSWORD": settings.meta_db_password,
-        }.items()
-        if not value
-    ]
-    if missing:
-        raise RuntimeError(f"Missing Meta DB config: {', '.join(missing)}")
+    validate_meta_db_config(
+        required_keys=("META_DB_HOST", "META_DB_NAME", "META_DB_USER", "META_DB_PASSWORD")
+    )
 
 
 async def fetch_stock_records(

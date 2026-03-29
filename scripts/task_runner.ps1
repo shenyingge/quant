@@ -1,5 +1,5 @@
 param(
-    [ValidateSet("trading-service", "t0-daemon", "t0-sync-position", "minute-history-daily")]
+    [ValidateSet("trading-service", "t0-daemon", "t0-sync-position", "minute-history-daily", "meta-db-sync")]
     [string]$Mode = "trading-service"
 )
 
@@ -15,6 +15,9 @@ $EnvFile = Join-Path $ProjectDir ".env"
 if (-not (Test-Path $LogsDir)) {
     New-Item -ItemType Directory -Path $LogsDir | Out-Null
 }
+
+$RequiresQmtReady = $true
+$RespectTradingDayProbe = $true
 
 switch ($Mode) {
     "trading-service" {
@@ -36,6 +39,13 @@ switch ($Mode) {
         $LogPath = Join-Path $LogsDir "task_execution_minute_history.log"
         $DisplayName = "Minute history export"
         $MainArgs = @("main.py", "export-minute-daily")
+    }
+    "meta-db-sync" {
+        $LogPath = Join-Path $LogsDir "task_execution_meta_db_sync.log"
+        $DisplayName = "Meta DB sync"
+        $MainArgs = @("main.py", "sync-meta-db")
+        $RequiresQmtReady = $false
+        $RespectTradingDayProbe = $false
     }
 }
 
@@ -412,12 +422,14 @@ try {
     }
     Write-TaskLog "Using python for task startup: $pythonPath"
 
-    if (Test-ShouldSkipForNonTradingDay -PythonPath $pythonPath) {
+    if ($RespectTradingDayProbe -and (Test-ShouldSkipForNonTradingDay -PythonPath $pythonPath)) {
         Write-TaskLog "$DisplayName exited with code: 0"
         exit 0
     }
 
-    Wait-ForQmtReady
+    if ($RequiresQmtReady) {
+        Wait-ForQmtReady
+    }
 
     $preferUv = Get-EnvBoolSetting -Name "TASK_RUNNER_USE_UV" -DefaultValue $false
     $syncOnStart = Get-EnvBoolSetting -Name "TASK_RUNNER_SYNC_ON_START" -DefaultValue $false

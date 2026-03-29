@@ -122,6 +122,7 @@ class Settings(BaseSettings):
     meta_db_password: str = Field(default="", env="META_DB_PASSWORD")
     meta_db_type: str = Field(default="postgresql+asyncpg", env="META_DB_TYPE")
     meta_db_schema: str = Field(default="", env="META_DB_SCHEMA")
+    meta_db_trading_schema: str = Field(default="trading", env="META_DB_TRADING_SCHEMA")
 
     pythonpath: Optional[str] = Field(default=None, env="PYTHONPATH")
 

@@ -46,6 +46,7 @@ def _resolve_app_role(command: Optional[str]) -> str:
         "export-daily": "daily_export",
         "export-minute-history": "minute_history_export",
         "export-minute-daily": "minute_history_export",
+        "sync-meta-db": "meta_db_sync",
         "t0-strategy": "strategy_engine",
         "t0-daemon": "strategy_engine",
         "t0-sync-position": "strategy_engine",
@@ -122,6 +123,8 @@ def main():
             return export_minute_history(sys.argv[2:])
         elif command == "export-minute-daily":
             return export_minute_daily(sys.argv[2:])
+        elif command == "sync-meta-db":
+            return sync_meta_db()
         elif command == "t0-strategy":
             run_t0_strategy()
             return 0
@@ -509,6 +512,20 @@ def export_minute_daily(argv=None):
     return export_minute_history(default_args + (argv or []))
 
 
+def sync_meta_db():
+    """将本地 SQLite 交易数据同步到 Meta DB。"""
+    from src.trading_meta_sync import sync_sqlite_to_meta_db
+
+    logger.info("开始同步 SQLite 交易数据到 Meta DB...")
+    result = sync_sqlite_to_meta_db()
+    logger.info("SQLite 到 Meta DB 同步完成")
+    logger.info(f"目标 schema: {result.schema}")
+    logger.info(f"同步总行数: {result.total_rows}")
+    for table_name, row_count in result.table_row_counts.items():
+        logger.info(f"  {table_name}: {row_count}")
+    return 0
+
+
 def _notify_t0_runtime(component: str, event: str, detail: str = "", level: str = "info"):
     """尽力发送 T+0 运行时通知。"""
     try:
@@ -746,6 +763,7 @@ def print_usage():
     logger.info("  python main.py t0-backtest            - 运行 T+0 文件回测")
     logger.info("  python main.py export-minute-history  - 导出分钟历史行情")
     logger.info("  python main.py export-minute-daily    - 导出当日分钟行情")
+    logger.info("  python main.py sync-meta-db           - 将 SQLite 交易数据同步到 Meta DB")
     logger.info("  python main.py health-check           - 输出 health check JSON 结果")
     logger.info("  python main.py health-server          - 启动独立常驻的 HTTP /health 服务")
     logger.info("")

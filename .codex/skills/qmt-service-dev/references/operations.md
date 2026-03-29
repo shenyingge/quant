@@ -16,6 +16,7 @@
 - Run T+0 daemon: `uv run python main.py t0-daemon`
 - Sync T+0 position: `uv run python main.py t0-sync-position`
 - Run file-driven T+0 backtest: `uv run python main.py t0-backtest --minute-data minute.csv --daily-data daily.csv`
+- Sync SQLite trading tables into Meta DB: `uv run python main.py sync-meta-db`
 - Print a one-shot health snapshot: `uv run python main.py health-check`
 - Run the standalone health HTTP service: `uv run python main.py health-server`
 
@@ -34,6 +35,7 @@
 
 - Main log file is usually `logs/trading_service.log`.
 - Scheduled-task wrapper logs usually land in `logs/task_execution_trading.log`, `logs/task_execution_t0_daemon.log`, or `logs/task_execution_t0_sync.log`.
+- Meta DB sync task logs land in `logs/task_execution_meta_db_sync.log`.
 - The standalone health service usually logs through the main process logger and listens on `http://127.0.0.1:8780/health` unless overridden by env.
 - SQLite DB defaults to `trading.db`.
 - Daily export output goes to `data/daily_export/`.
@@ -46,6 +48,7 @@
 - `scripts/setup_t0_tasks.bat` manages the T+0 scheduled tasks.
 - `scripts/run_console.bat`, `scripts/task_runner.ps1`, and the `task_wrapper_*.bat` files are the main Windows execution path.
 - `scripts/register_healthcheck_service_task.ps1` registers the 24x7 startup task `Quant_Healthcheck_Service`.
+- `scripts/setup_meta_db_sync_task.bat` registers the daily 15:10 task `QMT_Meta_DB_Sync`.
 - `scripts/start_healthcheck_service.ps1` and `scripts/start_healthcheck_service.bat` launch the standalone health service.
 - `scripts/task_runner.sh` and `scripts/load_env.sh` remain relevant for older shell-based environments.
 
