@@ -34,13 +34,13 @@ switch ($Mode) {
     }
     "minute-history-daily" {
         $LogPath = Join-Path $LogsDir "task_execution_minute_history.log"
-        $DisplayName = "每日分钟行情导出"
+        $DisplayName = "Minute history export"
         $MainArgs = @("main.py", "export-minute-daily")
     }
 }
 
 if ($Mode -eq "minute-history-daily") {
-    $DisplayName = "每日分钟行情导出"
+    $DisplayName = "Minute history export"
 }
 
 function Write-TaskLog {
@@ -240,16 +240,18 @@ function Invoke-LoggedProcess {
     $stderrPath = [System.IO.Path]::GetTempFileName()
 
     try {
-        $process = Start-Process `
-            -FilePath $FilePath `
-            -ArgumentList $Arguments `
-            -WorkingDirectory $ProjectDir `
-            -NoNewWindow `
-            -PassThru `
-            -RedirectStandardOutput $stdoutPath `
-            -RedirectStandardError $stderrPath
+        $startProcessParams = @{
+            FilePath = $FilePath
+            ArgumentList = $Arguments
+            WorkingDirectory = $ProjectDir
+            NoNewWindow = $true
+            PassThru = $true
+            RedirectStandardOutput = $stdoutPath
+            RedirectStandardError = $stderrPath
+        }
 
         if ($TimeoutSeconds -gt 0) {
+            $process = Start-Process @startProcessParams
             if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
                 try {
                     Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
@@ -259,7 +261,8 @@ function Invoke-LoggedProcess {
                 throw "Process timed out after $TimeoutSeconds seconds: $FilePath $($Arguments -join ' ')"
             }
         } else {
-            $process.WaitForExit()
+            $startProcessParams["Wait"] = $true
+            $process = Start-Process @startProcessParams
         }
 
         $stdout = Get-Content -Path $stdoutPath -Raw -Encoding UTF8 -ErrorAction SilentlyContinue
@@ -337,6 +340,60 @@ function Wait-ForQmtReady {
     throw "QMT client did not become ready within $timeoutSeconds seconds"
 }
 
+function Normalize-ExitCode {
+    param($ExitCode)
+
+    if ($null -eq $ExitCode) {
+        return 0
+    }
+
+    $rawValue = "$ExitCode".Trim()
+    if ([string]::IsNullOrWhiteSpace($rawValue)) {
+        return 0
+    }
+
+    $parsedValue = 0
+    if ([int]::TryParse($rawValue, [ref]$parsedValue)) {
+        return $parsedValue
+    }
+
+    return 1
+}
+
+function Test-ShouldSkipForNonTradingDay {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$PythonPath
+    )
+
+    $probePath = Join-Path $ProjectDir ".task_runner_trading_day_probe_$([System.Guid]::NewGuid().ToString('N')).py"
+    $probeCode = @'
+from src.trading_day_checker import is_trading_day
+import sys
+
+sys.exit(0 if is_trading_day() else 3)
+'@
+
+    try {
+        [System.IO.File]::WriteAllText($probePath, $probeCode, [System.Text.UTF8Encoding]::new($false))
+        $probeExitCode = Normalize-ExitCode (Invoke-LoggedProcess -FilePath $PythonPath -Arguments @($probePath))
+
+        if ($probeExitCode -eq 3) {
+            Write-TaskLog "Non-trading day detected, skipping task startup for mode: $Mode"
+            return $true
+        }
+
+        if ($probeExitCode -ne 0) {
+            Write-TaskLog "Trading-day probe exited with code ${probeExitCode}, continuing normal startup"
+        }
+
+        return $false
+    }
+    finally {
+        Remove-Item -LiteralPath $probePath -Force -ErrorAction SilentlyContinue
+    }
+}
+
 Set-Location $ProjectDir
 $env:PYTHONIOENCODING = "utf-8"
 $env:PYTHONUTF8 = "1"
@@ -354,6 +411,12 @@ try {
         throw "Python was not found for task startup"
     }
     Write-TaskLog "Using python for task startup: $pythonPath"
+
+    if (Test-ShouldSkipForNonTradingDay -PythonPath $pythonPath) {
+        Write-TaskLog "$DisplayName exited with code: 0"
+        exit 0
+    }
+
     Wait-ForQmtReady
 
     $preferUv = Get-EnvBoolSetting -Name "TASK_RUNNER_USE_UV" -DefaultValue $false
@@ -383,6 +446,7 @@ try {
         $exitCode = Invoke-LoggedProcess -FilePath $pythonPath -Arguments $MainArgs
     }
 
+    $exitCode = Normalize-ExitCode $exitCode
     Write-TaskLog "$DisplayName exited with code: $exitCode"
     if ($exitCode -ne 0) {
         Send-FeishuTaskNotification `
