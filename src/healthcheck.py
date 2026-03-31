@@ -605,7 +605,7 @@ def serve_healthcheck(host: str, port: int, scope: str = "project") -> None:
         "HealthRequestHandler", (_HealthRequestHandler,), {"snapshot_store": snapshot_store}
     )
     server = ThreadingHTTPServer((bind_host, port), handler)
-    logger.info("Health check server listening on http://%s:%s/health", bind_host, port)
+    logger.info("Health check server listening on http://{}:{}/health", bind_host, port)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
@@ -628,7 +628,7 @@ def start_healthcheck_server(host: str, port: int, scope: str = "project") -> bo
             and _server_thread.is_alive()
         ):
             logger.debug(
-                "Health check server already running on http://%s:%s/health", bind_host, port
+                "Health check server already running on http://{}:{}/health", bind_host, port
             )
             return True
 
@@ -647,7 +647,7 @@ def start_healthcheck_server(host: str, port: int, scope: str = "project") -> bo
         except OSError as exc:
             snapshot_store.stop()
             logger.warning(
-                "Health check server could not bind to http://%s:%s/health: %s",
+                "Health check server could not bind to http://{}:{}/health: {}",
                 bind_host,
                 port,
                 exc,
@@ -663,7 +663,7 @@ def start_healthcheck_server(host: str, port: int, scope: str = "project") -> bo
         _server_instance = server
         _server_thread = thread
         _snapshot_store = snapshot_store
-        logger.info("Health check server started on http://%s:%s/health", bind_host, port)
+        logger.info("Health check server started on http://{}:{}/health", bind_host, port)
         return True
 
 
