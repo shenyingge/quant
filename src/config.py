@@ -78,6 +78,7 @@ class Settings(BaseSettings):
     t0_strategy_enabled: bool = Field(default=False, env="T0_STRATEGY_ENABLED")
     t0_stock_code: str = Field(default="601138.SH", env="T0_STOCK_CODE")
     t0_output_dir: str = Field(default="./output", env="T0_OUTPUT_DIR")
+    t0_save_signal_card: bool = Field(default=False, env="T0_SAVE_SIGNAL_CARD")
     t0_notify_observe_signals: bool = Field(default=False, env="T0_NOTIFY_OBSERVE_SIGNALS")
     t0_base_position: int = Field(default=2600, env="T0_BASE_POSITION")
     t0_tactical_position: int = Field(default=900, env="T0_TACTICAL_POSITION")

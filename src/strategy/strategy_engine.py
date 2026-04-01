@@ -175,7 +175,8 @@ class StrategyEngine:
 
     def _finalize_signal_card(self, signal_card: dict) -> dict:
         """Persist and notify after a signal card is generated."""
-        self._save_signal_card(signal_card)
+        if settings.t0_save_signal_card:
+            self._save_signal_card(signal_card)
 
         signal_dict = signal_card.to_dict() if hasattr(signal_card, "to_dict") else signal_card
         current_action = signal_dict.get("signal", {}).get("action")
