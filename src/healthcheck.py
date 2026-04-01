@@ -15,13 +15,18 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
-from typing import Any, Dict, List, Optional
-from urllib.parse import urlparse
+from typing import Any, Dict, List, Optional, Set
+from urllib.parse import urlparse, parse_qs
+import hashlib
+import base64
+import struct
 
 import redis
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, text, desc
+from sqlalchemy.orm import sessionmaker
 
 from src.config import settings
+from src.database import OrderRecord, TradingSignal
 from src.logger_config import configured_logger as logger
 from src.trading_day_checker import is_trading_day
 
@@ -29,7 +34,122 @@ _server_lock = threading.Lock()
 _server_instance: Optional[ThreadingHTTPServer] = None
 _server_thread: Optional[threading.Thread] = None
 _snapshot_store: Optional["HealthSnapshotStore"] = None
+_ws_manager: Optional["WebSocketManager"] = None
 _TAILSCALE_HOST_SENTINEL = "tailscale"
+
+
+class WebSocketManager:
+    def __init__(self):
+        self.clients: Dict[str, Set[Any]] = {}
+        self.redis_client = redis.Redis(
+            host=settings.redis_host,
+            port=settings.redis_port,
+            password=settings.redis_password,
+            decode_responses=True,
+        )
+        self.running = False
+        self.thread = None
+
+    def start(self):
+        if self.thread and self.thread.is_alive():
+            return
+        self.running = True
+        self.thread = threading.Thread(target=self._broadcast_loop, daemon=True)
+        self.thread.start()
+
+    def stop(self):
+        self.running = False
+
+    def subscribe(self, stock_code: str, client):
+        if stock_code not in self.clients:
+            self.clients[stock_code] = set()
+        self.clients[stock_code].add(client)
+
+    def unsubscribe(self, stock_code: str, client):
+        if stock_code in self.clients:
+            self.clients[stock_code].discard(client)
+            if not self.clients[stock_code]:
+                del self.clients[stock_code]
+
+    def remove_client(self, client):
+        for stock_code in list(self.clients.keys()):
+            self.clients[stock_code].discard(client)
+            if not self.clients[stock_code]:
+                del self.clients[stock_code]
+
+    def _broadcast_loop(self):
+        pubsub = self.redis_client.pubsub()
+        pubsub.subscribe("quote_stream")
+        while self.running:
+            try:
+                message = pubsub.get_message(timeout=1)
+                if message and message["type"] == "message":
+                    quote_data = json.loads(message["data"])
+                    stock_code = quote_data.get("stock_code")
+                    if stock_code in self.clients:
+                        disconnected = set()
+                        for client in list(self.clients[stock_code]):
+                            try:
+                                client.send_message(json.dumps(quote_data))
+                            except:
+                                disconnected.add(client)
+                        for client in disconnected:
+                            self.remove_client(client)
+            except Exception as e:
+                logger.error(f"Broadcast error: {e}")
+                time_module.sleep(1)
+
+
+class WebSocketClient:
+    def __init__(self, sock, manager):
+        self.sock = sock
+        self.manager = manager
+
+    def send_message(self, message: str):
+        data = message.encode()
+        frame = bytearray([0x81, len(data)])
+        frame.extend(data)
+        self.sock.sendall(frame)
+
+    def handle(self):
+        try:
+            while True:
+                header = self.sock.recv(2)
+                if not header:
+                    break
+                opcode = header[0] & 0x0F
+                masked = header[1] & 0x80
+                length = header[1] & 0x7F
+
+                if length == 126:
+                    length = struct.unpack(">H", self.sock.recv(2))[0]
+                elif length == 127:
+                    length = struct.unpack(">Q", self.sock.recv(8))[0]
+
+                mask = self.sock.recv(4) if masked else None
+                data = bytearray(self.sock.recv(length))
+
+                if mask:
+                    for i in range(len(data)):
+                        data[i] ^= mask[i % 4]
+
+                if opcode == 0x8:
+                    break
+                elif opcode == 0x1:
+                    msg = json.loads(data.decode())
+                    action = msg.get("action")
+                    stock_code = msg.get("stock_code")
+
+                    if action == "subscribe" and stock_code:
+                        self.manager.subscribe(stock_code, self)
+                        self.send_message(json.dumps({"status": "subscribed", "stock_code": stock_code}))
+                    elif action == "unsubscribe" and stock_code:
+                        self.manager.unsubscribe(stock_code, self)
+                        self.send_message(json.dumps({"status": "unsubscribed", "stock_code": stock_code}))
+        except:
+            pass
+        finally:
+            self.manager.remove_client(self)
 
 
 def _timestamp_now() -> str:
@@ -571,24 +691,192 @@ class ProjectHealthChecker:
 
 class _HealthRequestHandler(BaseHTTPRequestHandler):
     snapshot_store: HealthSnapshotStore
+    ws_manager: WebSocketManager
 
     def do_GET(self) -> None:  # noqa: N802
-        parsed = urlparse(self.path)
-        if parsed.path not in {"/health", "/healthz"}:
-            self.send_error(HTTPStatus.NOT_FOUND, "Not Found")
+        if self.headers.get("Upgrade", "").lower() == "websocket":
+            self._handle_websocket()
             return
 
+        parsed = urlparse(self.path)
+        query_params = parse_qs(parsed.query)
+
+        if parsed.path in {"/health", "/healthz"}:
+            self._handle_health()
+        elif parsed.path == "/api/positions":
+            self._handle_positions()
+        elif parsed.path == "/api/orders":
+            self._handle_orders(query_params)
+        elif parsed.path == "/api/signals":
+            self._handle_signals(query_params)
+        elif parsed.path == "/api/trades":
+            self._handle_trades(query_params)
+        elif parsed.path == "/api/pnl":
+            self._handle_pnl()
+        else:
+            self.send_error(HTTPStatus.NOT_FOUND, "Not Found")
+
+    def _handle_websocket(self):
+        key = self.headers.get("Sec-WebSocket-Key")
+        if not key:
+            self.send_error(HTTPStatus.BAD_REQUEST)
+            return
+
+        accept = base64.b64encode(
+            hashlib.sha1((key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").encode()).digest()
+        ).decode()
+
+        self.send_response(HTTPStatus.SWITCHING_PROTOCOLS)
+        self.send_header("Upgrade", "websocket")
+        self.send_header("Connection", "Upgrade")
+        self.send_header("Sec-WebSocket-Accept", accept)
+        self.end_headers()
+
+        ws_client = WebSocketClient(self.request, self.ws_manager)
+        ws_client.handle()
+
+    def _handle_health(self) -> None:
         snapshot = self.snapshot_store.get_snapshot().to_dict()
         payload = json.dumps(snapshot, ensure_ascii=False, indent=2).encode("utf-8")
         status_code = (
             HTTPStatus.OK if snapshot["status"] != "down" else HTTPStatus.SERVICE_UNAVAILABLE
         )
+        self._send_json_response(payload, status_code)
 
+    def _handle_positions(self) -> None:
+        try:
+            from xtquant import xtdata
+            account_id = settings.qmt_account_id
+            positions = xtdata.get_stock_position(account_id) or {}
+            result = [{"stock_code": k, **v} for k, v in positions.items()]
+            self._send_json_response(json.dumps(result, ensure_ascii=False, indent=2).encode("utf-8"))
+        except Exception as e:
+            self._send_error_response(f"Failed to get positions: {e}")
+
+    def _handle_orders(self, query_params: Dict) -> None:
+        try:
+            page = int(query_params.get("page", ["1"])[0])
+            limit = int(query_params.get("limit", ["100"])[0])
+            offset = (page - 1) * limit
+
+            engine = create_engine(settings.db_url)
+            Session = sessionmaker(bind=engine)
+            session = Session()
+
+            total = session.query(OrderRecord).count()
+            orders = session.query(OrderRecord).order_by(desc(OrderRecord.order_time)).offset(offset).limit(limit).all()
+
+            result = {
+                "total": total,
+                "page": page,
+                "limit": limit,
+                "data": [{"id": o.id, "signal_id": o.signal_id, "order_id": o.order_id,
+                          "stock_code": o.stock_code, "direction": o.direction, "volume": o.volume,
+                          "price": o.price, "order_status": o.order_status,
+                          "filled_volume": o.filled_volume, "filled_price": o.filled_price,
+                          "order_time": o.order_time.isoformat() if o.order_time else None,
+                          "filled_time": o.filled_time.isoformat() if o.filled_time else None}
+                         for o in orders]
+            }
+            session.close()
+            engine.dispose()
+            self._send_json_response(json.dumps(result, ensure_ascii=False, indent=2).encode("utf-8"))
+        except Exception as e:
+            self._send_error_response(f"Failed to get orders: {e}")
+
+    def _handle_signals(self, query_params: Dict) -> None:
+        try:
+            page = int(query_params.get("page", ["1"])[0])
+            limit = int(query_params.get("limit", ["100"])[0])
+            offset = (page - 1) * limit
+
+            engine = create_engine(settings.db_url)
+            Session = sessionmaker(bind=engine)
+            session = Session()
+
+            total = session.query(TradingSignal).count()
+            signals = session.query(TradingSignal).order_by(desc(TradingSignal.signal_time)).offset(offset).limit(limit).all()
+
+            result = {
+                "total": total,
+                "page": page,
+                "limit": limit,
+                "data": [{"id": s.id, "signal_id": s.signal_id, "stock_code": s.stock_code,
+                          "direction": s.direction, "volume": s.volume, "price": s.price,
+                          "processed": s.processed, "error_message": s.error_message,
+                          "signal_time": s.signal_time.isoformat() if s.signal_time else None}
+                         for s in signals]
+            }
+            session.close()
+            engine.dispose()
+            self._send_json_response(json.dumps(result, ensure_ascii=False, indent=2).encode("utf-8"))
+        except Exception as e:
+            self._send_error_response(f"Failed to get signals: {e}")
+
+    def _handle_trades(self, query_params: Dict) -> None:
+        try:
+            page = int(query_params.get("page", ["1"])[0])
+            limit = int(query_params.get("limit", ["100"])[0])
+            offset = (page - 1) * limit
+
+            engine = create_engine(settings.db_url)
+            Session = sessionmaker(bind=engine)
+            session = Session()
+
+            total = session.query(OrderRecord).filter(OrderRecord.filled_volume > 0).count()
+            trades = session.query(OrderRecord).filter(OrderRecord.filled_volume > 0).order_by(desc(OrderRecord.filled_time)).offset(offset).limit(limit).all()
+
+            result = {
+                "total": total,
+                "page": page,
+                "limit": limit,
+                "data": [{"id": t.id, "order_id": t.order_id, "stock_code": t.stock_code,
+                          "direction": t.direction, "filled_volume": t.filled_volume,
+                          "filled_price": t.filled_price,
+                          "filled_time": t.filled_time.isoformat() if t.filled_time else None}
+                         for t in trades]
+            }
+            session.close()
+            engine.dispose()
+            self._send_json_response(json.dumps(result, ensure_ascii=False, indent=2).encode("utf-8"))
+        except Exception as e:
+            self._send_error_response(f"Failed to get trades: {e}")
+
+    def _handle_pnl(self) -> None:
+        try:
+            engine = create_engine(settings.db_url)
+            Session = sessionmaker(bind=engine)
+            session = Session()
+            trades = session.query(OrderRecord).filter(OrderRecord.filled_volume > 0).all()
+
+            pnl_by_stock = {}
+            for t in trades:
+                if t.stock_code not in pnl_by_stock:
+                    pnl_by_stock[t.stock_code] = {"buy_amount": 0, "sell_amount": 0, "pnl": 0}
+                amount = t.filled_volume * (t.filled_price or 0)
+                if t.direction == "BUY":
+                    pnl_by_stock[t.stock_code]["buy_amount"] += amount
+                else:
+                    pnl_by_stock[t.stock_code]["sell_amount"] += amount
+                    pnl_by_stock[t.stock_code]["pnl"] = pnl_by_stock[t.stock_code]["sell_amount"] - pnl_by_stock[t.stock_code]["buy_amount"]
+
+            result = [{"stock_code": k, **v} for k, v in pnl_by_stock.items()]
+            session.close()
+            engine.dispose()
+            self._send_json_response(json.dumps(result, ensure_ascii=False, indent=2).encode("utf-8"))
+        except Exception as e:
+            self._send_error_response(f"Failed to calculate PnL: {e}")
+
+    def _send_json_response(self, payload: bytes, status_code: int = HTTPStatus.OK) -> None:
         self.send_response(status_code)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(payload)))
         self.end_headers()
         self.wfile.write(payload)
+
+    def _send_error_response(self, message: str) -> None:
+        payload = json.dumps({"error": message}, ensure_ascii=False).encode("utf-8")
+        self._send_json_response(payload, HTTPStatus.INTERNAL_SERVER_ERROR)
 
     def log_message(self, format: str, *args: Any) -> None:
         return
@@ -617,7 +905,7 @@ def serve_healthcheck(host: str, port: int, scope: str = "project") -> None:
 
 def start_healthcheck_server(host: str, port: int, scope: str = "project") -> bool:
     """Start the HTTP health check server in a background daemon thread."""
-    global _server_instance, _server_thread, _snapshot_store
+    global _server_instance, _server_thread, _snapshot_store, _ws_manager
 
     bind_host = resolve_healthcheck_host(host)
 
@@ -637,15 +925,20 @@ def start_healthcheck_server(host: str, port: int, scope: str = "project") -> bo
             refresh_interval_seconds=settings.healthcheck_refresh_interval_seconds,
         )
         snapshot_store.start()
+
+        ws_manager = WebSocketManager()
+        ws_manager.start()
+
         handler = type(
             "HealthRequestHandler",
             (_HealthRequestHandler,),
-            {"snapshot_store": snapshot_store},
+            {"snapshot_store": snapshot_store, "ws_manager": ws_manager},
         )
         try:
             server = ThreadingHTTPServer((bind_host, port), handler)
         except OSError as exc:
             snapshot_store.stop()
+            ws_manager.stop()
             logger.warning(
                 "Health check server could not bind to http://{}:{}/health: {}",
                 bind_host,
@@ -663,13 +956,15 @@ def start_healthcheck_server(host: str, port: int, scope: str = "project") -> bo
         _server_instance = server
         _server_thread = thread
         _snapshot_store = snapshot_store
+        _ws_manager = ws_manager
         logger.info("Health check server started on http://{}:{}/health", bind_host, port)
+        logger.info("WebSocket server available on ws://{}:{}/ws", bind_host, port)
         return True
 
 
 def stop_healthcheck_server() -> None:
     """Stop the background health check server if it is running."""
-    global _server_instance, _server_thread, _snapshot_store
+    global _server_instance, _server_thread, _snapshot_store, _ws_manager
 
     with _server_lock:
         if _server_instance is None:
@@ -678,9 +973,11 @@ def stop_healthcheck_server() -> None:
         server = _server_instance
         thread = _server_thread
         snapshot_store = _snapshot_store
+        ws_manager = _ws_manager
         _server_instance = None
         _server_thread = None
         _snapshot_store = None
+        _ws_manager = None
 
     try:
         server.shutdown()
@@ -688,5 +985,7 @@ def stop_healthcheck_server() -> None:
         server.server_close()
         if snapshot_store is not None:
             snapshot_store.stop()
+        if ws_manager is not None:
+            ws_manager.stop()
         if thread is not None:
             thread.join(timeout=2)
