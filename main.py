@@ -51,6 +51,7 @@ def _resolve_app_role(command: Optional[str]) -> str:
         "t0-daemon": "strategy_engine",
         "t0-sync-position": "strategy_engine",
         "t0-backtest": "strategy_engine",
+        "watchdog": "watchdog",
     }
     return role_map.get(command or "", "cli")
 
@@ -144,6 +145,8 @@ def main():
             return run_health_check(sys.argv[2:])
         elif command == "health-server":
             return run_health_server(sys.argv[2:])
+        elif command == "watchdog":
+            return run_watchdog(sys.argv[2:])
         else:
             print_usage()
             return 1
@@ -757,7 +760,25 @@ def run_health_server(argv=None):
     return 0
 
 
+def run_watchdog(argv=None):
+    """Run the local watchdog service."""
+    from src.watchdog_service import run_watchdog_service
+
+    once = False
+    dry_run = False
+
+    for arg in argv or []:
+        if arg == "--once":
+            once = True
+        elif arg == "--dry-run":
+            dry_run = True
+
+    run_watchdog_service(once=once, dry_run=dry_run)
+    return 0
+
+
 def print_usage():
+    logger.info("  python main.py watchdog               - start the 24x7 watchdog service")
     """打印命令行使用说明。"""
     logger.info("使用方法:")
     logger.info(f"  python main.py run                    - 运行 {TRADING_ENGINE_NAME}")

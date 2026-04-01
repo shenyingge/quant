@@ -25,6 +25,7 @@ import redis
 from sqlalchemy import create_engine, text, desc
 from sqlalchemy.orm import sessionmaker
 
+from src.account_data_service import AccountDataService, parse_pagination
 from src.config import settings
 from src.database import OrderRecord, TradingSignal
 from src.logger_config import configured_logger as logger
@@ -372,6 +373,7 @@ class ProjectHealthChecker:
             trading_day,
             self._check_database(),
             self._check_redis(),
+            self._check_watchdog_process(processes),
             self._check_qmt_client_process(processes, trading_day),
             self._check_trading_engine_process(processes, trading_day),
             self._check_strategy_engine_process(processes, trading_day),
@@ -499,6 +501,17 @@ class ProjectHealthChecker:
             expected=self._is_expected("qmt", trading_day_check),
         )
 
+    def _check_watchdog_process(self, processes: List[Dict[str, Any]]) -> HealthCheckResult:
+        matches = [
+            process for process in processes if "main.py watchdog" in process["command_line"]
+        ]
+        return self._build_process_check(
+            name="watchdog_process",
+            component="watchdog",
+            matches=matches,
+            expected=bool(settings.watchdog_enabled),
+        )
+
     def _check_trading_engine_process(
         self, processes: List[Dict[str, Any]], trading_day_check: HealthCheckResult
     ) -> HealthCheckResult:
@@ -622,8 +635,14 @@ class ProjectHealthChecker:
         now = datetime.now().time()
         windows = {
             "qmt": (time(8, 15), time(21, 5)),
-            "trading_engine": (time(8, 35), time(21, 5)),
-            "strategy_engine": (time(9, 20), time(15, 5)),
+            "trading_engine": (
+                datetime.strptime(settings.watchdog_trading_start_time, "%H:%M").time(),
+                datetime.strptime(settings.watchdog_trading_stop_time, "%H:%M").time(),
+            ),
+            "strategy_engine": (
+                datetime.strptime(settings.watchdog_t0_start_time, "%H:%M").time(),
+                datetime.strptime(settings.watchdog_t0_stop_time, "%H:%M").time(),
+            ),
         }
         start_time, end_time = windows[component]
         return start_time <= now <= end_time
@@ -650,7 +669,7 @@ class ProjectHealthChecker:
                 text=True,
                 encoding="utf-8",
                 errors="ignore",
-                timeout=self.timeout_seconds,
+                timeout=max(self.timeout_seconds, 8),
             )
         except Exception as exc:
             logger.warning(f"Failed to list processes for health check: {exc}")
@@ -692,6 +711,7 @@ class ProjectHealthChecker:
 class _HealthRequestHandler(BaseHTTPRequestHandler):
     snapshot_store: HealthSnapshotStore
     ws_manager: WebSocketManager
+    account_data_service = AccountDataService()
 
     def do_GET(self) -> None:  # noqa: N802
         if self.headers.get("Upgrade", "").lower() == "websocket":
@@ -713,10 +733,20 @@ class _HealthRequestHandler(BaseHTTPRequestHandler):
             self._handle_trades(query_params)
         elif parsed.path == "/api/pnl":
             self._handle_pnl()
+        elif parsed.path == "/api/strategy-pnl-summary":
+            self._handle_strategy_pnl_summary(query_params)
+        elif parsed.path == "/api/data-policy":
+            self._handle_data_policy()
+        elif parsed.path == "/api/account-overview":
+            self._handle_account_overview()
         else:
             self.send_error(HTTPStatus.NOT_FOUND, "Not Found")
 
     def _handle_websocket(self):
+        if not hasattr(self, "ws_manager") or self.ws_manager is None:
+            self._send_error_response("WebSocket manager is not available", HTTPStatus.SERVICE_UNAVAILABLE)
+            return
+
         key = self.headers.get("Sec-WebSocket-Key")
         if not key:
             self.send_error(HTTPStatus.BAD_REQUEST)
@@ -745,127 +775,84 @@ class _HealthRequestHandler(BaseHTTPRequestHandler):
 
     def _handle_positions(self) -> None:
         try:
-            from xtquant import xtdata
-            account_id = settings.qmt_account_id
-            positions = xtdata.get_stock_position(account_id) or {}
-            result = [{"stock_code": k, **v} for k, v in positions.items()]
-            self._send_json_response(json.dumps(result, ensure_ascii=False, indent=2).encode("utf-8"))
+            snapshot = self.account_data_service.get_positions_snapshot()
+            result = snapshot["positions"]
+            self._send_json_response(
+                json.dumps(result, ensure_ascii=False, indent=2).encode("utf-8")
+            )
         except Exception as e:
-            self._send_error_response(f"Failed to get positions: {e}")
+            self._send_error_response(f"Failed to get positions: {e}", HTTPStatus.SERVICE_UNAVAILABLE)
 
     def _handle_orders(self, query_params: Dict) -> None:
         try:
-            page = int(query_params.get("page", ["1"])[0])
-            limit = int(query_params.get("limit", ["100"])[0])
-            offset = (page - 1) * limit
-
-            engine = create_engine(settings.db_url)
-            Session = sessionmaker(bind=engine)
-            session = Session()
-
-            total = session.query(OrderRecord).count()
-            orders = session.query(OrderRecord).order_by(desc(OrderRecord.order_time)).offset(offset).limit(limit).all()
-
-            result = {
-                "total": total,
-                "page": page,
-                "limit": limit,
-                "data": [{"id": o.id, "signal_id": o.signal_id, "order_id": o.order_id,
-                          "stock_code": o.stock_code, "direction": o.direction, "volume": o.volume,
-                          "price": o.price, "order_status": o.order_status,
-                          "filled_volume": o.filled_volume, "filled_price": o.filled_price,
-                          "order_time": o.order_time.isoformat() if o.order_time else None,
-                          "filled_time": o.filled_time.isoformat() if o.filled_time else None}
-                         for o in orders]
-            }
-            session.close()
-            engine.dispose()
-            self._send_json_response(json.dumps(result, ensure_ascii=False, indent=2).encode("utf-8"))
+            page, limit, _ = parse_pagination(query_params)
+            result = self.account_data_service.get_orders_page(page, limit)
+            self._send_json_response(
+                json.dumps(result, ensure_ascii=False, indent=2).encode("utf-8")
+            )
+        except ValueError as e:
+            self._send_error_response(f"Invalid pagination: {e}", HTTPStatus.BAD_REQUEST)
         except Exception as e:
             self._send_error_response(f"Failed to get orders: {e}")
 
     def _handle_signals(self, query_params: Dict) -> None:
         try:
-            page = int(query_params.get("page", ["1"])[0])
-            limit = int(query_params.get("limit", ["100"])[0])
-            offset = (page - 1) * limit
-
-            engine = create_engine(settings.db_url)
-            Session = sessionmaker(bind=engine)
-            session = Session()
-
-            total = session.query(TradingSignal).count()
-            signals = session.query(TradingSignal).order_by(desc(TradingSignal.signal_time)).offset(offset).limit(limit).all()
-
-            result = {
-                "total": total,
-                "page": page,
-                "limit": limit,
-                "data": [{"id": s.id, "signal_id": s.signal_id, "stock_code": s.stock_code,
-                          "direction": s.direction, "volume": s.volume, "price": s.price,
-                          "processed": s.processed, "error_message": s.error_message,
-                          "signal_time": s.signal_time.isoformat() if s.signal_time else None}
-                         for s in signals]
-            }
-            session.close()
-            engine.dispose()
-            self._send_json_response(json.dumps(result, ensure_ascii=False, indent=2).encode("utf-8"))
+            page, limit, _ = parse_pagination(query_params)
+            result = self.account_data_service.get_signals_page(page, limit)
+            self._send_json_response(
+                json.dumps(result, ensure_ascii=False, indent=2).encode("utf-8")
+            )
+        except ValueError as e:
+            self._send_error_response(f"Invalid pagination: {e}", HTTPStatus.BAD_REQUEST)
         except Exception as e:
             self._send_error_response(f"Failed to get signals: {e}")
 
     def _handle_trades(self, query_params: Dict) -> None:
         try:
-            page = int(query_params.get("page", ["1"])[0])
-            limit = int(query_params.get("limit", ["100"])[0])
-            offset = (page - 1) * limit
-
-            engine = create_engine(settings.db_url)
-            Session = sessionmaker(bind=engine)
-            session = Session()
-
-            total = session.query(OrderRecord).filter(OrderRecord.filled_volume > 0).count()
-            trades = session.query(OrderRecord).filter(OrderRecord.filled_volume > 0).order_by(desc(OrderRecord.filled_time)).offset(offset).limit(limit).all()
-
-            result = {
-                "total": total,
-                "page": page,
-                "limit": limit,
-                "data": [{"id": t.id, "order_id": t.order_id, "stock_code": t.stock_code,
-                          "direction": t.direction, "filled_volume": t.filled_volume,
-                          "filled_price": t.filled_price,
-                          "filled_time": t.filled_time.isoformat() if t.filled_time else None}
-                         for t in trades]
-            }
-            session.close()
-            engine.dispose()
-            self._send_json_response(json.dumps(result, ensure_ascii=False, indent=2).encode("utf-8"))
+            page, limit, _ = parse_pagination(query_params)
+            result = self.account_data_service.get_trades_page(page, limit)
+            self._send_json_response(
+                json.dumps(result, ensure_ascii=False, indent=2).encode("utf-8")
+            )
+        except ValueError as e:
+            self._send_error_response(f"Invalid pagination: {e}", HTTPStatus.BAD_REQUEST)
         except Exception as e:
             self._send_error_response(f"Failed to get trades: {e}")
 
     def _handle_pnl(self) -> None:
         try:
-            engine = create_engine(settings.db_url)
-            Session = sessionmaker(bind=engine)
-            session = Session()
-            trades = session.query(OrderRecord).filter(OrderRecord.filled_volume > 0).all()
-
-            pnl_by_stock = {}
-            for t in trades:
-                if t.stock_code not in pnl_by_stock:
-                    pnl_by_stock[t.stock_code] = {"buy_amount": 0, "sell_amount": 0, "pnl": 0}
-                amount = t.filled_volume * (t.filled_price or 0)
-                if t.direction == "BUY":
-                    pnl_by_stock[t.stock_code]["buy_amount"] += amount
-                else:
-                    pnl_by_stock[t.stock_code]["sell_amount"] += amount
-                    pnl_by_stock[t.stock_code]["pnl"] = pnl_by_stock[t.stock_code]["sell_amount"] - pnl_by_stock[t.stock_code]["buy_amount"]
-
-            result = [{"stock_code": k, **v} for k, v in pnl_by_stock.items()]
-            session.close()
-            engine.dispose()
+            result = self.account_data_service.get_strategy_pnl_breakdown()
             self._send_json_response(json.dumps(result, ensure_ascii=False, indent=2).encode("utf-8"))
         except Exception as e:
             self._send_error_response(f"Failed to calculate PnL: {e}")
+
+    def _handle_strategy_pnl_summary(self, query_params: Dict) -> None:
+        try:
+            date_values = query_params.get("date", [])
+            target_date = None
+            if date_values:
+                target_date = datetime.strptime(date_values[0], "%Y-%m-%d").date()
+            result = self.account_data_service.get_strategy_pnl_summary(target_date)
+            self._send_json_response(
+                json.dumps(result, ensure_ascii=False, indent=2).encode("utf-8")
+            )
+        except ValueError as e:
+            self._send_error_response(f"Invalid date: {e}", HTTPStatus.BAD_REQUEST)
+        except Exception as e:
+            self._send_error_response(f"Failed to get strategy PnL summary: {e}")
+
+    def _handle_data_policy(self) -> None:
+        result = self.account_data_service.get_data_policy()
+        self._send_json_response(json.dumps(result, ensure_ascii=False, indent=2).encode("utf-8"))
+
+    def _handle_account_overview(self) -> None:
+        try:
+            result = self.account_data_service.get_account_overview()
+            self._send_json_response(
+                json.dumps(result, ensure_ascii=False, indent=2).encode("utf-8")
+            )
+        except Exception as e:
+            self._send_error_response(f"Failed to get account overview: {e}")
 
     def _send_json_response(self, payload: bytes, status_code: int = HTTPStatus.OK) -> None:
         self.send_response(status_code)
@@ -874,9 +861,13 @@ class _HealthRequestHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(payload)
 
-    def _send_error_response(self, message: str) -> None:
+    def _send_error_response(
+        self,
+        message: str,
+        status_code: int = HTTPStatus.INTERNAL_SERVER_ERROR,
+    ) -> None:
         payload = json.dumps({"error": message}, ensure_ascii=False).encode("utf-8")
-        self._send_json_response(payload, HTTPStatus.INTERNAL_SERVER_ERROR)
+        self._send_json_response(payload, status_code)
 
     def log_message(self, format: str, *args: Any) -> None:
         return
@@ -889,11 +880,16 @@ def serve_healthcheck(host: str, port: int, scope: str = "project") -> None:
         refresh_interval_seconds=settings.healthcheck_refresh_interval_seconds,
     )
     snapshot_store.start()
+    ws_manager = WebSocketManager()
+    ws_manager.start()
     handler = type(
-        "HealthRequestHandler", (_HealthRequestHandler,), {"snapshot_store": snapshot_store}
+        "HealthRequestHandler",
+        (_HealthRequestHandler,),
+        {"snapshot_store": snapshot_store, "ws_manager": ws_manager},
     )
     server = ThreadingHTTPServer((bind_host, port), handler)
     logger.info("Health check server listening on http://{}:{}/health", bind_host, port)
+    logger.info("WebSocket server available on ws://{}:{}/ws", bind_host, port)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
@@ -901,6 +897,7 @@ def serve_healthcheck(host: str, port: int, scope: str = "project") -> None:
     finally:
         server.server_close()
         snapshot_store.stop()
+        ws_manager.stop()
 
 
 def start_healthcheck_server(host: str, port: int, scope: str = "project") -> bool:

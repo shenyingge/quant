@@ -1,0 +1,4 @@
+interface:
+  display_name: "QMT Runtime Architecture"
+  short_description: "Watchdog, health API, and data sourcing"
+  default_prompt: "Use $qmt-runtime-architecture to inspect the quant repository and help with watchdog architecture, health/account API design, and QMT-vs-local source-of-truth decisions."

@@ -69,6 +69,44 @@ class Settings(BaseSettings):
     healthcheck_refresh_interval_seconds: int = Field(
         default=15, env="HEALTHCHECK_REFRESH_INTERVAL_SECONDS"
     )
+    watchdog_enabled: bool = Field(default=True, env="WATCHDOG_ENABLED")
+    watchdog_check_interval_seconds: int = Field(
+        default=30, env="WATCHDOG_CHECK_INTERVAL_SECONDS"
+    )
+    watchdog_min_restart_interval_seconds: int = Field(
+        default=120, env="WATCHDOG_MIN_RESTART_INTERVAL_SECONDS"
+    )
+    watchdog_state_path: str = Field(
+        default="./output/watchdog_state.json", env="WATCHDOG_STATE_PATH"
+    )
+    watchdog_enforce_stop_outside_window: bool = Field(
+        default=True, env="WATCHDOG_ENFORCE_STOP_OUTSIDE_WINDOW"
+    )
+    watchdog_enable_trading_service: bool = Field(
+        default=True, env="WATCHDOG_ENABLE_TRADING_SERVICE"
+    )
+    watchdog_enable_t0_daemon: bool = Field(default=True, env="WATCHDOG_ENABLE_T0_DAEMON")
+    watchdog_enable_t0_sync: bool = Field(default=True, env="WATCHDOG_ENABLE_T0_SYNC")
+    watchdog_enable_meta_db_sync: bool = Field(
+        default=True, env="WATCHDOG_ENABLE_META_DB_SYNC"
+    )
+    watchdog_trading_start_time: str = Field(
+        default="08:35", env="WATCHDOG_TRADING_START_TIME"
+    )
+    watchdog_trading_stop_time: str = Field(default="21:05", env="WATCHDOG_TRADING_STOP_TIME")
+    watchdog_t0_start_time: str = Field(default="09:20", env="WATCHDOG_T0_START_TIME")
+    watchdog_t0_stop_time: str = Field(default="15:05", env="WATCHDOG_T0_STOP_TIME")
+    watchdog_t0_sync_time: str = Field(default="15:00", env="WATCHDOG_T0_SYNC_TIME")
+    watchdog_meta_db_sync_time: str = Field(
+        default="15:10", env="WATCHDOG_META_DB_SYNC_TIME"
+    )
+    watchdog_job_max_delay_minutes: int = Field(
+        default=120, env="WATCHDOG_JOB_MAX_DELAY_MINUTES"
+    )
+    account_positions_snapshot_path: str = Field(
+        default="./output/account_positions_snapshot.json",
+        env="ACCOUNT_POSITIONS_SNAPSHOT_PATH",
+    )
 
     trading_day_check_enabled: bool = Field(default=True, env="TRADING_DAY_CHECK_ENABLED")
     test_mode_enabled: bool = Field(default=False, env="TEST_MODE_ENABLED")
