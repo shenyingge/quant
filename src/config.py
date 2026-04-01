@@ -23,6 +23,8 @@ class Settings(BaseSettings):
     redis_list_name: str = Field(default="trading_signals_list", env="REDIS_LIST_NAME")
     redis_stream_max_len: int = Field(default=10000, env="REDIS_STREAM_MAX_LEN")
     redis_block_timeout: int = Field(default=1000, env="REDIS_BLOCK_TIMEOUT")
+    redis_tick_cache_db: int = Field(default=1, env="REDIS_TICK_CACHE_DB")
+    redis_tick_cache_ttl: int = Field(default=28800, env="REDIS_TICK_CACHE_TTL")
 
     db_url: str = Field(default="sqlite:///./trading.db", env="DATABASE_URL")
 

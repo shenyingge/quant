@@ -1,6 +1,7 @@
 """Strategy engine for coordinating T+0 runtime evaluation."""
 
 import json
+import time
 from datetime import date, datetime
 from pathlib import Path
 
@@ -31,6 +32,7 @@ class StrategyEngine:
         self.position_syncer = PositionSyncer()
         self.signal_repository = StrategySignalRepository()
         self.notifier = FeishuNotifier()
+        self._last_notified_action = None
 
     def run_once(self) -> dict:
         """运行一次策略
@@ -38,12 +40,13 @@ class StrategyEngine:
         Returns:
             信号卡片字典
         """
+        start_time = time.time()
         try:
             trade_date = date.today()
             logger.info(f"开始执行策略引擎: {self.stock_code}, {trade_date}")
 
-            # 1. 获取数据
-            minute_data = self.data_fetcher.fetch_minute_data(self.stock_code, trade_date)
+            # 1. 获取数据 (realtime模式跳过download_history_data)
+            minute_data = self.data_fetcher.fetch_minute_data(self.stock_code, trade_date, realtime=True)
             if minute_data is None:
                 return self._finalize_signal_card(self._error_signal_card("分钟数据获取失败"))
 
@@ -87,7 +90,8 @@ class StrategyEngine:
                     signal=signal,
                 )
 
-            logger.info(f"策略执行完成: {signal.action}")
+            elapsed = time.time() - start_time
+            logger.info(f"策略执行完成: {signal.action}, 耗时={elapsed:.2f}秒")
             return self._finalize_signal_card(signal_card)
 
         except Exception as e:
@@ -172,8 +176,15 @@ class StrategyEngine:
     def _finalize_signal_card(self, signal_card: dict) -> dict:
         """Persist and notify after a signal card is generated."""
         self._save_signal_card(signal_card)
-        self.notifier.notify_t0_signal(signal_card, self.stock_code)
-        return signal_card.to_dict() if hasattr(signal_card, "to_dict") else signal_card
+
+        signal_dict = signal_card.to_dict() if hasattr(signal_card, "to_dict") else signal_card
+        current_action = signal_dict.get("signal", {}).get("action")
+
+        if current_action != "observe" or current_action != self._last_notified_action:
+            self.notifier.notify_t0_signal(signal_card, self.stock_code)
+            self._last_notified_action = current_action
+
+        return signal_dict
 
     def _error_signal_card(self, error_msg: str) -> dict:
         """生成错误信号卡片"""

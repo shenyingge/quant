@@ -11,6 +11,7 @@ import pandas as pd
 
 from src.config import settings
 from src.logger_config import logger
+from src.strategy.tick_cache import RedisTickCache
 
 try:
     from xtquant import xtdata
@@ -28,12 +29,15 @@ class DataFetcher:
         self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self._daily_cache = {}
+        self._snapshot_cache = None
+        self._snapshot_cache_time = None
+        self.tick_cache = RedisTickCache()
         raw_period = intraday_period or getattr(settings, "t0_intraday_bar_period", "1m")
         self.intraday_period = self._normalize_intraday_period(raw_period)
         self.intraday_period_seconds = self._period_to_seconds(self.intraday_period)
 
     def fetch_minute_data(
-        self, stock_code: str, trade_date: date, retry: int = 3
+        self, stock_code: str, trade_date: date, retry: int = 3, realtime: bool = False
     ) -> Optional[pd.DataFrame]:
         """Fetches the configured intraday bars for one trade date."""
         if xtdata is None:
@@ -42,14 +46,19 @@ class DataFetcher:
 
         for attempt in range(retry):
             try:
-                local_df = self._fetch_minute_data_from_local_cache(stock_code, trade_date)
+                if not realtime:
+                    local_df = self._fetch_minute_data_from_local_cache(stock_code, trade_date)
+                else:
+                    local_df = None
+
                 market_df = self._fetch_recent_minute_data(stock_code, trade_date)
                 df = self._choose_preferred_minute_data(local_df, market_df)
 
                 if df is None or df.empty:
                     raise ValueError(f"未获取到 {trade_date} 的日内数据")
 
-                self._warn_if_minute_data_is_stale(df, stock_code, trade_date)
+                snapshot = self.fetch_realtime_snapshot(stock_code)
+                self._warn_if_minute_data_is_stale(df, stock_code, trade_date, snapshot)
 
                 valid, msg = self._validate_minute_data(df, trade_date)
                 if not valid:
@@ -113,6 +122,42 @@ class DataFetcher:
 
     def _fetch_recent_tick_data(self, stock_code: str, trade_date: date) -> Optional[pd.DataFrame]:
         """Reads recent tick data when sub-minute bars are requested."""
+        cached_df = self.tick_cache.get_cached_ticks(stock_code, trade_date)
+
+        if cached_df is not None and not cached_df.empty:
+            last_tick_time = cached_df.index.max()
+            try:
+                data = xtdata.get_market_data(
+                    stock_list=[stock_code],
+                    period="tick",
+                    count=500,
+                    dividend_type="front",
+                )
+            except Exception as exc:
+                logger.warning(f"增量tick拉取失败: {exc}")
+                return cached_df
+
+            if data is None:
+                return cached_df
+
+            new_df = self._normalize_market_data(data, stock_code)
+            if new_df is None or new_df.empty:
+                return cached_df
+
+            new_df = self._filter_minute_data_for_trade_date(new_df, trade_date)
+            if new_df is None or new_df.empty:
+                return cached_df
+
+            new_ticks = new_df[new_df.index > last_tick_time]
+            if not new_ticks.empty:
+                combined_df = pd.concat([cached_df, new_ticks]).drop_duplicates()
+                combined_df = combined_df.sort_index()
+                self.tick_cache.save_ticks(stock_code, trade_date, combined_df)
+                logger.info(f"增量tick更新: 新增{len(new_ticks)}条, 总计{len(combined_df)}条")
+                return combined_df
+
+            return cached_df
+
         try:
             data = xtdata.get_market_data(
                 stock_list=[stock_code],
@@ -131,7 +176,11 @@ class DataFetcher:
         if df is None or df.empty:
             return None
 
-        return self._filter_minute_data_for_trade_date(df, trade_date)
+        df = self._filter_minute_data_for_trade_date(df, trade_date)
+        if df is not None and not df.empty:
+            self.tick_cache.save_ticks(stock_code, trade_date, df)
+
+        return df
 
     def _choose_preferred_minute_data(
         self, *candidates: Optional[pd.DataFrame]
@@ -199,6 +248,11 @@ class DataFetcher:
 
     def fetch_realtime_snapshot(self, stock_code: str) -> Optional[dict]:
         """Fetches the latest tick snapshot."""
+        if self._snapshot_cache is not None and self._snapshot_cache_time is not None:
+            elapsed = (datetime.now() - self._snapshot_cache_time).total_seconds()
+            if elapsed < settings.t0_poll_interval_seconds:
+                return self._snapshot_cache
+
         if xtdata is None or not hasattr(xtdata, "get_full_tick"):
             return None
 
@@ -218,7 +272,7 @@ class DataFetcher:
             else:
                 snapshot_time = stock_snapshot.get("timetag")
 
-            return {
+            result = {
                 "time": snapshot_time,
                 "price": stock_snapshot.get("lastPrice"),
                 "high": stock_snapshot.get("high"),
@@ -227,6 +281,9 @@ class DataFetcher:
                 "pre_close": stock_snapshot.get("lastClose")
                 or stock_snapshot.get("lastSettlementPrice"),
             }
+            self._snapshot_cache = result
+            self._snapshot_cache_time = datetime.now()
+            return result
         except Exception as e:
             logger.warning(f"获取实时快照失败: {e}")
             return None
@@ -332,7 +389,10 @@ class DataFetcher:
 
         normalized_fields = {}
         for field_name, field_value in data.items():
-            if not isinstance(field_value, pd.DataFrame) or field_value.empty:
+            if not isinstance(field_value, pd.DataFrame):
+                continue
+            # columns 为空时说明该字段无数据，跳过
+            if field_value.columns.empty:
                 continue
 
             if stock_code in field_value.index:
@@ -347,11 +407,22 @@ class DataFetcher:
             normalized_fields[field_name] = series
 
         if not normalized_fields:
+            # 所有字段 DataFrame 的 columns 均为空，说明 xtdata 返回了空结构（本地无缓存）
+            # 返回空 DataFrame，让上层走 download 回退逻辑
+            all_empty_columns = all(
+                isinstance(v, pd.DataFrame) and v.columns.empty
+                for v in data.values()
+            )
+            if all_empty_columns:
+                logger.warning(
+                    "xtdata返回空结构(无本地缓存), keys={}", list(data.keys())[:5]
+                )
+                return pd.DataFrame()
+
             inner_type = type(data.get(stock_code)).__name__ if stock_code in data else "missing"
+            keys_sample = list(data.keys())[:5]
             logger.error(
-                "无法识别xtdata返回结构, keys=%s, stock_value_type=%s",
-                list(data.keys())[:5],
-                inner_type,
+                "无法识别xtdata返回结构, keys={}, stock_value_type={}", keys_sample, inner_type
             )
             raise ValueError("未知的dict结构")
 
@@ -475,13 +546,12 @@ class DataFetcher:
         return filtered
 
     def _warn_if_minute_data_is_stale(
-        self, df: pd.DataFrame, stock_code: str, trade_date: date, max_lag_minutes: int = 10
+        self, df: pd.DataFrame, stock_code: str, trade_date: date, snapshot: Optional[dict] = None, max_lag_minutes: int = 10
     ) -> None:
         """Warns if the latest intraday bar lags the latest tick snapshot too much."""
         if df is None or df.empty or trade_date != date.today():
             return
 
-        snapshot = self.fetch_realtime_snapshot(stock_code)
         snapshot_time = snapshot.get("time") if snapshot else None
         if not snapshot_time:
             return
