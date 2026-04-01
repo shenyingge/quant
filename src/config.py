@@ -25,6 +25,8 @@ class Settings(BaseSettings):
     redis_block_timeout: int = Field(default=1000, env="REDIS_BLOCK_TIMEOUT")
     redis_tick_cache_db: int = Field(default=1, env="REDIS_TICK_CACHE_DB")
     redis_tick_cache_ttl: int = Field(default=28800, env="REDIS_TICK_CACHE_TTL")
+    redis_t0_signal_key: str = Field(default="t0_signal_card", env="REDIS_T0_SIGNAL_KEY")
+    redis_t0_signal_ttl: int = Field(default=86400, env="REDIS_T0_SIGNAL_TTL")
 
     db_url: str = Field(default="sqlite:///./trading.db", env="DATABASE_URL")
 

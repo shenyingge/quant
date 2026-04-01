@@ -137,6 +137,9 @@ def main():
         elif command == "t0-backtest":
             run_t0_backtest(sys.argv[2:])
             return 0
+        elif command == "t0-signal-viewer":
+            run_signal_viewer()
+            return 0
         elif command == "health-check":
             return run_health_check(sys.argv[2:])
         elif command == "health-server":
@@ -712,6 +715,15 @@ def run_t0_backtest(argv=None):
         logger.error(f"T+0 回测执行失败: {e}")
 
 
+def run_signal_viewer():
+    """运行 T+0 信号查看器 - 从 Redis 读取信号并展示到文件"""
+    from src.strategy.signal_viewer import SignalViewer
+
+    logger.info("启动 T+0 信号查看器")
+    viewer = SignalViewer()
+    viewer.watch(interval=settings.t0_poll_interval_seconds)
+
+
 def run_health_check(argv=None):
     """输出一次标准化 health check 结果。"""
     import json
@@ -761,6 +773,7 @@ def print_usage():
     logger.info(f"  python main.py t0-daemon              - 持续运行 {STRATEGY_ENGINE_NAME}")
     logger.info("  python main.py t0-sync-position       - 从 QMT 同步 T0 仓位")
     logger.info("  python main.py t0-backtest            - 运行 T+0 文件回测")
+    logger.info("  python main.py t0-signal-viewer       - 启动 T+0 信号查看器（从 Redis 读取并展示）")
     logger.info("  python main.py export-minute-history  - 导出分钟历史行情")
     logger.info("  python main.py export-minute-daily    - 导出当日分钟行情")
     logger.info("  python main.py sync-meta-db           - 将 SQLite 交易数据同步到 Meta DB")

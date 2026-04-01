@@ -5,6 +5,8 @@ import time
 from datetime import date, datetime
 from pathlib import Path
 
+import redis
+
 from src.config import settings
 from src.logger_config import logger
 from src.notifications import FeishuNotifier
@@ -33,6 +35,24 @@ class StrategyEngine:
         self.signal_repository = StrategySignalRepository()
         self.notifier = FeishuNotifier()
         self._last_notified_action = None
+
+        try:
+            self.redis_client = redis.Redis(
+                host=settings.redis_host,
+                port=settings.redis_port,
+                password=settings.redis_password,
+                db=0,
+                decode_responses=True,
+                socket_connect_timeout=3,
+                socket_timeout=3,
+            )
+            self.redis_client.ping()
+            self.redis_enabled = True
+            logger.info("Redis 信号发布已连接")
+        except Exception as e:
+            logger.warning(f"Redis 信号发布连接失败: {e}")
+            self.redis_client = None
+            self.redis_enabled = False
 
     def run_once(self) -> dict:
         """运行一次策略
@@ -175,12 +195,26 @@ class StrategyEngine:
 
     def _finalize_signal_card(self, signal_card: dict) -> dict:
         """Persist and notify after a signal card is generated."""
+        signal_dict = signal_card.to_dict() if hasattr(signal_card, "to_dict") else signal_card
+
+        # 写入 Redis
+        if self.redis_enabled:
+            try:
+                self.redis_client.setex(
+                    settings.redis_t0_signal_key,
+                    settings.redis_t0_signal_ttl,
+                    json.dumps(signal_dict, ensure_ascii=False)
+                )
+                logger.debug(f"信号卡片已写入 Redis: {settings.redis_t0_signal_key}")
+            except Exception as e:
+                logger.warning(f"信号卡片写入 Redis 失败: {e}")
+
+        # 可选：写入本地文件（调试用）
         if settings.t0_save_signal_card:
             self._save_signal_card(signal_card)
 
-        signal_dict = signal_card.to_dict() if hasattr(signal_card, "to_dict") else signal_card
+        # 飞书通知
         current_action = signal_dict.get("signal", {}).get("action")
-
         if current_action != "observe" or current_action != self._last_notified_action:
             self.notifier.notify_t0_signal(signal_card, self.stock_code)
             self._last_notified_action = current_action
