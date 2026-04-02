@@ -27,8 +27,21 @@ class Settings(BaseSettings):
     redis_tick_cache_ttl: int = Field(default=28800, env="REDIS_TICK_CACHE_TTL")
     redis_t0_signal_key: str = Field(default="t0_signal_card", env="REDIS_T0_SIGNAL_KEY")
     redis_t0_signal_ttl: int = Field(default=86400, env="REDIS_T0_SIGNAL_TTL")
-
-    db_url: str = Field(default="sqlite:///./trading.db", env="DATABASE_URL")
+    redis_quote_stream_channel: str = Field(
+        default="quote_stream", env="REDIS_QUOTE_STREAM_CHANNEL"
+    )
+    redis_quote_subscriptions_key: str = Field(
+        default="quote_subscriptions", env="REDIS_QUOTE_SUBSCRIPTIONS_KEY"
+    )
+    redis_quote_control_channel: str = Field(
+        default="quote_subscription_events", env="REDIS_QUOTE_CONTROL_CHANNEL"
+    )
+    redis_quote_latest_prefix: str = Field(
+        default="quote_latest:", env="REDIS_QUOTE_LATEST_PREFIX"
+    )
+    redis_quote_latest_ttl_seconds: int = Field(
+        default=0, env="REDIS_QUOTE_LATEST_TTL_SECONDS"
+    )
 
     qmt_session_id: int = Field(default=123456, env="QMT_SESSION_ID")
     qmt_session_id_trading_service: Optional[int] = Field(
@@ -53,7 +66,12 @@ class Settings(BaseSettings):
     )
 
     log_level: str = Field(default="INFO", env="LOG_LEVEL")
-    log_file: str = Field(default="./logs/trading_engine.log", env="LOG_FILE")
+    log_dir: str = Field(default="./logs/current", env="LOG_DIR")
+    log_archive_dir: str = Field(default="./logs/archive", env="LOG_ARCHIVE_DIR")
+    log_file: str = Field(default="./logs/current/app.log", env="LOG_FILE")
+    log_rotation: str = Field(default="20 MB", env="LOG_ROTATION")
+    log_retention: str = Field(default="30 days", env="LOG_RETENTION")
+    log_compression: str = Field(default="zip", env="LOG_COMPRESSION")
 
     max_retry_attempts: int = Field(default=3, env="MAX_RETRY_ATTEMPTS")
 
@@ -63,11 +81,16 @@ class Settings(BaseSettings):
     reconnect_max_delay: int = Field(default=300, env="RECONNECT_MAX_DELAY")
     reconnect_backoff_factor: float = Field(default=2.0, env="RECONNECT_BACKOFF_FACTOR")
     health_check_interval: int = Field(default=30, env="HEALTH_CHECK_INTERVAL")
-    healthcheck_host: str = Field(default="127.0.0.1", env="HEALTHCHECK_HOST")
-    healthcheck_port: int = Field(default=8780, env="HEALTHCHECK_PORT")
-    healthcheck_timeout_seconds: int = Field(default=2, env="HEALTHCHECK_TIMEOUT_SECONDS")
-    healthcheck_refresh_interval_seconds: int = Field(
-        default=15, env="HEALTHCHECK_REFRESH_INTERVAL_SECONDS"
+    quote_stream_enabled: bool = Field(default=True, env="QUOTE_STREAM_ENABLED")
+    quote_stream_period: str = Field(default="tick", env="QUOTE_STREAM_PERIOD")
+    quote_stream_reconcile_interval_seconds: int = Field(
+        default=5, env="QUOTE_STREAM_RECONCILE_INTERVAL_SECONDS"
+    )
+    cms_server_host: str = Field(default="127.0.0.1", env="CMS_SERVER_HOST")
+    cms_server_port: int = Field(default=8780, env="CMS_SERVER_PORT")
+    cms_server_timeout_seconds: int = Field(default=2, env="CMS_SERVER_TIMEOUT_SECONDS")
+    cms_server_refresh_interval_seconds: int = Field(
+        default=15, env="CMS_SERVER_REFRESH_INTERVAL_SECONDS"
     )
     watchdog_enabled: bool = Field(default=True, env="WATCHDOG_ENABLED")
     watchdog_check_interval_seconds: int = Field(
@@ -87,9 +110,6 @@ class Settings(BaseSettings):
     )
     watchdog_enable_t0_daemon: bool = Field(default=True, env="WATCHDOG_ENABLE_T0_DAEMON")
     watchdog_enable_t0_sync: bool = Field(default=True, env="WATCHDOG_ENABLE_T0_SYNC")
-    watchdog_enable_meta_db_sync: bool = Field(
-        default=True, env="WATCHDOG_ENABLE_META_DB_SYNC"
-    )
     watchdog_trading_start_time: str = Field(
         default="08:35", env="WATCHDOG_TRADING_START_TIME"
     )
@@ -97,17 +117,9 @@ class Settings(BaseSettings):
     watchdog_t0_start_time: str = Field(default="09:20", env="WATCHDOG_T0_START_TIME")
     watchdog_t0_stop_time: str = Field(default="15:05", env="WATCHDOG_T0_STOP_TIME")
     watchdog_t0_sync_time: str = Field(default="15:00", env="WATCHDOG_T0_SYNC_TIME")
-    watchdog_meta_db_sync_time: str = Field(
-        default="15:10", env="WATCHDOG_META_DB_SYNC_TIME"
-    )
     watchdog_job_max_delay_minutes: int = Field(
         default=120, env="WATCHDOG_JOB_MAX_DELAY_MINUTES"
     )
-    account_positions_snapshot_path: str = Field(
-        default="./output/account_positions_snapshot.json",
-        env="ACCOUNT_POSITIONS_SNAPSHOT_PATH",
-    )
-
     trading_day_check_enabled: bool = Field(default=True, env="TRADING_DAY_CHECK_ENABLED")
     test_mode_enabled: bool = Field(default=False, env="TEST_MODE_ENABLED")
     tushare_token: Optional[str] = Field(default=None, env="TUSHARE_TOKEN")
@@ -164,6 +176,7 @@ class Settings(BaseSettings):
     meta_db_user: str = Field(default="", env="META_DB_USER")
     meta_db_password: str = Field(default="", env="META_DB_PASSWORD")
     meta_db_type: str = Field(default="postgresql+asyncpg", env="META_DB_TYPE")
+    meta_db_sync_type: str = Field(default="postgresql+psycopg", env="META_DB_SYNC_TYPE")
     meta_db_schema: str = Field(default="", env="META_DB_SCHEMA")
     meta_db_trading_schema: str = Field(default="trading", env="META_DB_TRADING_SCHEMA")
 

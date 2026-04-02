@@ -1,6 +1,6 @@
 ---
 name: qmt-runtime-architecture
-description: Understand, modify, or debug the quant runtime architecture around the Windows watchdog, health/account API, WebSocket endpoint, and QMT-vs-local data source policy. Use when working on `src/watchdog_service.py`, `src/healthcheck.py`, `src/account_data_service.py`, startup scripts in `scripts/`, or architecture docs for watchdogs, APIs, account data, and source-of-truth decisions.
+description: Understand, modify, or debug the quant runtime architecture around the Windows watchdog, CMS/account API, WebSocket quote streaming path, and QMT-vs-local data source policy. Use when working on `src/watchdog_service.py`, `src/cms_server.py`, `src/quote_stream_service.py`, `src/account_data_service.py`, startup scripts in `scripts/`, or architecture docs for watchdogs, APIs, account data, and source-of-truth decisions.
 ---
 
 # QMT Runtime Architecture
@@ -10,17 +10,17 @@ Use this skill when the task is about runtime architecture rather than one narro
 Start with [references/runtime-topology.md](references/runtime-topology.md) for the end-to-end process graph. Then load the focused reference you need:
 
 - [references/watchdog-design.md](references/watchdog-design.md) for the 24x7 watchdog and Windows startup model
-- [references/api-design.md](references/api-design.md) for the health/account API, WebSocket path, and failure semantics
+- [references/api-design.md](references/api-design.md) for the CMS/account API, WebSocket quote path, and failure semantics
 - [references/data-source-policy.md](references/data-source-policy.md) for QMT vs local DB responsibilities
 
 ## Workflow
 
 1. Identify whether the change is about process lifecycle, API shape, account data sourcing, or Windows operator workflow.
 2. Trace the CLI entry in `main.py` before editing internals.
-3. For watchdog work, follow `main.py` -> `src/watchdog_service.py` -> `scripts/start_watchdog_service.ps1` / scheduled task registration.
-4. For API work, follow `main.py health-server` -> `src/healthcheck.py` -> `src/account_data_service.py`.
+3. For watchdog work, follow `main.py` -> `src/watchdog_service.py` -> direct `python main.py watchdog` startup / scheduled task registration.
+4. For API and quote-stream work, follow `main.py cms-server` -> `src/cms_server.py` -> `src/quote_stream_service.py` -> `src/account_data_service.py`.
 5. For source-of-truth questions, preserve the rule: QMT is authoritative for live account state; local storage is authoritative for strategy business history.
-6. When changing API behavior, verify both background-thread startup (`start_healthcheck_server`) and standalone process startup (`serve_healthcheck`).
+6. When changing API behavior, verify both background-thread startup (`start_cms_server`) and standalone process startup (`serve_cms_server`).
 
 ## Safety Rules
 
@@ -34,7 +34,8 @@ Start with [references/runtime-topology.md](references/runtime-topology.md) for 
 
 - When changing the managed target list, update both `src/watchdog_service.py` and the architecture/docs that describe the target inventory.
 - When changing account data policy, update `src/account_data_service.py` first, then keep `/api/data-policy` and `/api/account-overview` aligned.
-- When changing WebSocket behavior, inspect both handler wiring and whichever startup path (`serve_healthcheck` or `start_healthcheck_server`) is relevant.
+- When changing WebSocket behavior, inspect both handler wiring and whichever startup path (`serve_cms_server` or `start_cms_server`) is relevant.
+- Keep Redis quote state stable across process restarts; prefer timestamp-based freshness over clearing the latest quote snapshot during shutdown.
 - Prefer adding metadata that explains source/fallback behavior in API responses instead of hiding it.
 - Keep the architecture docs accurate enough that a future agent can answer "where does this data come from?" without rediscovering it from scratch.
 

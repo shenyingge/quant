@@ -2,7 +2,7 @@
 
 ## Purpose
 
-The health/account API is a lightweight operator-facing HTTP surface, not a full application framework.
+The CMS/account API is a lightweight operator-facing HTTP surface, not a full application framework.
 
 It serves three groups of use cases:
 
@@ -14,10 +14,10 @@ It serves three groups of use cases:
 
 Two paths host the same handler class:
 
-- `serve_healthcheck(host, port, scope)`
-  - standalone process path used by `main.py health-server`
+- `serve_cms_server(host, port, scope)`
+  - standalone process path used by `main.py cms-server`
 
-- `start_healthcheck_server(host, port, scope)`
+- `start_cms_server(host, port, scope)`
   - background-thread path used when another process embeds the server
 
 Design rule:
@@ -40,7 +40,7 @@ Behavior:
 
 ### Ledger Endpoints
 
-These are backed by local SQLite through `AccountDataService`.
+These are backed by Meta DB through `AccountDataService`.
 
 - `/api/orders`
 - `/api/signals`
@@ -63,8 +63,8 @@ Design rule:
 Design rule:
 
 - these endpoints should expose the data-source decision instead of hiding it
-- `positions` prefers live QMT and may fall back to local snapshots
-- `account-overview` should remain useful even when part of the live state is unavailable
+- `positions` should read the broker-synced Meta DB snapshot instead of querying QMT on demand
+- `account-overview` should remain useful even when live QMT is unavailable
 
 ## Status-Code Semantics
 
@@ -87,6 +87,20 @@ Design rule:
 - manager: `WebSocketManager`
 - source: Redis `quote_stream`
 
+Quote path:
+
+1. frontend sends a WebSocket subscribe message
+2. `WebSocketManager` records local subscribers and syncs desired symbols into Redis
+3. `QuoteStreamService` reads the Redis subscription set and manages `xtdata.subscribe_quote(...)`
+4. QMT callbacks publish normalized quote payloads into Redis `quote_stream`
+5. `WebSocketManager` broadcasts those payloads to subscribed clients
+
+Shutdown rule:
+
+- process shutdown should not clear Redis latest-quote snapshots
+- rely on payload timestamps such as `published_at` / `quote_time` to judge freshness
+- only explicit client unsubscribe should remove a symbol from the Redis subscription set
+
 Design rule:
 
 - if `ws_manager` is unavailable, fail explicitly instead of crashing on missing attributes
@@ -102,7 +116,7 @@ These guards should stay consistent across orders, signals, and trades.
 
 ## API Ownership
 
-- request parsing, status codes, and transport concerns live in `healthcheck.py`
+- request parsing, status codes, and transport concerns live in `cms_server.py`
 - data-source policy and response assembly for account data live in `account_data_service.py`
 - raw broker access lives in `trader.py`
 

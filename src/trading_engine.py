@@ -7,6 +7,7 @@ from typing import Any, Dict
 from schedule import Scheduler
 from sqlalchemy.orm import Session
 
+from src.account_position_sync import sync_account_positions_from_qmt
 from src.backup_service import DatabaseBackupService
 from src.config import settings
 from src.connection_manager import ConnectionManager, MultiConnectionManager
@@ -17,6 +18,7 @@ from src.database import OrderRecord, SessionLocal, TradingSignal, create_tables
 from src.logger_config import configured_logger as logger
 from src.notifications import FeishuNotifier
 from src.qmt_constants import OrderStatus, get_status_name, is_filled_status, is_finished_status
+from src.quote_stream_service import QuoteStreamService
 from src.redis_listener import RedisSignalListener
 from src.stock_info import get_stock_display_name
 from src.trader import QMTTrader
@@ -29,6 +31,7 @@ class TradingEngine:
         session_id = settings.qmt_session_id_trading_service or settings.qmt_session_id
         self.trader = QMTTrader(self.notifier, session_id=session_id)
         self.redis_listener = None
+        self.quote_stream_service = QuoteStreamService()
         self.is_running = False
         self.order_monitor_thread = None
 
@@ -69,6 +72,7 @@ class TradingEngine:
                 return False
 
             # 初始化Redis监听器
+            self._sync_account_positions_snapshot("startup_connect")
             self.redis_listener = RedisSignalListener(self._handle_trading_signal)
 
             # 测试Redis连接
@@ -77,6 +81,7 @@ class TradingEngine:
                 self.notifier.notify_error("Redis连接失败", "服务启动")
                 return False
 
+        self._ensure_quote_stream_service()
         self.is_running = True
 
         # 启动订单监控线程
@@ -151,7 +156,10 @@ class TradingEngine:
         try:
             if not self.redis_listener:
                 self.redis_listener = RedisSignalListener(self._handle_trading_signal)
-            return self.redis_listener.connect()
+            connected = self.redis_listener.connect()
+            if connected:
+                self._ensure_quote_stream_service()
+            return connected
         except Exception as e:
             logger.error(f"Redis连接失败: {e}")
             return False
@@ -176,10 +184,27 @@ class TradingEngine:
     def _connect_qmt(self) -> bool:
         """连接QMT"""
         try:
-            return self.trader.connect()
+            connected = self.trader.connect()
+            if connected:
+                self._sync_account_positions_snapshot("startup_connect")
+                self._ensure_quote_stream_service()
+            return connected
         except Exception as e:
             logger.error(f"QMT连接失败: {e}")
             return False
+
+    def _sync_account_positions_snapshot(self, source: str) -> None:
+        try:
+            sync_account_positions_from_qmt(self.trader, source=source)
+        except Exception as exc:
+            logger.error(f"Meta DB account position sync failed: {exc}")
+
+    def _ensure_quote_stream_service(self) -> None:
+        if not settings.quote_stream_enabled:
+            return
+        if not self.trader.is_connected:
+            return
+        self.quote_stream_service.start()
 
     def _disconnect_qmt(self):
         """断开QMT连接"""
@@ -205,6 +230,7 @@ class TradingEngine:
         logger.info("正在停止交易引擎...")
 
         self.is_running = False
+        self.quote_stream_service.stop()
 
         # 停止连接管理器
         if settings.auto_reconnect_enabled and self.connection_manager:

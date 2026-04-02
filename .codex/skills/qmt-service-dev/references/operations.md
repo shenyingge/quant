@@ -16,9 +16,8 @@
 - Run T+0 daemon: `uv run python main.py t0-daemon`
 - Sync T+0 position: `uv run python main.py t0-sync-position`
 - Run file-driven T+0 backtest: `uv run python main.py t0-backtest --minute-data minute.csv --daily-data daily.csv`
-- Sync SQLite trading tables into Meta DB: `uv run python main.py sync-meta-db`
-- Print a one-shot health snapshot: `uv run python main.py health-check`
-- Run the standalone health HTTP service: `uv run python main.py health-server`
+- Print a one-shot CMS snapshot: `uv run python main.py cms-check`
+- Run the standalone CMS HTTP service: `uv run python main.py cms-server`
 
 ## Key Environment Variables
 
@@ -27,30 +26,30 @@
 - Order behavior: `ORDER_TIMEOUT_SECONDS`, `ORDER_SUBMIT_TIMEOUT`, `ORDER_RETRY_ATTEMPTS`, `ORDER_RETRY_DELAY`, `AUTO_CANCEL_ENABLED`, `AUTO_CANCEL_TIMEOUT`
 - Notifications: `FEISHU_WEBHOOK_URL`
 - Service recovery: `AUTO_RECONNECT_ENABLED`, `RECONNECT_MAX_ATTEMPTS`, `RECONNECT_INITIAL_DELAY`, `RECONNECT_MAX_DELAY`, `RECONNECT_BACKOFF_FACTOR`, `HEALTH_CHECK_INTERVAL`
-- Health service: `HEALTHCHECK_HOST`, `HEALTHCHECK_PORT`, `HEALTHCHECK_TIMEOUT_SECONDS`, `HEALTHCHECK_REFRESH_INTERVAL_SECONDS`
+- CMS service: `CMS_SERVER_HOST`, `CMS_SERVER_PORT`, `CMS_SERVER_TIMEOUT_SECONDS`, `CMS_SERVER_REFRESH_INTERVAL_SECONDS`
+- Quote stream: `QUOTE_STREAM_ENABLED`, `QUOTE_STREAM_PERIOD`, `QUOTE_STREAM_RECONCILE_INTERVAL_SECONDS`, `REDIS_QUOTE_STREAM_CHANNEL`, `REDIS_QUOTE_SUBSCRIPTIONS_KEY`, `REDIS_QUOTE_CONTROL_CHANNEL`, `REDIS_QUOTE_LATEST_PREFIX`, `REDIS_QUOTE_LATEST_TTL_SECONDS`
 - Trading-day behavior: `TRADING_DAY_CHECK_ENABLED`, `TEST_MODE_ENABLED`
-- Backup/logging: `BACKUP_ENABLED`, `BACKUP_TIME`, `BACKUP_DIR`, `LOG_LEVEL`, `LOG_FILE`
+- Backup/logging: `BACKUP_ENABLED`, `BACKUP_TIME`, `BACKUP_DIR`, `LOG_LEVEL`, `LOG_DIR`, `LOG_ARCHIVE_DIR`, `LOG_FILE`, `LOG_ROTATION`, `LOG_RETENTION`, `LOG_COMPRESSION`
 
 ## Logs And State
 
-- Main log file is usually `logs/trading_service.log`.
+- Active process logs usually live under `logs/current/`.
+- Rolled and compressed archives usually live under `logs/archive/<role>/`.
 - Scheduled-task wrapper logs usually land in `logs/task_execution_trading.log`, `logs/task_execution_t0_daemon.log`, or `logs/task_execution_t0_sync.log`.
-- Meta DB sync task logs land in `logs/task_execution_meta_db_sync.log`.
-- The standalone health service usually logs through the main process logger and listens on `http://127.0.0.1:8780/health` unless overridden by env.
-- SQLite DB defaults to `trading.db`.
+- The standalone CMS service usually logs through the main process logger and listens on `http://127.0.0.1:8780/health` unless overridden by env.
+- The latest quote cache lives in Redis under `REDIS_QUOTE_LATEST_PREFIX*`; default operation keeps the last payload across restarts and uses timestamps in the payload to judge freshness.
+- Runtime persistence uses Meta DB directly.
 - Daily export output goes to `data/daily_export/`.
 - Runtime T+0 snapshots are written under `output/` and should be treated as generated local state.
 
 ## Scheduled Operation
 
 - Windows task helpers are in `scripts/`.
-- `scripts/setup_task_simple.bat` is the primary repo-level automation entrypoint.
-- `scripts/setup_t0_tasks.bat` manages the T+0 scheduled tasks.
-- `scripts/run_console.bat`, `scripts/task_runner.ps1`, and the `task_wrapper_*.bat` files are the main Windows execution path.
-- `scripts/register_healthcheck_service_task.ps1` registers the 24x7 startup task `Quant_Healthcheck_Service`.
-- `scripts/setup_meta_db_sync_task.bat` registers the daily 15:10 task `QMT_Meta_DB_Sync`.
-- `scripts/start_healthcheck_service.ps1` and `scripts/start_healthcheck_service.bat` launch the standalone health service.
-- `scripts/task_runner.sh` and `scripts/load_env.sh` remain relevant for older shell-based environments.
+- `scripts/register_watchdog_service_task.ps1` is the primary repo-level automation entrypoint.
+- `scripts/run_console.bat` is the main manual Windows execution path.
+- Scheduled-task and watchdog-managed services now launch `python main.py ...` directly.
+- `scripts/start_cms_service.bat` remains as a manual helper for the standalone CMS service.
+- `scripts/setup_minute_history_task.bat` remains as the separate installer for the optional minute-history export task.
 
 ## Safe Testing
 
@@ -63,6 +62,7 @@
 - QMT client not started or not logged in.
 - Wrong `QMT_SESSION_ID`, `QMT_PATH`, or account id.
 - Redis unavailable or wrong message-mode config.
+- Redis quote keys are part of the live quote pipeline; do not clear them during normal stop/restart troubleshooting unless you intentionally want to reset frontend subscription demand.
 - Running on a non-trading day with trading-day checks still enabled.
 - Windows terminal encoding issues; `main.py` explicitly reconfigures UTF-8 behavior on Windows.
 - Proxy settings on Windows may interfere with `urllib`-style localhost checks; use direct socket or browser/curl validation when testing `127.0.0.1:8780`.
