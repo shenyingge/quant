@@ -2,10 +2,10 @@
 
 ## Core Principle
 
-The project uses a hybrid source-of-truth model:
+The project uses a broker-source plus Meta DB persistence model:
 
-- QMT is authoritative for live account state
-- local storage is authoritative for strategy business history
+- QMT is authoritative at ingest time for broker account state and trade callbacks
+- Meta DB is authoritative for persisted strategy history and broker-synced snapshots
 
 This rule should be preserved unless there is a very strong reason to redesign the whole system.
 
@@ -21,34 +21,23 @@ QMT is the broker-side truth for current holdings and assets, but it is not the 
 
 If you pull everything from QMT, you lose too much application-specific history.
 
-## Why Not SQLite For Everything
-
-Local state alone drifts when:
-
-- manual trades happen in QMT
-- the service is restarted mid-session
-- callbacks are missed or delayed
-- broker state changes outside the app
-
-If you use local storage alone for positions and funds, runtime risk checks become unsafe.
-
 ## By Data Type
 
 ### Positions
 
-- primary source: QMT live query via `QMTTrader`
-- first fallback: local account positions snapshot
-- secondary strategy-specific fallback: `PositionSyncer` state for T0 logic
+- primary source for persistence: Meta DB `account_positions`
+- update trigger: trading-engine startup and filled-trade callbacks
+- ingest source: QMT via `QMTTrader`
 
 Use for:
 
 - available volume
 - latest holdings
-- runtime decision support
+- API-side account inspection without live broker coupling
 
 ### Orders
 
-- primary source: local `order_records`
+- primary source: Meta DB `order_records`
 
 Use for:
 
@@ -58,7 +47,7 @@ Use for:
 
 ### Signals
 
-- primary source: local `trading_signals`
+- primary source: Meta DB `trading_signals`
 
 Use for:
 
@@ -68,7 +57,7 @@ Use for:
 
 ### Trades
 
-- primary source: local `order_records` filtered to filled rows
+- primary source: Meta DB `order_records` filtered to filled rows
 
 Use for:
 
@@ -78,8 +67,8 @@ Use for:
 
 ### Strategy PnL
 
-- primary source: local `DailyPnLCalculator`
-- built from local filled order rows
+- primary source: Meta DB `DailyPnLCalculator`
+- built from Meta DB filled order rows
 
 Use for:
 
@@ -89,18 +78,19 @@ Use for:
 
 ### Account PnL / Asset View
 
-- primary source: QMT
+- primary source: transient QMT runtime queries when explicitly needed
+- not persisted as a high-frequency ledger
 
 Use for:
 
 - actual broker-side account value
-- live account inspection
+- live operator checks outside the core CMS/account API
 
 ## API Mapping
 
 - `/api/positions`
-  - live state endpoint
-  - may return fallback-derived data if live QMT is unavailable
+  - Meta DB snapshot endpoint
+  - should not query QMT directly
 
 - `/api/orders`
   - local ledger
@@ -121,11 +111,11 @@ Use for:
   - explains the policy itself
 
 - `/api/account-overview`
-  - combines policy, strategy summary, and best-effort position snapshot
+  - combines policy, strategy summary, and the Meta DB position snapshot
 
 ## Safe Change Rules
 
-- Do not silently switch local-ledger endpoints to QMT just because broker data exists
-- Do not silently switch live account endpoints to SQLite just because it is easier
-- If you add a fallback, expose that fallback in metadata so operators know what they are seeing
-- When in doubt, ask whether the endpoint answers "what is true now?" or "what happened in my strategy history?"
+- Do not silently switch Meta DB ledger endpoints back to QMT just because broker data exists
+- Do not add quote-driven high-frequency writes for positions or PnL without an explicit architecture change
+- Keep API reads broker-decoupled so QMT outages do not take down the CMS/account server
+- When in doubt, ask whether the data should be persisted business history or transient broker runtime state

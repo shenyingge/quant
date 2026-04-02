@@ -6,7 +6,6 @@ import gzip
 import json
 import os
 import shutil
-import sqlite3
 import threading
 import time
 from datetime import datetime, timedelta
@@ -14,7 +13,9 @@ from pathlib import Path
 from typing import Any, Dict
 
 from schedule import Scheduler
+from sqlalchemy import func, or_
 
+from src.database import OrderRecord, SessionLocal, TradingSignal
 from src.logger_config import configured_logger as logger
 from src.remote_sync import sync_file_via_rsync
 
@@ -41,8 +42,7 @@ def get_backup_config() -> Dict[str, Any]:
 class DatabaseBackupService:
     """Create and ship daily trading backups."""
 
-    def __init__(self, db_path: str = "trading.db"):
-        self.db_path = db_path
+    def __init__(self):
         self.config = get_backup_config()
         self.is_running = False
         self.scheduler_thread = None
@@ -107,44 +107,74 @@ class DatabaseBackupService:
         return False
 
     def get_today_data(self) -> Dict[str, Any]:
-        """Fetch today's trading data from SQLite."""
-        if not os.path.exists(self.db_path):
-            logger.warning(f"Database file not found: {self.db_path}")
-            return {}
-
+        """Fetch today's trading data from Meta DB."""
         today = datetime.now().strftime("%Y-%m-%d")
 
         try:
-            conn = sqlite3.connect(self.db_path)
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
+            session = SessionLocal()
+            try:
+                signal_rows = (
+                    session.query(TradingSignal)
+                    .filter(
+                        or_(
+                            func.date(TradingSignal.created_at) == today,
+                            func.date(TradingSignal.signal_time) == today,
+                        )
+                    )
+                    .all()
+                )
+                order_rows = (
+                    session.query(OrderRecord)
+                    .filter(
+                        or_(
+                            func.date(OrderRecord.created_at) == today,
+                            func.date(OrderRecord.order_time) == today,
+                        )
+                    )
+                    .all()
+                )
+            finally:
+                session.close()
 
             data = {
                 "backup_date": today,
                 "backup_time": datetime.now().isoformat(),
-                "trading_signals": [],
-                "order_records": [],
+                "trading_signals": [
+                    {
+                        "id": row.id,
+                        "signal_id": row.signal_id,
+                        "stock_code": row.stock_code,
+                        "direction": row.direction,
+                        "volume": row.volume,
+                        "price": row.price,
+                        "signal_time": row.signal_time.isoformat() if row.signal_time else None,
+                        "processed": row.processed,
+                        "error_message": row.error_message,
+                        "created_at": row.created_at.isoformat() if row.created_at else None,
+                    }
+                    for row in signal_rows
+                ],
+                "order_records": [
+                    {
+                        "id": row.id,
+                        "signal_id": row.signal_id,
+                        "order_id": row.order_id,
+                        "stock_code": row.stock_code,
+                        "direction": row.direction,
+                        "volume": row.volume,
+                        "price": row.price,
+                        "order_status": row.order_status,
+                        "order_time": row.order_time.isoformat() if row.order_time else None,
+                        "filled_price": row.filled_price,
+                        "filled_volume": row.filled_volume,
+                        "filled_time": row.filled_time.isoformat() if row.filled_time else None,
+                        "error_message": row.error_message,
+                        "created_at": row.created_at.isoformat() if row.created_at else None,
+                        "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+                    }
+                    for row in order_rows
+                ],
             }
-
-            cursor.execute(
-                """
-                SELECT * FROM trading_signals
-                WHERE DATE(created_at) = ? OR DATE(signal_time) = ?
-                """,
-                (today, today),
-            )
-            data["trading_signals"] = [dict(row) for row in cursor.fetchall()]
-
-            cursor.execute(
-                """
-                SELECT * FROM order_records
-                WHERE DATE(created_at) = ? OR DATE(order_time) = ?
-                """,
-                (today, today),
-            )
-            data["order_records"] = [dict(row) for row in cursor.fetchall()]
-
-            conn.close()
 
             total_records = len(data["trading_signals"]) + len(data["order_records"])
             logger.info(
@@ -157,17 +187,14 @@ class DatabaseBackupService:
             return {}
 
     def create_backup_file(self, data: Dict[str, Any]) -> str:
-        """Create a backup file in JSON or SQLite format."""
+        """Create a backup file in JSON format."""
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-        if self.config["backup_format"] == "json":
-            filename = f"trading_backup_{timestamp}.json"
-            content = json.dumps(data, indent=2, ensure_ascii=False, default=str)
-        elif self.config["backup_format"] == "sqlite":
-            filename = f"trading_backup_{timestamp}.db"
-            return self._create_sqlite_backup(data, filename)
-        else:
+        if self.config["backup_format"] != "json":
             raise ValueError(f"Unsupported backup format: {self.config['backup_format']}")
+
+        filename = f"trading_backup_{timestamp}.json"
+        content = json.dumps(data, indent=2, ensure_ascii=False, default=str)
 
         temp_dir = Path("./temp_backups")
         temp_dir.mkdir(exist_ok=True)
@@ -182,115 +209,6 @@ class DatabaseBackupService:
 
         logger.info(f"Created backup file: {backup_file}")
         return str(backup_file)
-
-    def _create_sqlite_backup(self, data: Dict[str, Any], filename: str) -> str:
-        """Create a simplified SQLite backup."""
-        temp_dir = Path("./temp_backups")
-        temp_dir.mkdir(exist_ok=True)
-        backup_file = temp_dir / filename
-
-        conn = sqlite3.connect(str(backup_file))
-        cursor = conn.cursor()
-
-        cursor.execute(
-            """
-            CREATE TABLE trading_signals (
-                id INTEGER PRIMARY KEY,
-                signal_id TEXT,
-                stock_code TEXT,
-                direction TEXT,
-                volume INTEGER,
-                price REAL,
-                signal_time TEXT,
-                processed INTEGER,
-                error_message TEXT,
-                created_at TEXT
-            )
-            """
-        )
-        cursor.execute(
-            """
-            CREATE TABLE order_records (
-                id INTEGER PRIMARY KEY,
-                signal_id TEXT,
-                order_id TEXT,
-                stock_code TEXT,
-                direction TEXT,
-                volume INTEGER,
-                price REAL,
-                order_status TEXT,
-                order_time TEXT,
-                filled_price REAL,
-                filled_volume INTEGER,
-                filled_time TEXT,
-                error_message TEXT,
-                created_at TEXT,
-                updated_at TEXT
-            )
-            """
-        )
-
-        for signal in data.get("trading_signals", []):
-            cursor.execute(
-                """
-                INSERT INTO trading_signals
-                (id, signal_id, stock_code, direction, volume, price, signal_time,
-                 processed, error_message, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                tuple(
-                    signal.get(key)
-                    for key in [
-                        "id",
-                        "signal_id",
-                        "stock_code",
-                        "direction",
-                        "volume",
-                        "price",
-                        "signal_time",
-                        "processed",
-                        "error_message",
-                        "created_at",
-                    ]
-                ),
-            )
-
-        for order in data.get("order_records", []):
-            cursor.execute(
-                """
-                INSERT INTO order_records
-                (id, signal_id, order_id, stock_code, direction, volume, price,
-                 order_status, order_time, filled_price, filled_volume, filled_time,
-                 error_message, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                tuple(
-                    order.get(key)
-                    for key in [
-                        "id",
-                        "signal_id",
-                        "order_id",
-                        "stock_code",
-                        "direction",
-                        "volume",
-                        "price",
-                        "order_status",
-                        "order_time",
-                        "filled_price",
-                        "filled_volume",
-                        "filled_time",
-                        "error_message",
-                        "created_at",
-                        "updated_at",
-                    ]
-                ),
-            )
-
-        conn.commit()
-        conn.close()
-        logger.info(f"Created sqlite backup file: {backup_file}")
-        return str(backup_file)
-
     def _backup_to_local(self, backup_file: str) -> bool:
         """Copy the backup file to local backup storage."""
         try:

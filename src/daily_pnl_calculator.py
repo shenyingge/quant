@@ -5,6 +5,7 @@
 """
 
 import time
+import threading
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Dict, List, Optional
@@ -23,45 +24,67 @@ class DailyPnLCalculator:
 
     def __init__(self):
         self.today = date.today()
+        self._cache_lock = threading.Lock()
+        self._summary_cache: Dict[date, Dict[str, Any]] = {}
+        self._summary_cache_time: Dict[date, float] = {}
+        self._summary_cache_ttl_seconds = 10
 
     def calculate_daily_summary(self, target_date: Optional[date] = None) -> Dict[str, Any]:
         """计算指定日期的交易汇总"""
         if target_date is None:
             target_date = self.today
 
+        with self._cache_lock:
+            cached_summary = self._summary_cache.get(target_date)
+            cached_at = self._summary_cache_time.get(target_date, 0.0)
+            if cached_summary is not None and (time.time() - cached_at) < self._summary_cache_ttl_seconds:
+                return dict(cached_summary)
+
         logger.info(f"计算 {target_date} 的交易汇总")
 
-        db = SessionLocal()
-        try:
-            # 查询当日所有已成交的订单
-            start_time = datetime.combine(target_date, datetime.min.time())
-            end_time = datetime.combine(target_date, datetime.max.time())
+        with self._cache_lock:
+            cached_summary = self._summary_cache.get(target_date)
+            cached_at = self._summary_cache_time.get(target_date, 0.0)
+            if cached_summary is not None and (time.time() - cached_at) < self._summary_cache_ttl_seconds:
+                return dict(cached_summary)
 
-            filled_orders = (
-                db.query(OrderRecord)
-                .filter(
-                    and_(
-                        OrderRecord.filled_time >= start_time,
-                        OrderRecord.filled_time <= end_time,
-                        OrderRecord.filled_volume > 0,
-                        OrderRecord.filled_price > 0,
+            db = SessionLocal()
+            try:
+                # 查询当日所有已成交的订单
+                start_time = datetime.combine(target_date, datetime.min.time())
+                end_time = datetime.combine(target_date, datetime.max.time())
+
+                filled_orders = (
+                    db.query(OrderRecord)
+                    .filter(
+                        and_(
+                            OrderRecord.filled_time >= start_time,
+                            OrderRecord.filled_time <= end_time,
+                            OrderRecord.filled_volume > 0,
+                            OrderRecord.filled_price > 0,
+                        )
                     )
+                    .all()
                 )
-                .all()
-            )
 
-            if not filled_orders:
-                return self._create_empty_summary(target_date)
+                if not filled_orders:
+                    summary = self._create_empty_summary(target_date)
+                else:
+                    # 统计数据
+                    summary = self._calculate_trading_summary(filled_orders, target_date)
 
-            # 统计数据
-            summary = self._calculate_trading_summary(filled_orders, target_date)
-            return summary
+                self._summary_cache[target_date] = dict(summary)
+                self._summary_cache_time[target_date] = time.time()
+                return dict(summary)
 
-        except Exception as e:
-            logger.error(f"计算日交易汇总时发生错误: {e}")
-            return self._create_empty_summary(target_date)
-        finally:
-            db.close()
+            except Exception as e:
+                logger.error(f"计算日交易汇总时发生错误: {e}")
+                summary = self._create_empty_summary(target_date)
+                self._summary_cache[target_date] = dict(summary)
+                self._summary_cache_time[target_date] = time.time()
+                return dict(summary)
+            finally:
+                db.close()
 
     def _calculate_trading_summary(
         self, orders: List[OrderRecord], target_date: date

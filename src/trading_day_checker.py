@@ -1,10 +1,15 @@
 """Trading-day checks backed by Tushare with QMT fallback."""
 
 from datetime import date, datetime
+import threading
 from typing import Optional
 
 from src.config import settings
 from src.logger_config import configured_logger as logger
+
+
+_trading_day_cache_lock = threading.Lock()
+_trading_day_cache = {}
 
 
 def _resolve_check_date(check_date: Optional[date] = None) -> date:
@@ -100,12 +105,21 @@ def is_trading_day(check_date: Optional[date] = None) -> bool:
 
     current_date = _resolve_check_date(check_date)
 
+    with _trading_day_cache_lock:
+        cached_result = _trading_day_cache.get(current_date)
+    if cached_result is not None:
+        return cached_result
+
     tushare_result = _check_with_tushare(current_date)
     if tushare_result is not None:
+        with _trading_day_cache_lock:
+            _trading_day_cache[current_date] = tushare_result
         return tushare_result
 
     qmt_result = _check_with_qmt(current_date)
     if qmt_result is not None:
+        with _trading_day_cache_lock:
+            _trading_day_cache[current_date] = qmt_result
         return qmt_result
 
     logger.error("Tushare 和 QMT 都无法确认交易日状态，默认按非交易日处理")

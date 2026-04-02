@@ -52,6 +52,13 @@ class DataFetcher:
                     local_df = None
 
                 market_df = self._fetch_recent_minute_data(stock_code, trade_date)
+                if realtime and (market_df is None or market_df.empty):
+                    logger.warning(
+                        "Realtime intraday source unavailable, falling back to local QMT cache: {} {}",
+                        stock_code,
+                        trade_date,
+                    )
+                    local_df = self._fetch_minute_data_from_local_cache(stock_code, trade_date)
                 df = self._choose_preferred_minute_data(local_df, market_df)
 
                 if df is None or df.empty:
@@ -65,7 +72,7 @@ class DataFetcher:
                     raise ValueError(msg)
 
                 logger.info(
-                    "获取日内数据成功: %s, period=%s, rows=%s",
+                    "获取日内数据成功: {}, period={}, rows={}",
                     stock_code,
                     self.intraday_period,
                     len(df),
@@ -135,28 +142,32 @@ class DataFetcher:
                 )
             except Exception as exc:
                 logger.warning(f"增量tick拉取失败: {exc}")
-                return cached_df
+                return self._refresh_ticks_from_fallbacks(stock_code, trade_date, cached_df)
 
             if data is None:
-                return cached_df
+                return self._refresh_ticks_from_fallbacks(stock_code, trade_date, cached_df)
 
             new_df = self._normalize_market_data(data, stock_code)
             if new_df is None or new_df.empty:
-                return cached_df
+                return self._refresh_ticks_from_fallbacks(stock_code, trade_date, cached_df)
 
             new_df = self._filter_minute_data_for_trade_date(new_df, trade_date)
             if new_df is None or new_df.empty:
-                return cached_df
+                return self._refresh_ticks_from_fallbacks(stock_code, trade_date, cached_df)
 
             new_ticks = new_df[new_df.index > last_tick_time]
             if not new_ticks.empty:
                 combined_df = pd.concat([cached_df, new_ticks]).drop_duplicates()
                 combined_df = combined_df.sort_index()
+                combined_df = self._append_snapshot_tick(combined_df, stock_code, trade_date)
                 self.tick_cache.save_ticks(stock_code, trade_date, combined_df)
                 logger.info(f"增量tick更新: 新增{len(new_ticks)}条, 总计{len(combined_df)}条")
                 return combined_df
 
-            return cached_df
+            refreshed_df = self._append_snapshot_tick(cached_df, stock_code, trade_date)
+            if refreshed_df is not None and not refreshed_df.empty:
+                self.tick_cache.save_ticks(stock_code, trade_date, refreshed_df)
+            return refreshed_df
 
         try:
             data = xtdata.get_market_data(
@@ -167,16 +178,20 @@ class DataFetcher:
             )
         except Exception as exc:
             logger.warning(f"实时tick拉取失败: {exc}")
-            return None
+            return self._refresh_ticks_from_fallbacks(stock_code, trade_date, None)
 
         if data is None:
-            return None
+            return self._refresh_ticks_from_fallbacks(stock_code, trade_date, None)
 
         df = self._normalize_market_data(data, stock_code)
         if df is None or df.empty:
-            return None
+            return self._refresh_ticks_from_fallbacks(stock_code, trade_date, None)
 
         df = self._filter_minute_data_for_trade_date(df, trade_date)
+        if df is None or df.empty:
+            return self._refresh_ticks_from_fallbacks(stock_code, trade_date, None)
+
+        df = self._append_snapshot_tick(df, stock_code, trade_date)
         if df is not None and not df.empty:
             self.tick_cache.save_ticks(stock_code, trade_date, df)
 
@@ -278,6 +293,8 @@ class DataFetcher:
                 "high": stock_snapshot.get("high"),
                 "low": stock_snapshot.get("low"),
                 "open": stock_snapshot.get("open"),
+                "amount": stock_snapshot.get("amount"),
+                "volume": stock_snapshot.get("volume"),
                 "pre_close": stock_snapshot.get("lastClose")
                 or stock_snapshot.get("lastSettlementPrice"),
             }
@@ -565,12 +582,71 @@ class DataFetcher:
         lag_minutes = (snapshot_dt - latest_bar_time).total_seconds() / 60
         if lag_minutes > max_lag_minutes:
             logger.warning(
-                "分钟数据明显滞后: stock=%s latest_bar=%s snapshot_time=%s lag=%.1fmin",
+                "分钟数据明显滞后: stock={} latest_bar={} snapshot_time={} lag={:.1f}min",
                 stock_code,
                 latest_bar_time,
                 snapshot_dt,
                 lag_minutes,
             )
+
+    def _refresh_ticks_from_fallbacks(
+        self, stock_code: str, trade_date: date, cached_df: Optional[pd.DataFrame]
+    ) -> Optional[pd.DataFrame]:
+        """Refresh tick rows from local cache and the latest snapshot when live pulls stall."""
+        candidate = cached_df.copy() if cached_df is not None and not cached_df.empty else None
+
+        local_df = self._fetch_tick_data_from_local_cache(stock_code, trade_date)
+        if local_df is not None and not local_df.empty:
+            if candidate is None or candidate.empty:
+                candidate = local_df
+            else:
+                candidate = pd.concat([candidate, local_df]).sort_index()
+                candidate = candidate[~candidate.index.duplicated(keep="last")]
+
+        candidate = self._append_snapshot_tick(candidate, stock_code, trade_date)
+        if candidate is not None and not candidate.empty:
+            self.tick_cache.save_ticks(stock_code, trade_date, candidate)
+        return candidate
+
+    def _append_snapshot_tick(
+        self, df: Optional[pd.DataFrame], stock_code: str, trade_date: date
+    ) -> Optional[pd.DataFrame]:
+        """Append one synthetic tick row from the latest full-tick snapshot when available."""
+        snapshot = self.fetch_realtime_snapshot(stock_code)
+        if not snapshot:
+            return df
+
+        snapshot_time = snapshot.get("time")
+        if not snapshot_time:
+            return df
+
+        try:
+            snapshot_dt = pd.Timestamp(snapshot_time)
+        except Exception:
+            return df
+
+        if snapshot_dt.date() != trade_date:
+            return df
+
+        row = {
+            "close": snapshot.get("price"),
+            "open": snapshot.get("open"),
+            "high": snapshot.get("high"),
+            "low": snapshot.get("low"),
+            "amount": snapshot.get("amount"),
+            "volume": snapshot.get("volume"),
+            "pre_close": snapshot.get("pre_close"),
+        }
+        if row["close"] is None:
+            return df
+
+        snapshot_df = pd.DataFrame([row], index=pd.DatetimeIndex([snapshot_dt], name="datetime"))
+        if df is None or df.empty:
+            return self._finalize_market_dataframe(snapshot_df)
+
+        combined = pd.concat([df, snapshot_df]).sort_index()
+        combined = combined[~combined.index.duplicated(keep="last")]
+        return self._finalize_market_dataframe(combined)
 
     def _get_min_required_minute_rows(
         self, trade_date: date, bar_seconds: Optional[int] = None

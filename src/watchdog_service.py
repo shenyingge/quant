@@ -2,15 +2,20 @@ from __future__ import annotations
 
 import json
 import os
+import signal
 import subprocess
 import time as time_module
+import urllib.request
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 
+import psutil
+
 from src.config import settings
 from src.logger_config import configured_logger as logger
+from src.notifications import FeishuNotifier
 from src.trading_day_checker import is_trading_day
 
 
@@ -26,6 +31,7 @@ class ManagedTarget:
     stop_time: Optional[time] = None
     schedule_time: Optional[time] = None
     enforce_stop_outside_window: bool = False
+    probe_path: Optional[str] = None
 
 
 class QuantWatchdogService:
@@ -39,8 +45,11 @@ class QuantWatchdogService:
         self.state_path = self._resolve_state_path(settings.watchdog_state_path)
         self._state = self._load_state()
         self._last_launch_attempt: Dict[str, float] = {}
+        self._probe_failure_counts: Dict[str, int] = {}
         self._trading_day_cache: Dict[str, Any] = {"date": None, "value": False}
         self.targets = self._build_targets()
+        self.notifier = FeishuNotifier()
+        self._shutdown_requested = False
 
     def run_forever(self) -> None:
         logger.info(
@@ -51,9 +60,18 @@ class QuantWatchdogService:
         )
         self._log_target_inventory()
 
-        while True:
-            self.run_once()
-            time_module.sleep(self.check_interval_seconds)
+        # 发送启动通知
+        self.notifier.notify_runtime_event("看门狗服务", "已启动", f"管理 {len(self.targets)} 个目标", "success")
+
+        try:
+            while not self._shutdown_requested:
+                self.run_once()
+                time_module.sleep(self.check_interval_seconds)
+        except KeyboardInterrupt:
+            logger.info("Received shutdown signal")
+        finally:
+            # 发送关闭通知
+            self.notifier.notify_runtime_event("看门狗服务", "已停止", "服务正常关闭", "info")
 
     def run_once(self) -> None:
         now = datetime.now()
@@ -80,11 +98,12 @@ class QuantWatchdogService:
     def _build_targets(self) -> List[ManagedTarget]:
         targets: List[ManagedTarget] = [
             ManagedTarget(
-                name="healthcheck_service",
+                name="cms_service",
                 kind="service",
-                description="Standalone HTTP health service",
-                command_patterns=("main.py health-server",),
-                launch_command=self._powershell_file_command("scripts\\start_healthcheck_service.ps1"),
+                description="Standalone HTTP CMS service",
+                command_patterns=("main.py cms-server",),
+                launch_command=self._cms_server_command(),
+                probe_path="/health",
             )
         ]
 
@@ -95,7 +114,7 @@ class QuantWatchdogService:
                     kind="service",
                     description="Trading engine",
                     command_patterns=("main.py run", "main.py test-run"),
-                    launch_command=self._task_runner_command("trading-service"),
+                    launch_command=self._trading_engine_command(),
                     require_trading_day=True,
                     start_time=self._parse_clock(settings.watchdog_trading_start_time),
                     stop_time=self._parse_clock(settings.watchdog_trading_stop_time),
@@ -110,7 +129,7 @@ class QuantWatchdogService:
                     kind="service",
                     description="T0 strategy daemon",
                     command_patterns=("main.py t0-daemon",),
-                    launch_command=self._task_runner_command("t0-daemon"),
+                    launch_command=self._strategy_engine_command(),
                     require_trading_day=True,
                     start_time=self._parse_clock(settings.watchdog_t0_start_time),
                     stop_time=self._parse_clock(settings.watchdog_t0_stop_time),
@@ -125,22 +144,9 @@ class QuantWatchdogService:
                     kind="job",
                     description="T0 position sync",
                     command_patterns=("main.py t0-sync-position",),
-                    launch_command=self._task_runner_command("t0-sync-position"),
+                launch_command=self._python_main_command("t0-sync-position"),
                     require_trading_day=True,
                     schedule_time=self._parse_clock(settings.watchdog_t0_sync_time),
-                )
-            )
-
-        if settings.watchdog_enable_meta_db_sync:
-            targets.append(
-                ManagedTarget(
-                    name="meta_db_sync",
-                    kind="job",
-                    description="SQLite to Meta DB sync",
-                    command_patterns=("main.py sync-meta-db",),
-                    launch_command=self._task_runner_command("meta-db-sync"),
-                    require_trading_day=True,
-                    schedule_time=self._parse_clock(settings.watchdog_meta_db_sync_time),
                 )
             )
 
@@ -152,22 +158,82 @@ class QuantWatchdogService:
         matches: List[Dict[str, Any]],
         expected: bool,
     ) -> None:
-        if matches and expected:
+        healthy = self._is_service_healthy(target, matches)
+
+        if healthy and expected:
+            self._probe_failure_counts[target.name] = 0
             logger.info("{} is healthy with {} process(es)", target.name, len(matches))
             return
 
         if matches and not expected:
+            self._probe_failure_counts[target.name] = 0
             if target.enforce_stop_outside_window:
                 self._stop_processes(target, matches)
             else:
                 logger.info("{} is running outside its window, leaving it untouched", target.name)
             return
 
+        if matches and expected and not healthy:
+            failure_count = self._record_probe_failure(target)
+            logger.warning(
+                "{} has {} matching process(es) but failed its readiness probe ({})",
+                target.name,
+                len(matches),
+                failure_count,
+            )
+            if target.probe_path and failure_count < 3:
+                logger.warning(
+                    "{} will be left running until it fails {} consecutive readiness probes",
+                    target.name,
+                    3,
+                )
+                return
+            self._stop_processes(target, matches)
+            self._probe_failure_counts[target.name] = 0
+
         if not expected:
+            self._probe_failure_counts[target.name] = 0
             logger.info("{} is not expected to run right now", target.name)
             return
 
         self._launch_target(target)
+
+    def _is_service_healthy(
+        self,
+        target: ManagedTarget,
+        matches: List[Dict[str, Any]],
+    ) -> bool:
+        if not matches:
+            return False
+
+        if target.probe_path:
+            return self._probe_cms_server_endpoint(target)
+
+        return True
+
+    def _probe_cms_server_endpoint(self, target: ManagedTarget) -> bool:
+        host = (settings.cms_server_host or "").strip()
+        if not host or host in {"0.0.0.0", "::"}:
+            host = "127.0.0.1"
+        elif host.lower() == "tailscale":
+            host = "127.0.0.1"
+
+        path = target.probe_path or "/health"
+        url = f"http://{host}:{settings.cms_server_port}{path}"
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        timeout_seconds = max(settings.cms_server_timeout_seconds, 5)
+
+        try:
+            with opener.open(url, timeout=timeout_seconds) as response:
+                return int(getattr(response, "status", 0)) == 200
+        except Exception as exc:
+            logger.warning("CMS probe failed for {} via {}: {}", target.name, url, exc)
+            return False
+
+    def _record_probe_failure(self, target: ManagedTarget) -> int:
+        count = self._probe_failure_counts.get(target.name, 0) + 1
+        self._probe_failure_counts[target.name] = count
+        return count
 
     def _reconcile_job(
         self,
@@ -224,6 +290,10 @@ class QuantWatchdogService:
             logger.warning("Dry run: would launch {} via: {}", target.name, command_text)
         else:
             logger.warning("Launching {} via: {}", target.name, command_text)
+            # 发送拉起通知
+            self.notifier.notify_runtime_event(
+                "看门狗服务", f"拉起服务: {target.description}", f"目标: {target.name}", "warning"
+            )
         self._last_launch_attempt[target.name] = time_module.time()
 
         if self.dry_run:
@@ -351,27 +421,33 @@ class QuantWatchdogService:
     def _parse_clock(self, raw_value: str) -> time:
         return datetime.strptime(raw_value.strip(), "%H:%M").time()
 
-    def _task_runner_command(self, mode: str) -> List[str]:
-        return [
-            "powershell.exe",
-            "-NoProfile",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-File",
-            str(self.repo_root / "scripts" / "task_runner.ps1"),
-            "-Mode",
-            mode,
-        ]
+    def _python_main_command(self, *args: str) -> List[str]:
+        return [str(self._resolve_python_executable()), "main.py", *args]
 
-    def _powershell_file_command(self, relative_path: str) -> List[str]:
-        return [
-            "powershell.exe",
-            "-NoProfile",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-File",
-            str(self.repo_root / relative_path),
-        ]
+    def _cms_server_command(self) -> List[str]:
+        host = (settings.cms_server_host or "").strip() or "127.0.0.1"
+        return self._python_main_command(
+            "cms-server",
+            f"--host={host}",
+            f"--port={settings.cms_server_port}",
+        )
+
+    def _trading_engine_command(self) -> List[str]:
+        return self._python_main_command("run")
+
+    def _strategy_engine_command(self) -> List[str]:
+        return self._python_main_command("t0-daemon")
+
+    def _resolve_python_executable(self) -> Path:
+        if os.name == "nt":
+            candidate = self.repo_root / ".venv" / "Scripts" / "python.exe"
+        else:
+            candidate = self.repo_root / ".venv" / "bin" / "python"
+
+        if candidate.exists():
+            return candidate
+
+        return Path("python")
 
     def _find_matching_processes(
         self,
@@ -390,6 +466,13 @@ class QuantWatchdogService:
 
     def _list_processes(self) -> List[Dict[str, Any]]:
         if os.name == "nt":
+            try:
+                return self._list_processes_windows_native()
+            except Exception as exc:
+                logger.warning(
+                    "Native Windows process listing failed for watchdog, falling back to PowerShell: {}",
+                    exc,
+                )
             command = [
                 "powershell",
                 "-NoProfile",
@@ -410,7 +493,7 @@ class QuantWatchdogService:
                 text=True,
                 encoding="utf-8",
                 errors="ignore",
-                timeout=max(int(settings.healthcheck_timeout_seconds), 8),
+                timeout=max(int(settings.cms_server_timeout_seconds), 8),
             )
         except Exception as exc:
             logger.warning("Failed to list processes for watchdog: {}", exc)
@@ -446,6 +529,27 @@ class QuantWatchdogService:
             except ValueError:
                 continue
             processes.append({"name": name, "pid": pid, "command_line": command_line})
+        return processes
+
+    def _list_processes_windows_native(self) -> List[Dict[str, Any]]:
+        processes: List[Dict[str, Any]] = []
+
+        for process in psutil.process_iter(attrs=["pid", "name", "cmdline"]):
+            try:
+                info = process.info
+            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                continue
+
+            cmdline_parts = info.get("cmdline") or []
+            command_line = " ".join(str(part) for part in cmdline_parts if part)
+            processes.append(
+                {
+                    "name": info.get("name") or "",
+                    "pid": int(info.get("pid") or 0),
+                    "command_line": command_line,
+                }
+            )
+
         return processes
 
 

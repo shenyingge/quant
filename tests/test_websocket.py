@@ -71,15 +71,15 @@ def test_websocket():
 
 
 if __name__ == "__main__":
-    from src.healthcheck import start_healthcheck_server, stop_healthcheck_server
+    from src.cms_server import start_cms_server, stop_cms_server
 
     print("Starting server...")
-    start_healthcheck_server("127.0.0.1", 8080)
+    start_cms_server("127.0.0.1", 8080)
     time.sleep(2)
 
     try:
         test_websocket()
     finally:
         print("\nStopping server...")
-        stop_healthcheck_server()
+        stop_cms_server()
         print("Done!")

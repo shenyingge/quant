@@ -8,16 +8,19 @@ from sqlalchemy import (
     Float,
     Index,
     Integer,
+    MetaData,
     String,
     Text,
     create_engine,
+    text,
 )
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 
-from src.config import settings
+from src.meta_db import get_meta_db_details, get_meta_db_sync_url, get_meta_db_trading_schema
 
-Base = declarative_base()
+TRADING_SCHEMA = get_meta_db_trading_schema()
+Base = declarative_base(metadata=MetaData(schema=TRADING_SCHEMA))
 
 
 class TradingSignal(Base):
@@ -130,12 +133,43 @@ class StrategySignalHistory(Base):
     )
 
 
-engine = create_engine(settings.db_url)
+class AccountPosition(Base):
+    """Broker-synced account position snapshot."""
+
+    __tablename__ = "account_positions"
+
+    id = Column(Integer, primary_key=True)
+    account_id = Column(String(50), nullable=False, index=True)
+    stock_code = Column(String(20), nullable=False, index=True)
+    total_volume = Column(Integer, nullable=False, default=0)
+    available_volume = Column(Integer, nullable=False, default=0)
+    avg_price = Column(Float, nullable=False, default=0.0)
+    market_value = Column(Float, nullable=True)
+    last_price = Column(Float, nullable=True)
+    snapshot_source = Column(String(50), nullable=False, default="qmt")
+    snapshot_time = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (
+        Index("idx_account_position_account_stock", "account_id", "stock_code", unique=True),
+    )
+
+
+engine = create_engine(get_meta_db_sync_url(), pool_pre_ping=True)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
 def create_tables():
-    Base.metadata.create_all(bind=engine)
+    with engine.begin() as connection:
+        connection.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{TRADING_SCHEMA}"'))
+        Base.metadata.create_all(bind=connection)
+
+
+def get_database_details():
+    details = get_meta_db_details()
+    details["url"] = get_meta_db_sync_url(hide_password=True)
+    return details
 
 
 def get_db():

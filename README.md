@@ -49,17 +49,15 @@ quant/
 │   └── backtest/          # Linux/文件驱动回测组件
 ├── scripts/               # 脚本文件
 │   ├── README.md          # 脚本使用说明
-│   ├── setup_task_simple.bat # 设置计划任务（推荐）
-│   ├── setup_t0_tasks.bat # 设置 T+0 计划任务
-│   ├── task_runner.ps1    # Windows 定时任务执行脚本
-│   ├── task_runner.sh     # 旧版 shell 定时任务执行脚本
+│   ├── register_watchdog_service_task.ps1 # 注册单入口 watchdog 开机任务
 │   ├── run_console.bat    # 手动运行脚本
-│   └── load_env.sh        # 环境变量加载
+│   └── setup_minute_history_task.bat # 分钟行情导出任务安装器
 ├── logs/                  # 日志文件目录
 │   ├── task_execution_trading.log # 交易服务计划任务日志
 │   ├── task_execution_t0_daemon.log # T+0 守护进程任务日志
 │   ├── task_execution_t0_sync.log # T+0 仓位同步任务日志
-│   └── trading_service.log # 交易服务日志
+│   ├── current/          # 当前活跃日志
+│   └── archive/          # 滚动压缩归档日志
 ├── backups/               # 数据备份目录
 ├── tests/                 # 测试文件
 │   └── test_*.py          # 各种测试脚本
@@ -110,7 +108,12 @@ T0_NOTIFY_OBSERVE_SIGNALS=false
 
 # 日志配置
 LOG_LEVEL=INFO
-LOG_FILE=logs/trading_service.log
+LOG_DIR=./logs/current
+LOG_ARCHIVE_DIR=./logs/archive
+LOG_FILE=./logs/current/app.log
+LOG_ROTATION=20 MB
+LOG_RETENTION=30 days
+LOG_COMPRESSION=zip
 
 # 备份配置
 BACKUP_ENABLED=true
@@ -145,16 +148,16 @@ uv run python main.py run
 
 以管理员身份运行：
 
-```batch
-# 设置每日自动运行的计划任务
-scripts\setup_task_simple.bat
+```powershell
+# 注册单入口开机任务
+.\scripts\register_watchdog_service_task.ps1
 ```
 
-这会创建Windows计划任务：
-- 每天 8:00 AM 自动启动交易服务
-- 每天 9:00 PM 自动停止服务
-- 非交易日自动跳过
-- 日志输出到 `logs/task_execution_trading.log`
+这会创建单一开机计划任务：
+- `Quant_Watchdog_Service` 随系统启动
+- `cms-server` 24x7 保持在线
+- 交易日内由 watchdog 自动管理交易主进程、T+0 守护、仓位同步和 Meta DB 同步
+- 非交易时间按 watchdog 时间窗自动停止对应长跑服务
 
 ## 交易信号格式
 
@@ -297,7 +300,10 @@ uv run python main.py t0-backtest --config ./configs/t0_backtest_601138.json
 ### 日志文件
 
 - `logs/task_execution_trading.log` - 交易服务计划任务日志（包含启动、停止、错误信息）
-- `logs/trading_service.log` - 交易服务详细日志
+- `logs/current/trading_engine.log` - 交易引擎详细日志
+- `logs/current/cms_server.log` - CMS 服务详细日志
+- `logs/current/watchdog.log` - watchdog 详细日志
+- `logs/archive/<role>/` - 滚动后的压缩归档日志
 - `logs/task_debug.log` - 调试日志（如有）
 - `logs/task_execution_t0_daemon.log` - T+0 守护进程任务日志
 - `logs/task_execution_t0_sync.log` - T+0 仓位同步任务日志

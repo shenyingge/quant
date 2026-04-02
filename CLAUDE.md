@@ -146,11 +146,9 @@ uv run python tests/run_tests.py --pytest
 ### Windows Service Integration
 
 The system can run as a Windows scheduled task using scripts in the `scripts/` directory:
-- `setup_task_simple.bat`: Creates scheduled tasks for the main trading service
-- `setup_t0_tasks.bat`: Creates scheduled tasks for T+0 daemon and position sync
+- `register_watchdog_service_task.ps1`: Registers the single-entry startup task `Quant_Watchdog_Service`
 - `setup_minute_history_task.bat`: Creates a scheduled task for daily minute-history export
-- `task_runner.ps1`: Primary Windows scheduled-task runner
-- `task_runner.sh`: Legacy shell runner kept for older environments
+- The watchdog scheduled task and managed services now launch `python main.py ...` directly without a PowerShell startup wrapper
 - Mode-specific QMT session IDs are supported for trading service, T+0 daemon, and T+0 sync
 
 ## T+0 Strategy And Backtest

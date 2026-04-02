@@ -1,65 +1,56 @@
 # Account Data Architecture
 
-This project now follows a hybrid source-of-truth policy for account data.
+This project now uses Meta DB as the only persistent store for runtime business data.
 
 ## Core Rule
 
-- QMT is the real-time source of truth for live account state.
-- Local storage is the source of truth for strategy business history.
+- QMT remains the live broker connection and callback source.
+- Meta DB is the only durable store for runtime business history and broker-synced snapshots.
+- The CMS/account API reads Meta DB only and does not query QMT directly.
 
-## By Data Type
-
-- Positions
-  - primary source: QMT live query
-  - fallback: local `output/account_positions_snapshot.json`
-  - use for: runtime risk checks, available volume, latest holdings
+## What Is Stored
 
 - Orders
-  - primary source: local SQLite `order_records`
-  - use for: paging, audit, troubleshooting, strategy-side history
-
+  - stored in `trading.order_records`
+  - updated when orders are submitted, updated, or filled
 - Signals
-  - primary source: local SQLite `trading_signals`
-  - use for: signal ledger, replay, debugging, attribution
+  - stored in `trading.trading_signals`
+  - updated when a strategy signal is accepted by the trading engine
+- Positions
+  - stored in `trading.account_positions`
+  - refreshed only on trading-engine startup and after filled-trade callbacks
+- Trading calendar and stock info
+  - stored in Meta DB through the normal service helpers
 
-- Trades
-  - primary source: local SQLite `order_records`
-  - use for: filled-order history and strategy execution review
+## What Is Not Stored Frequently
 
-- Strategy PnL
-  - primary source: local SQLite `order_records`
-  - use for: realized PnL estimate, daily summary, per-stock attribution
+- Market data / quote streams
+  - not persisted by this runtime path
+- Real-time broker PnL
+  - not written to Meta DB
+  - operator views should treat it as transient runtime data if needed
 
-- Account PnL / broker assets
-  - primary source: QMT
-  - use for: actual broker-side account view
-
-## Why
-
-- Only using local storage makes positions drift after manual trades, restarts, or callback gaps.
-- Only using QMT makes it hard to preserve signal lineage, strategy attribution, and audit history.
-- The mixed model gives reliable live trading state plus a complete local strategy ledger.
-
-## API Surface
-
-The health/account API now exposes explicit source-policy endpoints:
-
-- `/api/data-policy`
-  - returns the source-of-truth policy by data type
-- `/api/account-overview`
-  - returns policy + live/fallback position snapshot + local strategy daily PnL summary
-- `/api/strategy-pnl-summary`
-  - returns the local daily strategy summary from `DailyPnLCalculator`
-
-Existing endpoints keep their original responsibilities:
+## API Behavior
 
 - `/api/positions`
-  - live positions, preferring QMT and falling back to cached position snapshot
+  - reads the broker-synced snapshot in `trading.account_positions`
+  - does not query QMT on demand
 - `/api/orders`
-  - local order ledger
+  - reads `trading.order_records`
 - `/api/signals`
-  - local signal ledger
+  - reads `trading.trading_signals`
 - `/api/trades`
-  - local filled-order ledger
+  - reads filled rows from `trading.order_records`
 - `/api/pnl`
-  - local per-stock strategy PnL breakdown
+  - derives strategy realized PnL from filled orders in Meta DB
+- `/api/account-overview`
+  - combines Meta DB policy, Meta DB strategy summary, and optional Meta DB positions
+
+## Update Timing
+
+- Startup
+  - after the trading engine connects to QMT, it syncs the full broker position snapshot into Meta DB
+- Filled trades
+  - after a trade callback, the runtime refreshes the broker position snapshot into Meta DB again
+- No quote-driven writes
+  - the runtime does not write positions or PnL on every market tick

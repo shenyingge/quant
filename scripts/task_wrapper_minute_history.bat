@@ -1,3 +1,7 @@
 @echo off
 cd /d "%~dp0\.."
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0task_runner.ps1" -Mode minute-history-daily
+if exist ".venv\Scripts\python.exe" (
+  ".venv\Scripts\python.exe" main.py export-minute-daily
+) else (
+  python main.py export-minute-daily
+)

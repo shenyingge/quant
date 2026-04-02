@@ -46,11 +46,12 @@ def _resolve_app_role(command: Optional[str]) -> str:
         "export-daily": "daily_export",
         "export-minute-history": "minute_history_export",
         "export-minute-daily": "minute_history_export",
-        "sync-meta-db": "meta_db_sync",
         "t0-strategy": "strategy_engine",
         "t0-daemon": "strategy_engine",
         "t0-sync-position": "strategy_engine",
         "t0-backtest": "strategy_engine",
+        "cms-check": "cms_server",
+        "cms-server": "cms_server",
         "watchdog": "watchdog",
     }
     return role_map.get(command or "", "cli")
@@ -71,7 +72,7 @@ def main():
     command = sys.argv[1].lower() if len(sys.argv) > 1 else None
     configure_process_logger(_resolve_app_role(command))
 
-    if command != "health-check":
+    if command != "cms-check":
         logger.info(f"QMT服务 v{settings.__dict__.get('version', '1.0.0')}")
         logger.info("=" * 50)
 
@@ -124,8 +125,6 @@ def main():
             return export_minute_history(sys.argv[2:])
         elif command == "export-minute-daily":
             return export_minute_daily(sys.argv[2:])
-        elif command == "sync-meta-db":
-            return sync_meta_db()
         elif command == "t0-strategy":
             run_t0_strategy()
             return 0
@@ -141,10 +140,10 @@ def main():
         elif command == "t0-signal-viewer":
             run_signal_viewer()
             return 0
-        elif command == "health-check":
-            return run_health_check(sys.argv[2:])
-        elif command == "health-server":
-            return run_health_server(sys.argv[2:])
+        elif command == "cms-check":
+            return run_cms_check(sys.argv[2:])
+        elif command == "cms-server":
+            return run_cms_server(sys.argv[2:])
         elif command == "watchdog":
             return run_watchdog(sys.argv[2:])
         else:
@@ -518,20 +517,6 @@ def export_minute_daily(argv=None):
     return export_minute_history(default_args + (argv or []))
 
 
-def sync_meta_db():
-    """将本地 SQLite 交易数据同步到 Meta DB。"""
-    from src.trading_meta_sync import sync_sqlite_to_meta_db
-
-    logger.info("开始同步 SQLite 交易数据到 Meta DB...")
-    result = sync_sqlite_to_meta_db()
-    logger.info("SQLite 到 Meta DB 同步完成")
-    logger.info(f"目标 schema: {result.schema}")
-    logger.info(f"同步总行数: {result.total_rows}")
-    for table_name, row_count in result.table_row_counts.items():
-        logger.info(f"  {table_name}: {row_count}")
-    return 0
-
-
 def _notify_t0_runtime(component: str, event: str, detail: str = "", level: str = "info"):
     """尽力发送 T+0 运行时通知。"""
     try:
@@ -566,6 +551,85 @@ def _should_skip_non_trading_day(component_name: str) -> bool:
     return True
 
 
+def _sync_t0_position_via_qmt(*, notify: bool = False) -> bool:
+    from src.notifications import FeishuNotifier
+    from src.strategy.position_syncer import PositionSyncer
+    from src.trader import QMTTrader
+
+    notifier = FeishuNotifier() if notify else None
+    session_id = _resolve_qmt_session_id("t0-sync")
+    logger.info(f"{STRATEGY_ENGINE_NAME} position sync uses QMT Session ID: {session_id}")
+
+    connect_retry_attempts = max(int(settings.t0_sync_connect_retry_attempts), 1)
+    connect_retry_delay_seconds = max(int(settings.t0_sync_connect_retry_delay_seconds), 1)
+    connected = False
+    trader = None
+
+    try:
+        for attempt in range(1, connect_retry_attempts + 1):
+            trader = QMTTrader(session_id=session_id)
+            if trader.connect():
+                connected = True
+                break
+
+            logger.warning(
+                f"QMT position sync connect failed, retry {attempt}/{connect_retry_attempts}"
+            )
+            try:
+                trader.disconnect()
+            except Exception:
+                pass
+            if attempt < connect_retry_attempts:
+                time.sleep(connect_retry_delay_seconds)
+
+        if not connected:
+            logger.error("QMT connection failed during T0 position sync")
+            if notifier:
+                notifier.notify_t0_position_sync(
+                    settings.t0_stock_code,
+                    False,
+                    (
+                        f"QMT connection failed for T0 position sync "
+                        f"(retries={connect_retry_attempts}, delay={connect_retry_delay_seconds}s)"
+                    ),
+                )
+            return False
+
+        success = PositionSyncer().sync_from_qmt(trader, settings.t0_stock_code)
+        if notifier:
+            if success:
+                notifier.notify_t0_position_sync(
+                    settings.t0_stock_code, True, "T0 position synced from QMT"
+                )
+            else:
+                notifier.notify_t0_position_sync(
+                    settings.t0_stock_code, False, "QMT sync returned an unsuccessful result"
+                )
+        return success
+    finally:
+        if trader is not None:
+            try:
+                trader.disconnect()
+            except Exception:
+                pass
+
+
+def _ensure_t0_position_state() -> bool:
+    from src.strategy.position_syncer import PositionSyncer
+
+    syncer = PositionSyncer()
+    if not syncer.needs_qmt_sync():
+        return True
+
+    logger.info("No fresh T0 baseline position snapshot exists for today, syncing from QMT")
+    success = _sync_t0_position_via_qmt(notify=False)
+    if not success:
+        logger.warning(
+            "Failed to initialize today's T0 baseline position snapshot, continuing with the last local state"
+        )
+    return success
+
+
 def run_t0_strategy():
     """运行一次策略引擎。"""
     if _should_skip_non_trading_day(STRATEGY_ENGINE_NAME):
@@ -576,6 +640,7 @@ def run_t0_strategy():
     try:
         from src.strategy.strategy_engine import StrategyEngine
 
+        _ensure_t0_position_state()
         strategy_engine = StrategyEngine()
         signal_card = strategy_engine.run_once()
         logger.info(f"Strategy execution completed: {signal_card['signal']['action']}")
@@ -610,6 +675,7 @@ def run_t0_daemon():
     try:
         from src.strategy.strategy_engine import StrategyEngine
 
+        _ensure_t0_position_state()
         session_id = _resolve_qmt_session_id("t0-daemon")
         logger.info(f"{STRATEGY_ENGINE_NAME} 使用 QMT Session ID: {session_id}")
         strategy_engine = StrategyEngine()
@@ -727,25 +793,25 @@ def run_signal_viewer():
     viewer.watch(interval=settings.t0_poll_interval_seconds)
 
 
-def run_health_check(argv=None):
+def run_cms_check(argv=None):
     """输出一次标准化 health check 结果。"""
     import json
 
-    from src.healthcheck import ProjectHealthChecker
+    from src.cms_server import ProjectCmsChecker
 
     logger.remove()
-    snapshot = ProjectHealthChecker(scope="project").build_snapshot().to_dict()
+    snapshot = ProjectCmsChecker(scope="project").build_snapshot().to_dict()
     pretty = not argv or "--compact" not in argv
     print(json.dumps(snapshot, ensure_ascii=False, indent=2 if pretty else None))
     return 0 if snapshot["status"] != "down" else 1
 
 
-def run_health_server(argv=None):
-    """启动轻量级 HTTP health check 服务。"""
-    from src.healthcheck import serve_healthcheck
+def run_cms_server(argv=None):
+    """启动轻量级 HTTP CMS 服务。"""
+    from src.cms_server import serve_cms_server
 
-    host = settings.healthcheck_host
-    port = settings.healthcheck_port
+    host = settings.cms_server_host
+    port = settings.cms_server_port
 
     for arg in argv or []:
         if arg.startswith("--host="):
@@ -754,9 +820,9 @@ def run_health_server(argv=None):
             try:
                 port = int(arg.split("=", 1)[1].strip())
             except ValueError:
-                logger.warning(f"无效的 health check 端口参数: {arg}")
+                logger.warning(f"无效的 CMS server 端口参数: {arg}")
 
-    serve_healthcheck(host=host, port=port, scope="project")
+    serve_cms_server(host=host, port=port, scope="project")
     return 0
 
 
@@ -797,9 +863,8 @@ def print_usage():
     logger.info("  python main.py t0-signal-viewer       - 启动 T+0 信号查看器（从 Redis 读取并展示）")
     logger.info("  python main.py export-minute-history  - 导出分钟历史行情")
     logger.info("  python main.py export-minute-daily    - 导出当日分钟行情")
-    logger.info("  python main.py sync-meta-db           - 将 SQLite 交易数据同步到 Meta DB")
-    logger.info("  python main.py health-check           - 输出 health check JSON 结果")
-    logger.info("  python main.py health-server          - 启动独立常驻的 HTTP /health 服务")
+    logger.info("  python main.py cms-check              - 输出 CMS check JSON 结果")
+    logger.info("  python main.py cms-server             - 启动独立常驻的 HTTP /health CMS 服务")
     logger.info("")
     logger.info("重试参数（仅适用于 run / test-run）:")
     logger.info("  --max-retries=N                       - 最大重试次数（默认: 3）")
@@ -808,8 +873,8 @@ def print_usage():
     logger.info("示例:")
     logger.info("  python main.py run --max-retries=5 --retry-delay=30")
     logger.info("  python main.py test-run --max-retries=2")
-    logger.info("  python main.py health-check")
-    logger.info("  python main.py health-server --port=8780")
+    logger.info("  python main.py cms-check")
+    logger.info("  python main.py cms-server --port=8780")
 
 
 if __name__ == "__main__":

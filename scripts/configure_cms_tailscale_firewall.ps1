@@ -1,7 +1,7 @@
 $ErrorActionPreference = "Stop"
 
-$ruleName = "Quant Healthcheck Tailscale Only"
-$port = if ($env:HEALTHCHECK_PORT) { $env:HEALTHCHECK_PORT } else { "8780" }
+$ruleName = "Quant CMS Server Tailscale Only"
+$port = if ($env:CMS_SERVER_PORT) { $env:CMS_SERVER_PORT } else { "8780" }
 
 $existingRules = Get-NetFirewallRule -DisplayName $ruleName -ErrorAction SilentlyContinue
 if ($existingRules) {

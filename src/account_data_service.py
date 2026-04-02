@@ -1,120 +1,117 @@
 from __future__ import annotations
 
-import json
 from contextlib import contextmanager
 from datetime import date
-from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional, Tuple
 
-from sqlalchemy import create_engine, desc
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy import desc
 
-from src.config import settings
 from src.daily_pnl_calculator import calculate_daily_summary
-from src.database import OrderRecord, TradingSignal
-from src.strategy.position_syncer import PositionSyncer
-from src.trader import QMTTrader
+from src.database import AccountPosition, OrderRecord, SessionLocal, TradingSignal
 
 
 class AccountDataService:
     """Centralize the source-of-truth policy for account-related data."""
 
-    def __init__(self):
-        self.positions_snapshot_path = self._resolve_path(settings.account_positions_snapshot_path)
-
     def get_data_policy(self) -> Dict[str, Any]:
         return {
             "positions": {
-                "source_of_truth": "qmt",
-                "fallback": "position_cache",
-                "storage": str(self.positions_snapshot_path),
-                "usage": "runtime risk checks, available volume, latest holdings",
+                "source_of_truth": "meta_db",
+                "fallback": None,
+                "storage": "trading.account_positions",
+                "usage": "broker-synced position snapshot updated on startup and filled trades",
             },
             "orders": {
-                "source_of_truth": "local_db",
-                "storage": "order_records",
+                "source_of_truth": "meta_db",
+                "storage": "trading.order_records",
                 "usage": "strategy order ledger, paging, audit, troubleshooting",
             },
             "signals": {
-                "source_of_truth": "local_db",
-                "storage": "trading_signals",
+                "source_of_truth": "meta_db",
+                "storage": "trading.trading_signals",
                 "usage": "strategy signal ledger and replay context",
             },
             "trades": {
-                "source_of_truth": "local_db",
-                "storage": "order_records",
+                "source_of_truth": "meta_db",
+                "storage": "trading.order_records",
                 "usage": "filled-order ledger and strategy-side execution history",
             },
             "strategy_pnl": {
-                "source_of_truth": "local_db",
-                "storage": "order_records",
+                "source_of_truth": "meta_db",
+                "storage": "trading.order_records",
                 "usage": "strategy realized PnL, daily summary, attribution",
             },
             "account_pnl": {
-                "source_of_truth": "qmt",
-                "storage": None,
-                "usage": "real account asset/PnL view from broker side",
+                "source_of_truth": "meta_db",
+                "storage": "trading.order_records",
+                "usage": "API-side estimate derived from the Meta DB execution ledger",
             },
         }
 
     def get_positions_snapshot(self) -> Dict[str, Any]:
-        trader = QMTTrader(
-            session_id=settings.qmt_session_id_trading_service or settings.qmt_session_id
+        db_snapshot = self._get_positions_snapshot_from_db()
+        if db_snapshot is not None:
+            return db_snapshot
+
+        return {
+            "source": "meta_db",
+            "available": False,
+            "is_live": False,
+            "fallback_used": False,
+            "as_of": None,
+            "positions": [],
+            "error": "No position data available in Meta DB",
+            "position_method": "broker_snapshot",
+            "data_mode": "meta_db_snapshot",
+        }
+
+    def _get_positions_snapshot_from_db(self) -> Optional[Dict[str, Any]]:
+        with self._open_db_session() as session:
+            position_rows = (
+                session.query(AccountPosition)
+                .filter(AccountPosition.total_volume > 0)
+                .order_by(
+                    desc(AccountPosition.snapshot_time),
+                    desc(AccountPosition.market_value),
+                    AccountPosition.stock_code,
+                )
+                .all()
+            )
+
+        if not position_rows:
+            return None
+
+        latest_timestamp = max(
+            (row.snapshot_time for row in position_rows if row.snapshot_time is not None),
+            default=None,
         )
-        try:
-            if trader.connect():
-                positions = trader.get_positions() or []
-                snapshot = {
-                    "source": "qmt",
-                    "is_live": True,
-                    "fallback_used": False,
-                    "as_of": date.today().isoformat(),
-                    "positions": [
-                        {
-                            **position,
-                            "source": "qmt",
-                        }
-                        for position in positions
-                    ],
-                }
-                self._save_positions_snapshot(snapshot)
-                return snapshot
-        finally:
-            try:
-                trader.disconnect()
-            except Exception:
-                pass
+        positions = [
+            {
+                "stock_code": row.stock_code,
+                "volume": int(row.total_volume or 0),
+                "available_volume": int(row.available_volume or 0),
+                "avg_price": float(row.avg_price or 0.0),
+                "market_value": row.market_value,
+                "last_price": row.last_price,
+                "account_id": row.account_id,
+                "source": "meta_db",
+                "position_method": "broker_snapshot",
+                "snapshot_source": row.snapshot_source,
+                "snapshot_time": row.snapshot_time.isoformat() if row.snapshot_time else None,
+            }
+            for row in position_rows
+        ]
 
-        cached_snapshot = self._load_positions_snapshot()
-        if cached_snapshot:
-            cached_snapshot["fallback_used"] = True
-            cached_snapshot["is_live"] = False
-            return cached_snapshot
-
-        syncer = PositionSyncer()
-        if syncer.position_file.exists():
-            cached = syncer.load_position()
-            if cached:
-                return {
-                    "source": "position_cache",
-                    "is_live": False,
-                    "fallback_used": True,
-                    "as_of": cached.get("last_sync_time"),
-                    "positions": [
-                        {
-                            "stock_code": cached.get("stock_code"),
-                            "volume": cached.get("total_position", 0),
-                            "available_volume": cached.get("available_volume", 0),
-                            "avg_price": cached.get("cost_price", 0),
-                            "market_value": None,
-                            "account_id": settings.qmt_account_id,
-                            "source": "position_cache",
-                            "last_sync_time": cached.get("last_sync_time"),
-                        }
-                    ],
-                }
-
-        raise RuntimeError("QMT is unavailable and no cached position snapshot exists")
+        return {
+            "source": "meta_db",
+            "available": True,
+            "is_live": False,
+            "fallback_used": False,
+            "as_of": latest_timestamp.isoformat() if latest_timestamp else None,
+            "positions": positions,
+            "position_method": "broker_snapshot",
+            "data_mode": "meta_db_snapshot",
+        }
 
     def get_orders_page(self, page: int, limit: int) -> Dict[str, Any]:
         offset = (page - 1) * limit
@@ -132,7 +129,7 @@ class AccountDataService:
             "total": total,
             "page": page,
             "limit": limit,
-            "source": "local_db",
+            "source": "meta_db",
             "data": [
                 {
                     "id": o.id,
@@ -168,7 +165,7 @@ class AccountDataService:
             "total": total,
             "page": page,
             "limit": limit,
-            "source": "local_db",
+            "source": "meta_db",
             "data": [
                 {
                     "id": s.id,
@@ -202,7 +199,7 @@ class AccountDataService:
             "total": total,
             "page": page,
             "limit": limit,
-            "source": "local_db",
+            "source": "meta_db",
             "data": [
                 {
                     "id": t.id,
@@ -230,7 +227,7 @@ class AccountDataService:
                     "buy_amount": 0.0,
                     "sell_amount": 0.0,
                     "pnl": 0.0,
-                    "source": "local_db",
+                    "source": "meta_db",
                 },
             )
             amount = float((trade.filled_volume or 0) * (trade.filled_price or 0))
@@ -244,15 +241,21 @@ class AccountDataService:
 
     def get_strategy_pnl_summary(self, target_date: Optional[date] = None) -> Dict[str, Any]:
         summary = calculate_daily_summary(target_date)
-        summary["source"] = "local_db"
+        summary["source"] = "meta_db"
         summary["kind"] = "strategy_realized_pnl_estimate"
         return summary
 
-    def get_account_overview(self) -> Dict[str, Any]:
+    def get_account_overview(self, *, include_positions: bool = False) -> Dict[str, Any]:
         overview = {
             "policy": self.get_data_policy(),
             "strategy_pnl_summary": self.get_strategy_pnl_summary(),
+            "positions_included": include_positions,
         }
+
+        if not include_positions:
+            overview["positions_snapshot"] = None
+            return overview
+
         try:
             overview["positions_snapshot"] = self.get_positions_snapshot()
         except Exception as exc:
@@ -262,36 +265,11 @@ class AccountDataService:
 
     @contextmanager
     def _open_db_session(self) -> Iterator[Any]:
-        engine = create_engine(settings.db_url)
-        Session = sessionmaker(bind=engine)
-        session = Session()
+        session = SessionLocal()
         try:
             yield session
         finally:
             session.close()
-            engine.dispose()
-
-    def _save_positions_snapshot(self, snapshot: Dict[str, Any]) -> None:
-        self.positions_snapshot_path.parent.mkdir(parents=True, exist_ok=True)
-        self.positions_snapshot_path.write_text(
-            json.dumps(snapshot, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
-
-    def _load_positions_snapshot(self) -> Optional[Dict[str, Any]]:
-        if not self.positions_snapshot_path.exists():
-            return None
-        try:
-            return json.loads(self.positions_snapshot_path.read_text(encoding="utf-8"))
-        except Exception:
-            return None
-
-    def _resolve_path(self, raw_path: str) -> Path:
-        candidate = Path(raw_path)
-        if candidate.is_absolute():
-            return candidate
-        return Path(__file__).resolve().parents[1] / candidate
-
 
 def parse_pagination(query_params: Dict[str, List[str]]) -> Tuple[int, int, int]:
     page = int(query_params.get("page", ["1"])[0])

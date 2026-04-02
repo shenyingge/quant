@@ -12,6 +12,7 @@ from xtquant.xttrader import XtQuantTrader, XtQuantTraderCallback
 from xtquant.xttype import StockAccount
 
 from src.config import settings
+from src.account_position_sync import sync_account_positions_from_qmt
 from src.database import OrderRecord, SessionLocal, TradingSignal, get_db
 from src.logger_config import configured_logger as logger
 from src.qmt_constants import (
@@ -223,6 +224,11 @@ class QMTCallback(XtQuantTraderCallback):
                             "trade_amount": trade_amount,
                         }
                     )
+
+            try:
+                sync_account_positions_from_qmt(self.trader, source="trade_callback")
+            except Exception as sync_error:
+                logger.error(f"成交后同步 Meta DB 仓位失败: {sync_error}")
 
             # 更新统计信息
             with self.trader.stats_lock:
@@ -758,8 +764,7 @@ class QMTTrader:
                 # 尝试重连
                 if self.connect():
                     logger.info("QMT重连成功")
-                    if self.notifier and hasattr(self.notifier, "notify_connection_restored"):
-                        self.notifier.notify_connection_restored("QMT")
+                    # 通知已由 connection_manager 统一发送，避免重复
                     return
                 else:
                     logger.warning(f"QMT第 {self.reconnect_attempts} 次重连失败")
@@ -1133,11 +1138,11 @@ class QMTTrader:
             logger.error(f"查询委托状态时发生错误: {e}")
             return None
 
-    def get_positions(self) -> List[Dict[str, Any]]:
+    def get_positions(self) -> Optional[List[Dict[str, Any]]]:
         """获取持仓信息（异步执行但等待结果）"""
         if not self.xt_trader or not self.account:
             logger.error("QMT未连接或未初始化，无法获取持仓")
-            return []
+            return None
 
         try:
             # 直接调用查询方法（在主线程中运行xtquant）
@@ -1145,7 +1150,7 @@ class QMTTrader:
 
         except Exception as e:
             logger.error(f"获取持仓信息时发生错误: {e}")
-            return []
+            return None
 
     def get_active_orders_count(self) -> int:
         """获取活跃订单数量"""
@@ -1338,10 +1343,13 @@ class QMTTrader:
             logger.error(f"查询委托状态异常: {e}")
             return None
 
-    def _get_positions(self) -> List[Dict[str, Any]]:
+    def _get_positions(self) -> Optional[List[Dict[str, Any]]]:
         """查询持仓"""
         try:
             positions = self.xt_trader.query_stock_positions(self.account)
+
+            if positions is None:
+                return None
 
             if not positions:
                 return []
@@ -1353,6 +1361,7 @@ class QMTTrader:
                     "available_volume": getattr(pos, "can_use_volume", 0),
                     "avg_price": getattr(pos, "avg_price", 0),
                     "market_value": getattr(pos, "market_value", 0),
+                    "last_price": getattr(pos, "last_price", 0),
                     "account_id": getattr(pos, "account_id", ""),
                 }
                 for pos in positions
@@ -1361,7 +1370,7 @@ class QMTTrader:
 
         except Exception as e:
             logger.error(f"查询持仓异常: {e}")
-            return []
+            return None
 
     def _start_timeout_monitor(self):
         """启动订单超时监控"""

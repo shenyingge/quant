@@ -1,8 +1,8 @@
-# Health Check Service
+# CMS Server
 
 ## Purpose
 
-The project exposes a standalone health check service for operator monitoring.
+The project exposes a standalone CMS server for operator monitoring and account-facing APIs.
 
 - HTTP endpoint: `/health` and `/healthz`
 - Default bind: `127.0.0.1:8780`
@@ -21,22 +21,14 @@ The endpoint returns a standardized JSON payload with:
 Run a one-shot snapshot:
 
 ```powershell
-.\.venv\Scripts\python.exe main.py health-check
+.\.venv\Scripts\python.exe main.py cms-check
 ```
 
 Run the standalone HTTP service:
 
 ```powershell
-.\.venv\Scripts\python.exe main.py health-server
+.\.venv\Scripts\python.exe main.py cms-server
 ```
-
-Use the helper script:
-
-```powershell
-.\scripts\start_healthcheck_service.ps1
-```
-
-The helper script respects `.env` / `HEALTHCHECK_HOST`. If you set `HEALTHCHECK_HOST=tailscale`, it resolves that sentinel to the machine's current Tailscale IPv4 and binds the HTTP server to that address only.
 
 ## Default Checks
 
@@ -67,7 +59,7 @@ The HTTP server does not compute checks on every request.
 Default refresh interval:
 
 ```env
-HEALTHCHECK_REFRESH_INTERVAL_SECONDS=15
+CMS_SERVER_REFRESH_INTERVAL_SECONDS=15
 ```
 
 ## Configuration
@@ -75,53 +67,49 @@ HEALTHCHECK_REFRESH_INTERVAL_SECONDS=15
 Relevant environment variables:
 
 ```env
-HEALTHCHECK_HOST=127.0.0.1
-HEALTHCHECK_PORT=8780
-HEALTHCHECK_TIMEOUT_SECONDS=2
-HEALTHCHECK_REFRESH_INTERVAL_SECONDS=15
+CMS_SERVER_HOST=127.0.0.1
+CMS_SERVER_PORT=8780
+CMS_SERVER_TIMEOUT_SECONDS=2
+CMS_SERVER_REFRESH_INTERVAL_SECONDS=15
 ```
 
-`HEALTHCHECK_HOST` supports a special value:
+`CMS_SERVER_HOST` supports a special value:
 
 - `tailscale`: auto-detect the current Tailscale IPv4 and bind to that interface only
 
 Recommended usage:
 
-- Keep `HEALTHCHECK_HOST=127.0.0.1` as the default safe setting
-- Set `HEALTHCHECK_HOST=tailscale` only on hosts where you explicitly want Tailscale access
+- Keep `CMS_SERVER_HOST=127.0.0.1` as the default safe setting
+- Set `CMS_SERVER_HOST=tailscale` only on hosts where you explicitly want Tailscale access
 
 To add a Windows Firewall rule that allows only Tailscale CGNAT addresses to reach the port:
 
 ```powershell
-.\scripts\configure_healthcheck_tailscale_firewall.ps1
+.\scripts\configure_cms_tailscale_firewall.ps1
 ```
 
 ## Windows Registration
 
-Register the service as a startup scheduled task:
+Direct startup registration for `cms-server` is deprecated in single-entry mode.
+
+Use the watchdog startup task instead:
 
 ```powershell
-.\scripts\register_healthcheck_service_task.ps1
+.\scripts\register_watchdog_service_task.ps1
 ```
 
-Remove the scheduled task:
+Remove the single startup task through the watchdog unregistration script:
 
 ```powershell
-.\scripts\unregister_healthcheck_service_task.ps1
-```
-
-Registered task name:
-
-```text
-Quant_Healthcheck_Service
+.\\scripts\\unregister_watchdog_service_task.ps1
 ```
 
 ## Verification
 
-Check task state:
+Check the watchdog task state:
 
 ```powershell
-schtasks /Query /TN Quant_Healthcheck_Service /V /FO LIST
+schtasks /Query /TN Quant_Watchdog_Service /V /FO LIST
 ```
 
 Query the endpoint locally:

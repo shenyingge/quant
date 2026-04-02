@@ -63,6 +63,76 @@ def test_position_syncer_loads_existing_position_file(tmp_path):
     assert portfolio.t0_sell_available == 900
 
 
+def test_position_syncer_needs_qmt_sync_without_today_snapshot(tmp_path):
+    syncer = PositionSyncer(output_dir=str(tmp_path))
+
+    assert syncer.needs_qmt_sync(date(2026, 3, 26)) is True
+
+    syncer.position_file.write_text(
+        json.dumps(
+            {
+                "stock_code": "601138.SH",
+                "total_position": 3500,
+                "available_volume": 3500,
+                "cost_price": 72.68,
+                "last_sync_source": "qmt",
+                "last_qmt_sync_time": "2026-03-26T09:25:00",
+                "last_reconciled_fill_time": "2026-03-26T09:25:00",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert syncer.needs_qmt_sync(date(2026, 3, 26)) is False
+    assert syncer.needs_qmt_sync(date(2026, 3, 27)) is True
+
+
+def test_position_syncer_reconciles_local_fills_into_position_state(tmp_path, monkeypatch):
+    syncer = PositionSyncer(output_dir=str(tmp_path))
+    syncer.position_file.write_text(
+        json.dumps(
+            {
+                "stock_code": "601138.SH",
+                "total_position": 3500,
+                "available_volume": 3500,
+                "cost_price": 50.0,
+                "last_sync_source": "qmt",
+                "last_qmt_sync_time": "2026-03-26T09:25:00",
+                "last_reconciled_fill_time": "2026-03-26T09:25:00",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    fills = [
+        SimpleNamespace(
+            direction="SELL",
+            filled_volume=300,
+            filled_price=53.0,
+            filled_time=datetime(2026, 3, 26, 10, 0, 0),
+        ),
+        SimpleNamespace(
+            direction="BUY",
+            filled_volume=200,
+            filled_price=52.5,
+            filled_time=datetime(2026, 3, 26, 10, 15, 0),
+        ),
+    ]
+
+    monkeypatch.setattr(syncer, "_load_filled_orders_since", lambda stock_code, since_time: fills)
+    monkeypatch.setattr(syncer, "_utcnow", lambda: datetime(2026, 3, 26, 10, 15, 5))
+
+    position = syncer.load_position()
+
+    assert position["total_position"] == 3400
+    assert position["available_volume"] == 3400
+    assert round(position["cost_price"], 4) == round((3200 * 50.0 + 200 * 52.5) / 3400, 4)
+    assert position["t0_sell_available"] == 800
+    assert position["t0_buy_capacity"] == 100
+    assert position["last_sync_source"] == "local_db_reconciled"
+    assert position["last_reconciled_fill_time"] == "2026-03-26T10:15:00"
+
+
 def test_reverse_t_buy_is_blocked_when_tactical_buy_capacity_is_zero():
     generator = SignalGenerator()
     features = {

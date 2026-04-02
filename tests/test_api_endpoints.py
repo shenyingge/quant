@@ -8,7 +8,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import requests
-from src.healthcheck import start_healthcheck_server, stop_healthcheck_server
+from src.cms_server import start_cms_server, stop_cms_server
 
 
 def test_http_endpoints():
@@ -80,13 +80,13 @@ def test_http_endpoints():
 
 
 if __name__ == "__main__":
-    print("Starting health check server...")
-    start_healthcheck_server("127.0.0.1", 8080)
+    print("Starting CMS server...")
+    start_cms_server("127.0.0.1", 8080)
     time.sleep(2)
 
     try:
         test_http_endpoints()
     finally:
         print("\n\nStopping server...")
-        stop_healthcheck_server()
+        stop_cms_server()
         print("Done!")

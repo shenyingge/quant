@@ -26,6 +26,8 @@ It uses:
 
 This keeps it auditable and easy to reason about on Windows hosts that already use Task Scheduler.
 
+On Windows, process inspection should prefer the in-process `psutil` path over spawning PowerShell CIM queries on every cycle. PowerShell-based enumeration is acceptable only as a fallback.
+
 ## Managed Target Types
 
 ### Service Targets
@@ -34,19 +36,19 @@ Long-running processes expected to remain alive across a time window.
 
 Current service targets:
 
-- `healthcheck_service`
+- `cms_service`
   - 24x7
-  - launch path: `scripts/start_healthcheck_service.ps1`
+  - launch path: `python main.py cms-server`
 
 - `trading_engine`
   - trading days only
   - default window: `08:35-21:05`
-  - launch path: `scripts/task_runner.ps1 -Mode trading-service`
+  - launch path: `python main.py run`
 
 - `strategy_engine`
   - trading days only
   - default window: `09:20-15:05`
-  - launch path: `scripts/task_runner.ps1 -Mode t0-daemon`
+  - launch path: `python main.py t0-daemon`
 
 ### Job Targets
 
@@ -56,11 +58,7 @@ Current job targets:
 
 - `t0_position_sync`
   - default schedule: `15:00`
-  - launch path: `scripts/task_runner.ps1 -Mode t0-sync-position`
-
-- `meta_db_sync`
-  - default schedule: `15:10`
-  - launch path: `scripts/task_runner.ps1 -Mode meta-db-sync`
+  - launch path: `python main.py t0-sync-position`
 
 ## State Model
 
@@ -108,17 +106,18 @@ The intended host model is:
 - long execution limit
 - auto restart on failure
 
-The helper scripts are:
+The operator helpers are:
 
-- `scripts/start_watchdog_service.ps1`
 - `scripts/start_watchdog_service.bat`
 - `scripts/register_watchdog_service_task.ps1`
 - `scripts/unregister_watchdog_service_task.ps1`
 
+Legacy per-service scheduled-task installers were intentionally removed once the repo switched to single-entry watchdog deployment.
+
 ## Safe Modification Rules
 
 - If you add a new managed process, define whether it is a `service` or a `job`
-- Keep launch commands routed through existing wrapper scripts when possible
+- Keep launch commands simple and direct; prefer `python main.py ...` over extra wrapper layers
 - Update the time-window and documentation together
 - Preserve cooldowns and one-shot state semantics
 - Do not make the watchdog responsible for business retries that belong inside the service itself

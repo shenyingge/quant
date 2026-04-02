@@ -1,16 +1,19 @@
 $ErrorActionPreference = "Stop"
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$repoRoot = Split-Path -Parent $scriptDir
 $taskName = "Quant_Watchdog_Service"
-$runnerPath = Join-Path $scriptDir "start_watchdog_service.ps1"
+$legacyCmsTaskNames = @("Quant_CMS_Service")
+$pythonExe = Join-Path $repoRoot ".venv\Scripts\python.exe"
 
-if (-not (Test-Path $runnerPath)) {
-    throw "Watchdog runner script not found: $runnerPath"
+if (-not (Test-Path $pythonExe)) {
+    $pythonExe = "python"
 }
 
 $action = New-ScheduledTaskAction `
-    -Execute "powershell.exe" `
-    -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$runnerPath`""
+    -Execute $pythonExe `
+    -Argument "main.py watchdog" `
+    -WorkingDirectory $repoRoot
 
 $trigger = New-ScheduledTaskTrigger -AtStartup
 
@@ -28,6 +31,15 @@ $principal = New-ScheduledTaskPrincipal `
     -LogonType ServiceAccount `
     -RunLevel Highest
 
+# Enforce single-entry deployment: the watchdog owns CMS server startup.
+foreach ($legacyTaskName in $legacyCmsTaskNames) {
+    $legacyTask = Get-ScheduledTask -TaskName $legacyTaskName -ErrorAction SilentlyContinue
+    if ($null -ne $legacyTask) {
+        Unregister-ScheduledTask -TaskName $legacyTaskName -Confirm:$false
+        Write-Host "Removed legacy scheduled task: $legacyTaskName"
+    }
+}
+
 Register-ScheduledTask `
     -TaskName $taskName `
     -Action $action `
@@ -37,3 +49,4 @@ Register-ScheduledTask `
     -Force | Out-Null
 
 Write-Host "Registered scheduled task: $taskName"
+Write-Host "Single-entry mode enabled: watchdog is now the only startup task."

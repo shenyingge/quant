@@ -141,7 +141,7 @@ class FeishuNotifier:
         detail: str = "",
         level: str = "info",
     ) -> bool:
-        """Send startup, shutdown, and runtime status notifications."""
+        """统一的运行时事件通知（服务启停、连接状态、健康检查等）"""
         title_map = {
             "info": f"🔔 {component}",
             "success": f"✅ {component}",
@@ -403,29 +403,14 @@ class FeishuNotifier:
         return self.send_message(message, title)
 
     def notify_error(self, error_message: str, context: str = "") -> bool:
-        """通知错误信息"""
-        message = f"系统错误:\n"
-        message += f"• 错误信息: {error_message}\n"
-        if context:
-            message += f"• 上下文: {context}"
-
-        if not self._should_send_failure_notification("system_error", error_message, context):
-            return True
-
-        return self.send_message(message, "❌ 系统错误")
+        """通知错误信息（已废弃，使用 notify_runtime_event）"""
+        detail = f"{context}: {error_message}" if context else error_message
+        return self.notify_runtime_event("系统", "错误", detail, "error")
 
     def notify_service_status(self, status: str, message: str = "") -> bool:
-        """通知服务状态"""
-        msg = f"{TRADING_ENGINE_NAME}状态: {status}"
-        if message:
-            msg += f"\n详情: {message}"
-
-        title = (
-            f"🔄 {TRADING_ENGINE_NAME}状态"
-            if status == "运行中"
-            else f"⚠️ {TRADING_ENGINE_NAME}状态"
-        )
-        return self.send_message(msg, title)
+        """通知服务状态（已废弃，使用 notify_runtime_event）"""
+        level = "success" if status == "已启动" else "info"
+        return self.notify_runtime_event(TRADING_ENGINE_NAME, status, message, level)
 
     def notify_daily_pnl_summary(self, pnl_data: Dict[str, Any]) -> bool:
         """发送当日盈亏汇总通知"""
@@ -521,46 +506,17 @@ class FeishuNotifier:
             return self.send_message(error_msg, "❌ 汇总错误")
 
     def notify_connection_lost(self, connection_name: str) -> bool:
-        """通知连接丢失"""
-        message = f"⚠️ **连接丢失警告**\n\n"
-        message += f"📡 连接：{connection_name}\n"
-        message += f"❌ 状态：连接已断开\n"
-        message += f"🔄 处理：正在尝试自动重连...\n"
-        message += f"\n💡 如果重连失败，请检查网络连接或手动重启服务"
-
-        return self.send_message(message, "⚠️ 连接断开")
+        """通知连接丢失（已废弃，使用 notify_runtime_event）"""
+        return self.notify_runtime_event(
+            connection_name, "连接断开", "正在尝试自动重连", "warning"
+        )
 
     def notify_connection_restored(self, connection_name: str) -> bool:
-        """通知连接已恢复"""
-        message = f"✅ **连接恢复通知**\n\n"
-        message += f"📡 连接：{connection_name}\n"
-        message += f"✅ 状态：连接已恢复\n"
-        message += f"🎯 服务：交易功能正常运行\n"
-        message += f"\n🎉 系统已恢复正常运行状态"
-
-        return self.send_message(message, "✅ 连接恢复")
+        """通知连接已恢复（已废弃，使用 notify_runtime_event）"""
+        return self.notify_runtime_event(connection_name, "连接恢复", "服务正常运行", "success")
 
     def notify_reconnect_failed(self, connection_name: str, attempts: int) -> bool:
-        """通知重连失败"""
-        message = f"❌ **重连失败告警**\n\n"
-        message += f"📡 连接：{connection_name}\n"
-        message += f"🔄 重试：已尝试 {attempts} 次\n"
-        message += f"❌ 状态：重连失败\n"
-        message += f"⚠️ 影响：交易功能可能受限\n"
-        message += f"\n🔧 请立即检查：\n"
-        message += f"• 网络连接状态\n"
-        message += f"• {connection_name} 服务状态\n"
-        message += f"• 防火墙或安全软件设置\n"
-        message += f"• 手动重启{TRADING_ENGINE_NAME}"
-
-        return self.send_message(message, "❌ 重连失败")
-
-    def notify_health_check_failed(self, connection_name: str) -> bool:
-        """通知健康检查失败"""
-        message = f"🔍 **健康检查异常**\n\n"
-        message += f"📡 连接：{connection_name}\n"
-        message += f"❌ 状态：健康检查失败\n"
-        message += f"🔄 处理：启动重连机制\n"
-        message += f"\n💡 系统正在尝试自动恢复连接"
-
-        return self.send_message(message, "🔍 健康检查失败")
+        """通知重连失败（已废弃，使用 notify_runtime_event）"""
+        return self.notify_runtime_event(
+            connection_name, "重连失败", f"已尝试 {attempts} 次，请检查网络和服务状态", "error"
+        )
