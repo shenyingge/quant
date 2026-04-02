@@ -42,6 +42,15 @@ class Settings(BaseSettings):
     redis_quote_latest_ttl_seconds: int = Field(
         default=0, env="REDIS_QUOTE_LATEST_TTL_SECONDS"
     )
+    redis_quote_enriched_stream_channel: str = Field(
+        default="quote_stream_enriched", env="REDIS_QUOTE_ENRICHED_STREAM_CHANNEL"
+    )
+    redis_quote_enriched_latest_prefix: str = Field(
+        default="quote_enriched_latest:", env="REDIS_QUOTE_ENRICHED_LATEST_PREFIX"
+    )
+    redis_quote_enriched_latest_ttl_seconds: int = Field(
+        default=0, env="REDIS_QUOTE_ENRICHED_LATEST_TTL_SECONDS"
+    )
 
     qmt_session_id: int = Field(default=123456, env="QMT_SESSION_ID")
     qmt_session_id_trading_service: Optional[int] = Field(
@@ -91,6 +100,9 @@ class Settings(BaseSettings):
     cms_server_timeout_seconds: int = Field(default=2, env="CMS_SERVER_TIMEOUT_SECONDS")
     cms_server_refresh_interval_seconds: int = Field(
         default=15, env="CMS_SERVER_REFRESH_INTERVAL_SECONDS"
+    )
+    cms_quote_position_cache_seconds: int = Field(
+        default=2, env="CMS_QUOTE_POSITION_CACHE_SECONDS"
     )
     watchdog_enabled: bool = Field(default=True, env="WATCHDOG_ENABLED")
     watchdog_check_interval_seconds: int = Field(

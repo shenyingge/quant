@@ -30,6 +30,7 @@ Start by reading [references/architecture.md](references/architecture.md) for th
 - Prefer incremental edits around `TradingService` because it coordinates backup scheduling, daily PnL summary, calendar setup, order monitoring, and connection recovery.
 - When changing order-state logic, check both `src/qmt_constants.py` and `_monitor_orders()` so notification behavior stays aligned with QMT status codes.
 - When changing persistence, inspect `src/database.py` first; the service relies on `trading_signals`, `order_records`, `trading_calendar`, and `stock_info`.
+- Treat QMT trade callbacks as a persistence source, not just a notification source. If a fill callback arrives without a matching `order_records` row, persist a standalone Meta DB record instead of dropping the trade on the floor.
 - When changing startup or operator workflows, inspect `scripts/` and `main.py` together.
 - For quote-stream changes, trace the full path `cms_server WebSocket` -> `Redis quote subscription keys/channels` -> `quote_stream_service` -> `xtdata.subscribe_quote()`.
 - When changing the `/health` endpoint or its scheduled-task wrapper, inspect `src/cms_server.py`, `main.py`, and `scripts/start_cms_service.*` together.

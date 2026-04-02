@@ -116,6 +116,7 @@ class QMTCallback(XtQuantTraderCallback):
             logger.error(f"委托回报处理异常: {e}")
 
     def on_stock_trade(self, trade):
+        return self._on_stock_trade_impl(trade)
         """
         成交变动推送
         :param trade: XtTrade对象
@@ -241,6 +242,296 @@ class QMTCallback(XtQuantTraderCallback):
 
         except Exception as e:
             logger.error(f"成交推送处理异常: {e}")
+
+    def _on_stock_trade_impl(self, trade):
+        try:
+            account_id = getattr(trade, "account_id", "")
+            stock_code = getattr(trade, "stock_code", "")
+            order_id = getattr(trade, "order_id", "")
+            traded_volume = getattr(trade, "traded_volume", getattr(trade, "filled_qty", 0))
+            traded_price = getattr(trade, "traded_price", getattr(trade, "filled_price", 0))
+            trade_id = getattr(trade, "trade_id", f"trade_{int(time.time())}")
+            trade_amount = traded_volume * traded_price
+
+            callback_key = f"stock_trade_{order_id}_{trade_id}_{traded_volume}_{traded_price}"
+            if callback_key in self.trader._last_callback_data:
+                logger.debug(f"Skipping duplicate trade callback: {callback_key}")
+                return
+
+            self.trader._last_callback_data[callback_key] = True
+
+            stock_display = get_stock_display_name(stock_code) if stock_code else stock_code
+            logger.info(
+                f"Trade callback: account={account_id}, stock={stock_display}, order={order_id}, volume={traded_volume}, price={traded_price}, amount={trade_amount:.2f}"
+            )
+
+            notification_payload = {
+                "order_id": order_id,
+                "stock_code": stock_code,
+                "filled_qty": traded_volume,
+                "avg_price": traded_price,
+                "trade_amount": trade_amount,
+            }
+
+            try:
+                db = SessionLocal()
+                try:
+                    order_record = self._load_order_record_for_trade(
+                        db, order_id, stock_code, traded_volume
+                    )
+
+                    if order_record is not None:
+                        self._apply_trade_fill_to_order_record(
+                            order_record,
+                            traded_volume=traded_volume,
+                            traded_price=traded_price,
+                            filled_time=self._extract_trade_timestamp(trade),
+                        )
+                    else:
+                        order_record = self._create_order_record_from_trade(
+                            trade=trade,
+                            stock_code=stock_code,
+                            raw_order_id=order_id,
+                            trade_id=trade_id,
+                            traded_volume=traded_volume,
+                            traded_price=traded_price,
+                        )
+                        db.add(order_record)
+                        logger.warning(
+                            f"Created standalone order record from trade callback: order_id={order_record.order_id}, stock_code={stock_code}, trade_id={trade_id}"
+                        )
+
+                    should_notify = not getattr(order_record, "fill_notified", False)
+                    notification_payload["order_id"] = order_record.order_id
+                    db.commit()
+
+                    if should_notify and hasattr(self.trader, "notifier") and self.trader.notifier:
+                        self.trader.notifier.notify_order_filled(notification_payload)
+                        order_record.fill_notified = True
+                        db.commit()
+                    elif not should_notify:
+                        logger.debug(
+                            f"Skipping duplicate fill notification for order {order_record.order_id}"
+                        )
+                except Exception:
+                    db.rollback()
+                    raise
+                finally:
+                    db.close()
+
+            except Exception as exc:
+                logger.error(f"Failed to persist trade callback into Meta DB: {exc}")
+                if hasattr(self.trader, "notifier") and self.trader.notifier:
+                    self.trader.notifier.notify_order_filled(notification_payload)
+
+            try:
+                sync_account_positions_from_qmt(self.trader, source="trade_callback")
+            except Exception as sync_error:
+                logger.error(f"Trade callback position sync failed: {sync_error}")
+
+            with self.trader.stats_lock:
+                self.trader.stats["total_trade_amount"] = (
+                    self.trader.stats.get("total_trade_amount", 0) + trade_amount
+                )
+                self.trader.stats["total_trade_volume"] = (
+                    self.trader.stats.get("total_trade_volume", 0) + traded_volume
+                )
+        except Exception as exc:
+            logger.error(f"Trade callback processing failed: {exc}")
+
+    def _load_order_record_for_trade(
+        self, db: Session, raw_order_id: Any, stock_code: str, traded_volume: int
+    ) -> Optional[OrderRecord]:
+        normalized_order_id = self._normalize_order_id(raw_order_id)
+        if normalized_order_id:
+            order_record = (
+                db.query(OrderRecord).filter(OrderRecord.order_id == normalized_order_id).first()
+            )
+            if order_record is not None:
+                return order_record
+
+        if not stock_code:
+            return None
+
+        candidate_query = db.query(OrderRecord).filter(
+            OrderRecord.stock_code == stock_code,
+            OrderRecord.filled_time.is_(None),
+            OrderRecord.created_at >= datetime.utcnow() - timedelta(minutes=30),
+        )
+        if traded_volume:
+            candidate_query = candidate_query.filter(OrderRecord.volume >= int(traded_volume))
+
+        candidates = candidate_query.order_by(OrderRecord.created_at.desc()).limit(2).all()
+        if len(candidates) == 1:
+            logger.info(
+                f"Matched trade callback to recent order record {candidates[0].order_id} for {stock_code}"
+            )
+            return candidates[0]
+        if len(candidates) > 1:
+            logger.warning(
+                f"Trade callback fallback matched multiple recent order records for {stock_code}; raw_order_id={raw_order_id}"
+            )
+        return None
+
+    def _apply_trade_fill_to_order_record(
+        self,
+        order_record: OrderRecord,
+        *,
+        traded_volume: int,
+        traded_price: float,
+        filled_time: datetime,
+    ) -> None:
+        order_record.filled_volume = int(traded_volume or 0)
+        order_record.filled_price = float(traded_price or 0.0)
+        order_record.filled_time = filled_time
+        if order_record.price in (None, 0):
+            order_record.price = float(traded_price or 0.0)
+        if order_record.volume in (None, 0):
+            order_record.volume = int(traded_volume or 0)
+        if not order_record.order_status or order_record.order_status == "PENDING":
+            order_record.order_status = "FILLED"
+
+    def _create_order_record_from_trade(
+        self,
+        *,
+        trade: Any,
+        stock_code: str,
+        raw_order_id: Any,
+        trade_id: Any,
+        traded_volume: int,
+        traded_price: float,
+    ) -> OrderRecord:
+        filled_time = self._extract_trade_timestamp(trade)
+        signal_id = self._infer_signal_id_from_active_orders(raw_order_id, stock_code)
+        direction = self._infer_trade_direction(trade, stock_code=stock_code)
+        order_id = self._build_trade_order_id(raw_order_id, trade_id)
+        return OrderRecord(
+            signal_id=signal_id,
+            order_id=order_id,
+            stock_code=stock_code,
+            direction=direction,
+            volume=int(traded_volume or 0),
+            price=float(traded_price or 0.0),
+            order_status="FILLED",
+            order_time=filled_time,
+            filled_price=float(traded_price or 0.0),
+            filled_volume=int(traded_volume or 0),
+            filled_time=filled_time,
+            fill_notified=False,
+            error_message="Created from QMT trade callback without a matching order record",
+        )
+
+    def _build_trade_order_id(self, raw_order_id: Any, trade_id: Any) -> str:
+        normalized_order_id = self._normalize_order_id(raw_order_id)
+        if normalized_order_id:
+            return normalized_order_id[:50]
+
+        trade_part = str(trade_id or f"trade_{int(time.time())}").strip()
+        if not trade_part:
+            trade_part = f"trade_{int(time.time())}"
+        return f"MANUAL_{trade_part}"[:50]
+
+    def _normalize_order_id(self, raw_order_id: Any) -> Optional[str]:
+        order_id = str(raw_order_id or "").strip()
+        if not order_id or order_id == "0":
+            return None
+        return order_id
+
+    def _extract_trade_timestamp(self, trade: Any) -> datetime:
+        for attr in ("traded_time", "trade_time", "filled_time", "order_time"):
+            parsed_time = self._parse_trade_timestamp(getattr(trade, attr, None))
+            if parsed_time is not None:
+                return parsed_time
+        return datetime.utcnow()
+
+    def _parse_trade_timestamp(self, value: Any) -> Optional[datetime]:
+        if isinstance(value, datetime):
+            return value
+        if value in (None, ""):
+            return None
+
+        text_value = str(value).strip()
+        if text_value.isdigit() and len(text_value) == 14:
+            try:
+                return datetime.strptime(text_value, "%Y%m%d%H%M%S")
+            except ValueError:
+                return None
+
+        try:
+            return datetime.fromisoformat(text_value)
+        except ValueError:
+            return None
+
+    def _infer_signal_id_from_active_orders(
+        self, raw_order_id: Any, stock_code: str
+    ) -> Optional[str]:
+        active_orders = getattr(self.trader, "active_orders", None)
+        order_lock = getattr(self.trader, "order_lock", None)
+        if not active_orders or order_lock is None:
+            return None
+
+        normalized_order_id = self._normalize_order_id(raw_order_id)
+        with order_lock:
+            if normalized_order_id and normalized_order_id in active_orders:
+                signal_data = active_orders[normalized_order_id].get("signal_data", {})
+                return signal_data.get("signal_id")
+
+            stock_matches = []
+            for order_info in active_orders.values():
+                signal_data = order_info.get("signal_data", {})
+                if signal_data.get("stock_code") == stock_code:
+                    stock_matches.append(signal_data)
+
+        if len(stock_matches) == 1:
+            return stock_matches[0].get("signal_id")
+        return None
+
+    def _infer_trade_direction(self, trade: Any, *, stock_code: str) -> str:
+        for attr in (
+            "order_type",
+            "direction",
+            "side",
+            "operation",
+            "trade_direction",
+            "buy_sell",
+            "bs_flag",
+            "entrust_bs",
+        ):
+            mapped_direction = self._map_trade_direction(getattr(trade, attr, None))
+            if mapped_direction:
+                return mapped_direction
+
+        active_orders = getattr(self.trader, "active_orders", None)
+        order_lock = getattr(self.trader, "order_lock", None)
+        if active_orders and order_lock is not None:
+            with order_lock:
+                stock_matches = []
+                for order_info in active_orders.values():
+                    signal_data = order_info.get("signal_data", {})
+                    if signal_data.get("stock_code") == stock_code:
+                        stock_matches.append(signal_data.get("direction"))
+            if len(stock_matches) == 1:
+                mapped_direction = self._map_trade_direction(stock_matches[0])
+                if mapped_direction:
+                    return mapped_direction
+
+        return "UNKNOWN"
+
+    def _map_trade_direction(self, value: Any) -> Optional[str]:
+        if value in (None, ""):
+            return None
+        if isinstance(value, int):
+            if value == xtconstant.STOCK_BUY:
+                return "BUY"
+            if value == xtconstant.STOCK_SELL:
+                return "SELL"
+
+        text_value = str(value).strip().upper()
+        if text_value in {"BUY", "B", str(xtconstant.STOCK_BUY)}:
+            return "BUY"
+        if text_value in {"SELL", "S", str(xtconstant.STOCK_SELL)}:
+            return "SELL"
+        return None
 
     def on_order_error(self, order_error):
         """

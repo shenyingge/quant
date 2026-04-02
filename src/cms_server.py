@@ -42,7 +42,7 @@ _TAILSCALE_HOST_SENTINEL = "tailscale"
 
 
 class WebSocketManager:
-    def __init__(self):
+    def __init__(self, account_data_service: Optional[AccountDataService] = None):
         self.clients: Dict[str, Set[Any]] = {}
         self.redis_client = redis.Redis(
             host=settings.redis_host,
@@ -50,8 +50,13 @@ class WebSocketManager:
             password=settings.redis_password,
             decode_responses=True,
         )
+        self.account_data_service = account_data_service or AccountDataService()
         self.running = False
         self.thread = None
+        self._positions_cache_lock = threading.Lock()
+        self._positions_cache_by_stock: Dict[str, Dict[str, Any]] = {}
+        self._positions_cache_as_of: Optional[str] = None
+        self._positions_cache_expire_at = 0.0
 
     def start(self):
         if self.thread and self.thread.is_alive():
@@ -123,7 +128,23 @@ class WebSocketManager:
 
     def _get_latest_quote_payload(self, stock_code: str) -> Optional[str]:
         try:
-            return self.redis_client.get(f"{settings.redis_quote_latest_prefix}{stock_code}")
+            payload = self.redis_client.get(
+                f"{settings.redis_quote_enriched_latest_prefix}{stock_code}"
+            )
+            if payload:
+                return payload
+
+            raw_payload = self.redis_client.get(f"{settings.redis_quote_latest_prefix}{stock_code}")
+            if not raw_payload:
+                return None
+
+            enriched_payload = self._enrich_quote_payload(json.loads(raw_payload))
+            if enriched_payload is None:
+                return raw_payload
+
+            payload_json = json.dumps(enriched_payload, ensure_ascii=False)
+            self._store_enriched_quote_payload(stock_code, payload_json)
+            return payload_json
         except Exception as exc:
             logger.warning("Failed to load latest quote payload for {}: {}", stock_code, exc)
             return None
@@ -136,12 +157,17 @@ class WebSocketManager:
                 message = pubsub.get_message(timeout=1)
                 if message and message["type"] == "message":
                     quote_data = json.loads(message["data"])
-                    stock_code = normalize_stock_code(quote_data.get("stock_code"))
+                    enriched_payload = self._enrich_quote_payload(quote_data)
+                    if enriched_payload is None:
+                        continue
+                    stock_code = normalize_stock_code(enriched_payload.get("stock_code"))
+                    payload_json = json.dumps(enriched_payload, ensure_ascii=False)
+                    self._store_enriched_quote_payload(stock_code, payload_json)
                     if stock_code in self.clients:
                         disconnected = set()
                         for client in list(self.clients[stock_code]):
                             try:
-                                client.send_message(json.dumps(quote_data))
+                                client.send_message(payload_json)
                             except:
                                 disconnected.add(client)
                         for client in disconnected:
@@ -149,6 +175,140 @@ class WebSocketManager:
             except Exception as e:
                 logger.error(f"Broadcast error: {e}")
                 time_module.sleep(1)
+
+    def _store_enriched_quote_payload(self, stock_code: str, payload_json: str) -> None:
+        if not stock_code:
+            return
+
+        self.redis_client.publish(settings.redis_quote_enriched_stream_channel, payload_json)
+        latest_key = f"{settings.redis_quote_enriched_latest_prefix}{stock_code}"
+        latest_ttl = int(settings.redis_quote_enriched_latest_ttl_seconds)
+        if latest_ttl > 0:
+            self.redis_client.setex(latest_key, latest_ttl, payload_json)
+        else:
+            self.redis_client.set(latest_key, payload_json)
+
+    def _enrich_quote_payload(self, quote_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        stock_code = normalize_stock_code(quote_data.get("stock_code"))
+        if not stock_code:
+            return None
+
+        last_price = self._to_optional_float(
+            quote_data.get("last_price")
+            or quote_data.get("price")
+            or self._extract_from_quote(quote_data.get("quote"), "lastPrice", "last_price", "price", "last")
+        )
+        quote_volume = self._to_optional_float(
+            quote_data.get("volume")
+            or self._extract_from_quote(quote_data.get("quote"), "volume", "vol")
+        )
+        position = self._get_position_for_stock(stock_code)
+
+        position_payload = None
+        pnl_payload = None
+        timestamps = {
+            "quote_time": quote_data.get("quote_time"),
+            "published_at": quote_data.get("published_at"),
+            "cms_enriched_at": _timestamp_now(),
+        }
+
+        if position is not None:
+            volume = int(position.get("volume") or 0)
+            avg_price = self._to_optional_float(position.get("avg_price"))
+            market_value = (
+                round(last_price * volume, 4)
+                if last_price is not None
+                else self._to_optional_float(position.get("market_value"))
+            )
+            cost_basis = (
+                round(avg_price * volume, 4)
+                if avg_price is not None
+                else None
+            )
+            unrealized_pnl = (
+                round(market_value - cost_basis, 4)
+                if market_value is not None and cost_basis is not None
+                else None
+            )
+            unrealized_pnl_pct = (
+                round(unrealized_pnl / cost_basis * 100, 4)
+                if unrealized_pnl is not None and cost_basis not in {None, 0}
+                else None
+            )
+
+            position_payload = {
+                "account_id": position.get("account_id"),
+                "volume": volume,
+                "available_volume": int(position.get("available_volume") or 0),
+                "avg_price": avg_price,
+                "snapshot_source": position.get("snapshot_source"),
+                "source": position.get("source"),
+                "position_method": position.get("position_method"),
+            }
+            pnl_payload = {
+                "cost_basis": cost_basis,
+                "market_value": market_value,
+                "unrealized_pnl": unrealized_pnl,
+                "unrealized_pnl_pct": unrealized_pnl_pct,
+            }
+            timestamps["position_snapshot_time"] = position.get("snapshot_time")
+            timestamps["positions_as_of"] = self._positions_cache_as_of
+
+        return {
+            "stock_code": stock_code,
+            "source": "cms_quote_enriched",
+            "quote_source": quote_data.get("source"),
+            "period": quote_data.get("period"),
+            "last_price": last_price,
+            "quote_volume": quote_volume,
+            "has_position": position_payload is not None,
+            "quote": quote_data.get("quote"),
+            "position": position_payload,
+            "pnl": pnl_payload,
+            "timestamps": timestamps,
+        }
+
+    def _get_position_for_stock(self, stock_code: str) -> Optional[Dict[str, Any]]:
+        now = time_module.monotonic()
+        cache_seconds = max(int(settings.cms_quote_position_cache_seconds), 1)
+
+        with self._positions_cache_lock:
+            if now >= self._positions_cache_expire_at:
+                try:
+                    snapshot = self.account_data_service.get_positions_snapshot()
+                    positions = snapshot.get("positions") or []
+                    self._positions_cache_by_stock = {
+                        normalize_stock_code(item.get("stock_code")): item
+                        for item in positions
+                        if normalize_stock_code(item.get("stock_code"))
+                    }
+                    self._positions_cache_as_of = snapshot.get("as_of")
+                except Exception as exc:
+                    logger.warning("Failed to refresh position cache for quote enrichment: {}", exc)
+                    self._positions_cache_by_stock = {}
+                    self._positions_cache_as_of = None
+                self._positions_cache_expire_at = now + cache_seconds
+
+            return self._positions_cache_by_stock.get(stock_code)
+
+    @staticmethod
+    def _extract_from_quote(quote: Any, *keys: str) -> Any:
+        if not isinstance(quote, dict):
+            return None
+        for key in keys:
+            value = quote.get(key)
+            if value is not None:
+                return value
+        return None
+
+    @staticmethod
+    def _to_optional_float(value: Any) -> Optional[float]:
+        if value is None:
+            return None
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
 
 
 class WebSocketClient:

@@ -30,6 +30,7 @@
 5. A Feishu "signal received" notification is sent.
 6. The order is submitted asynchronously through `QMTTrader.place_order_async()`.
 7. Callback code writes `order_records`, updates signal state, and sends success or error notifications.
+   Trade callbacks must also persist standalone Meta DB records for fills that arrive without a pre-existing `order_records` row, such as manual QMT orders or callbacks whose raw order id is unusable.
 8. `_monitor_orders()` polls pending orders every 30 seconds and fills in final status, fill quantity, price, and timeout-cancel metadata.
 
 ## Persistence Model
@@ -47,6 +48,7 @@
 - Quote streaming is separate from order ingestion: the CMS server writes desired symbols into Redis, and the trading engine owns the live QMT quote subscription lifecycle.
 - Latest quote snapshots are intentionally kept in Redis on shutdown; freshness comes from timestamps in the payload, not from deleting Redis keys.
 - Order monitoring relies on QMT status semantics from `src/qmt_constants.py`; do not replace them with ad hoc string comparisons.
+- Feishu fill notifications are not a substitute for persistence. If the engine receives a fill callback, Meta DB should be updated even when the order was entered manually outside the service.
 
 ## High-Risk Files
 

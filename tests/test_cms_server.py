@@ -261,7 +261,7 @@ def test_websocket_manager_syncs_quote_subscription_and_pushes_cached_quote(monk
         def __init__(self):
             self.sets = {}
             self.values = {
-                f"{cms_server.settings.redis_quote_latest_prefix}000001.SZ": json.dumps(
+                f"{cms_server.settings.redis_quote_enriched_latest_prefix}000001.SZ": json.dumps(
                     {"stock_code": "000001.SZ", "last_price": 12.34}
                 )
             }
@@ -322,6 +322,95 @@ def test_websocket_manager_syncs_quote_subscription_and_pushes_cached_quote(monk
         cms_server.settings.redis_quote_control_channel,
         {"action": "unsubscribe", "stock_code": "000001.SZ"},
     )
+
+
+def test_websocket_manager_enriches_quote_with_position_pnl(monkeypatch):
+    class FakeRedis:
+        def __init__(self):
+            self.sets = {}
+            self.values = {}
+            self.published = []
+
+        def sadd(self, key, value):
+            self.sets.setdefault(key, set()).add(value)
+
+        def srem(self, key, value):
+            self.sets.setdefault(key, set()).discard(value)
+
+        def publish(self, channel, payload):
+            self.published.append((channel, json.loads(payload)))
+
+        def get(self, key):
+            return self.values.get(key)
+
+        def set(self, key, value):
+            self.values[key] = value
+
+        def setex(self, key, _ttl, value):
+            self.values[key] = value
+
+        def pubsub(self):
+            class _PubSub:
+                def subscribe(self, *_args, **_kwargs):
+                    return None
+
+                def get_message(self, *_args, **_kwargs):
+                    return None
+
+            return _PubSub()
+
+    class FakeAccountDataService:
+        def get_positions_snapshot(self):
+            return {
+                "source": "meta_db",
+                "available": True,
+                "is_live": False,
+                "fallback_used": False,
+                "as_of": "2026-04-02T13:30:00+08:00",
+                "positions": [
+                    {
+                        "stock_code": "000001.SZ",
+                        "volume": 1000,
+                        "available_volume": 900,
+                        "avg_price": 10.0,
+                        "market_value": 10000.0,
+                        "account_id": "demo",
+                        "source": "meta_db",
+                        "position_method": "broker_snapshot",
+                        "snapshot_source": "startup_connect",
+                        "snapshot_time": "2026-04-02T13:29:59+08:00",
+                    }
+                ],
+            }
+
+    fake_redis = FakeRedis()
+    monkeypatch.setattr(cms_server.redis, "Redis", lambda **_kwargs: fake_redis)
+    monkeypatch.setattr(cms_server.settings, "cms_quote_position_cache_seconds", 60)
+    monkeypatch.setattr(cms_server.settings, "redis_quote_enriched_latest_ttl_seconds", 0)
+
+    manager = cms_server.WebSocketManager(account_data_service=FakeAccountDataService())
+    enriched = manager._enrich_quote_payload(
+        {
+            "stock_code": "000001.SZ",
+            "source": "qmt",
+            "period": "tick",
+            "last_price": 12.34,
+            "volume": 500,
+            "quote_time": "2026-04-02T13:30:01+08:00",
+            "published_at": "2026-04-02T13:30:01+08:00",
+            "quote": {"lastPrice": 12.34, "volume": 500},
+        }
+    )
+
+    assert enriched["stock_code"] == "000001.SZ"
+    assert enriched["position"]["volume"] == 1000
+    assert enriched["position"]["avg_price"] == 10.0
+    assert enriched["pnl"]["cost_basis"] == 10000.0
+    assert enriched["pnl"]["market_value"] == 12340.0
+    assert enriched["pnl"]["unrealized_pnl"] == 2340.0
+    assert enriched["pnl"]["unrealized_pnl_pct"] == 23.4
+    assert enriched["timestamps"]["position_snapshot_time"] == "2026-04-02T13:29:59+08:00"
+    assert enriched["timestamps"]["positions_as_of"] == "2026-04-02T13:30:00+08:00"
 
 
 def test_websocket_manager_stop_keeps_redis_quote_subscriptions(monkeypatch):
