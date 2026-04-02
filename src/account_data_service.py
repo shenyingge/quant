@@ -226,18 +226,130 @@ class AccountDataService:
                     "stock_code": trade.stock_code,
                     "buy_amount": 0.0,
                     "sell_amount": 0.0,
+                    "buy_volume": 0,
+                    "sell_volume": 0,
+                    "net_volume": 0,
                     "pnl": 0.0,
+                    "realized_pnl_estimate": 0.0,
                     "source": "meta_db",
                 },
             )
-            amount = float((trade.filled_volume or 0) * (trade.filled_price or 0))
+            filled_volume = int(trade.filled_volume or 0)
+            amount = float(filled_volume * (trade.filled_price or 0))
             if str(trade.direction).upper() == "BUY":
                 bucket["buy_amount"] += amount
+                bucket["buy_volume"] += filled_volume
             else:
                 bucket["sell_amount"] += amount
+                bucket["sell_volume"] += filled_volume
                 bucket["pnl"] = bucket["sell_amount"] - bucket["buy_amount"]
+                bucket["realized_pnl_estimate"] = bucket["pnl"]
+            bucket["net_volume"] = bucket["buy_volume"] - bucket["sell_volume"]
 
-        return list(pnl_by_stock.values())
+        return sorted(pnl_by_stock.values(), key=lambda item: item["stock_code"])
+
+    def get_unrealized_pnl_snapshot(self) -> Dict[str, Any]:
+        positions_snapshot = self.get_positions_snapshot()
+        positions = positions_snapshot.get("positions") or []
+
+        breakdown: List[Dict[str, Any]] = []
+        total_cost_basis = 0.0
+        total_market_value = 0.0
+        has_complete_totals = False
+
+        for position in positions:
+            volume = int(position.get("volume") or 0)
+            avg_price = float(position.get("avg_price") or 0.0)
+            last_price = self._to_optional_float(position.get("last_price"))
+            market_value = self._to_optional_float(position.get("market_value"))
+            if market_value is None and last_price is not None:
+                market_value = round(last_price * volume, 4)
+
+            cost_basis = round(avg_price * volume, 4)
+            unrealized_pnl = (
+                round(market_value - cost_basis, 4)
+                if market_value is not None
+                else None
+            )
+            unrealized_pnl_pct = (
+                round(unrealized_pnl / cost_basis * 100, 4)
+                if unrealized_pnl is not None and cost_basis not in (0, None)
+                else None
+            )
+
+            if market_value is not None:
+                total_cost_basis += cost_basis
+                total_market_value += market_value
+                has_complete_totals = True
+
+            breakdown.append(
+                {
+                    "stock_code": position.get("stock_code"),
+                    "volume": volume,
+                    "available_volume": int(position.get("available_volume") or 0),
+                    "avg_price": avg_price,
+                    "last_price": last_price,
+                    "cost_basis": cost_basis,
+                    "market_value": market_value,
+                    "unrealized_pnl": unrealized_pnl,
+                    "unrealized_pnl_pct": unrealized_pnl_pct,
+                    "snapshot_source": position.get("snapshot_source"),
+                    "snapshot_time": position.get("snapshot_time"),
+                    "source": "meta_db",
+                }
+            )
+
+        total_unrealized_pnl = (
+            round(total_market_value - total_cost_basis, 4) if has_complete_totals else None
+        )
+        total_unrealized_pnl_pct = (
+            round(total_unrealized_pnl / total_cost_basis * 100, 4)
+            if total_unrealized_pnl is not None and total_cost_basis not in (0, None)
+            else None
+        )
+
+        return {
+            "method": "position_snapshot_mark_to_market",
+            "as_of": positions_snapshot.get("as_of"),
+            "available": positions_snapshot.get("available", False),
+            "summary": {
+                "stocks": len(breakdown),
+                "cost_basis": round(total_cost_basis, 4) if has_complete_totals else None,
+                "market_value": round(total_market_value, 4) if has_complete_totals else None,
+                "unrealized_pnl": total_unrealized_pnl,
+                "unrealized_pnl_pct": total_unrealized_pnl_pct,
+            },
+            "breakdown": breakdown,
+            "source": "meta_db",
+        }
+
+    def get_pnl_snapshot(self) -> Dict[str, Any]:
+        realized_breakdown = self.get_strategy_pnl_breakdown()
+        realized_buy_amount = round(
+            sum(float(item.get("buy_amount") or 0.0) for item in realized_breakdown), 4
+        )
+        realized_sell_amount = round(
+            sum(float(item.get("sell_amount") or 0.0) for item in realized_breakdown), 4
+        )
+        realized_pnl_estimate = round(
+            sum(float(item.get("realized_pnl_estimate") or 0.0) for item in realized_breakdown), 4
+        )
+
+        return {
+            "source": "meta_db",
+            "kind": "realized_and_unrealized_pnl",
+            "realized": {
+                "method": "execution_ledger_estimate",
+                "summary": {
+                    "stocks": len(realized_breakdown),
+                    "buy_amount": realized_buy_amount,
+                    "sell_amount": realized_sell_amount,
+                    "realized_pnl_estimate": realized_pnl_estimate,
+                },
+                "breakdown": realized_breakdown,
+            },
+            "unrealized": self.get_unrealized_pnl_snapshot(),
+        }
 
     def get_strategy_pnl_summary(self, target_date: Optional[date] = None) -> Dict[str, Any]:
         summary = calculate_daily_summary(target_date)
@@ -270,6 +382,14 @@ class AccountDataService:
             yield session
         finally:
             session.close()
+
+    def _to_optional_float(self, value: Any) -> Optional[float]:
+        if value is None:
+            return None
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
 
 def parse_pagination(query_params: Dict[str, List[str]]) -> Tuple[int, int, int]:
     page = int(query_params.get("page", ["1"])[0])

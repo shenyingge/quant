@@ -41,6 +41,7 @@
 - Runtime persistence uses Meta DB directly.
 - Daily export output goes to `data/daily_export/`.
 - Runtime T+0 snapshots are written under `output/` and should be treated as generated local state.
+- If a manual QMT order filled while the engine was on an older build or missed persistence, you can safely backfill `order_records` by querying QMT orders/trades in a read-only session and inserting the corresponding Meta DB row afterward.
 
 ## Scheduled Operation
 
@@ -63,6 +64,7 @@
 - Wrong `QMT_SESSION_ID`, `QMT_PATH`, or account id.
 - Redis unavailable or wrong message-mode config.
 - Redis quote keys are part of the live quote pipeline; do not clear them during normal stop/restart troubleshooting unless you intentionally want to reset frontend subscription demand.
+- Keep PnL terminology straight during debugging: `realized` should follow `order_records`, while `unrealized` should follow `account_positions`. If one side looks wrong, inspect the underlying table before changing formulas.
 - Running on a non-trading day with trading-day checks still enabled.
 - Windows terminal encoding issues; `main.py` explicitly reconfigures UTF-8 behavior on Windows.
 - Proxy settings on Windows may interfere with `urllib`-style localhost checks; use direct socket or browser/curl validation when testing `127.0.0.1:8780`.

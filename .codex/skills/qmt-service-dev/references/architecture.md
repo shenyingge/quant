@@ -39,6 +39,7 @@
 - `OrderRecord`: order id, stock code, direction, requested volume/price, fill stats, final status, error message.
 - `TradingCalendar`: cached trading-day lookup table used by trading-day checks.
 - `StockInfo`: stock name/cache table used in notifications and summaries.
+- `AccountPosition`: broker-synced position snapshot in Meta DB. CMS-side unrealized PnL is derived from this table, not from `order_records`.
 
 ## Important Behavior
 
@@ -49,6 +50,7 @@
 - Latest quote snapshots are intentionally kept in Redis on shutdown; freshness comes from timestamps in the payload, not from deleting Redis keys.
 - Order monitoring relies on QMT status semantics from `src/qmt_constants.py`; do not replace them with ad hoc string comparisons.
 - Feishu fill notifications are not a substitute for persistence. If the engine receives a fill callback, Meta DB should be updated even when the order was entered manually outside the service.
+- `/api/pnl` is now split by accounting purpose: `realized` comes from the Meta DB execution ledger (`order_records`), while `unrealized` comes from the Meta DB broker position snapshot (`account_positions`).
 
 ## High-Risk Files
 

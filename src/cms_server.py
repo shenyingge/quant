@@ -1065,7 +1065,7 @@ class _CmsRequestHandler(BaseHTTPRequestHandler):
 
     def _handle_pnl(self) -> None:
         try:
-            result = self.account_data_service.get_strategy_pnl_breakdown()
+            result = self.account_data_service.get_pnl_snapshot()
             self._send_json_response(json.dumps(result, ensure_ascii=False, indent=2).encode("utf-8"))
         except Exception as e:
             self._send_error_response(f"Failed to calculate PnL: {e}")
