@@ -14,7 +14,8 @@
 - Export daily holdings and trades: `uv run python main.py export-daily`
 - Run T+0 once: `uv run python main.py t0-strategy`
 - Run T+0 daemon: `uv run python main.py t0-daemon`
-- Sync T+0 position: `uv run python main.py t0-sync-position`
+- Sync T+0 position manually: `uv run python main.py t0-sync-position`
+- Run T+0 end-of-day reconciliation: `uv run python main.py t0-reconcile`
 - Run file-driven T+0 backtest: `uv run python main.py t0-backtest --minute-data minute.csv --daily-data daily.csv`
 - Print a one-shot CMS snapshot: `uv run python main.py cms-check`
 - Run the standalone CMS HTTP service: `uv run python main.py cms-server`

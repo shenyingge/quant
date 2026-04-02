@@ -27,9 +27,9 @@ Current default target inventory:
   - command: `python main.py t0-daemon`
   - expected window: `09:20-15:05` on trading days
   - only managed when `T0_STRATEGY_ENABLED=true`
-- `T0 position sync`
-  - command: `python main.py t0-sync-position`
-  - schedule: `15:00` once per trading day
+- `T0 end-of-day reconciliation`
+  - command: `python main.py t0-reconcile`
+  - schedule: `15:10` once per trading day
   - only managed when `T0_STRATEGY_ENABLED=true`
 
 External prerequisite that is monitored indirectly by downstream startup logic:
@@ -70,12 +70,12 @@ WATCHDOG_STATE_PATH=./output/watchdog_state.json
 WATCHDOG_ENFORCE_STOP_OUTSIDE_WINDOW=true
 WATCHDOG_ENABLE_TRADING_SERVICE=true
 WATCHDOG_ENABLE_T0_DAEMON=true
-WATCHDOG_ENABLE_T0_SYNC=true
+WATCHDOG_ENABLE_T0_RECONCILE=true
 WATCHDOG_TRADING_START_TIME=08:35
 WATCHDOG_TRADING_STOP_TIME=21:05
 WATCHDOG_T0_START_TIME=09:20
 WATCHDOG_T0_STOP_TIME=15:05
-WATCHDOG_T0_SYNC_TIME=15:00
+WATCHDOG_T0_RECONCILE_TIME=15:10
 ```
 
 `WATCHDOG_STATE_PATH` is used to remember which once-per-day jobs were already triggered.

@@ -121,14 +121,18 @@ class Settings(BaseSettings):
         default=True, env="WATCHDOG_ENABLE_TRADING_SERVICE"
     )
     watchdog_enable_t0_daemon: bool = Field(default=True, env="WATCHDOG_ENABLE_T0_DAEMON")
-    watchdog_enable_t0_sync: bool = Field(default=True, env="WATCHDOG_ENABLE_T0_SYNC")
+    watchdog_enable_t0_reconcile: bool = Field(
+        default=True, env="WATCHDOG_ENABLE_T0_RECONCILE"
+    )
     watchdog_trading_start_time: str = Field(
         default="08:35", env="WATCHDOG_TRADING_START_TIME"
     )
     watchdog_trading_stop_time: str = Field(default="21:05", env="WATCHDOG_TRADING_STOP_TIME")
     watchdog_t0_start_time: str = Field(default="09:20", env="WATCHDOG_T0_START_TIME")
     watchdog_t0_stop_time: str = Field(default="15:05", env="WATCHDOG_T0_STOP_TIME")
-    watchdog_t0_sync_time: str = Field(default="15:00", env="WATCHDOG_T0_SYNC_TIME")
+    watchdog_t0_reconcile_time: str = Field(
+        default="15:10", env="WATCHDOG_T0_RECONCILE_TIME"
+    )
     watchdog_job_max_delay_minutes: int = Field(
         default=120, env="WATCHDOG_JOB_MAX_DELAY_MINUTES"
     )
@@ -144,10 +148,10 @@ class Settings(BaseSettings):
     t0_output_dir: str = Field(default="./output", env="T0_OUTPUT_DIR")
     t0_save_signal_card: bool = Field(default=False, env="T0_SAVE_SIGNAL_CARD")
     t0_notify_observe_signals: bool = Field(default=False, env="T0_NOTIFY_OBSERVE_SIGNALS")
-    t0_base_position: int = Field(default=2600, env="T0_BASE_POSITION")
+    t0_base_position: int = Field(default=3100, env="T0_BASE_POSITION")
     t0_tactical_position: int = Field(default=900, env="T0_TACTICAL_POSITION")
     t0_trade_unit: int = Field(default=100, env="T0_TRADE_UNIT")
-    t0_max_trade_value: float = Field(default=70000, env="T0_MAX_TRADE_VALUE")
+    t0_max_trade_value: float = Field(default=50000, env="T0_MAX_TRADE_VALUE")
     t0_intraday_bar_period: str = Field(default="1m", env="T0_INTRADAY_BAR_PERIOD")
     t0_poll_interval_seconds: int = Field(default=60, env="T0_POLL_INTERVAL_SECONDS")
     t0_sync_connect_retry_attempts: int = Field(default=3, env="T0_SYNC_CONNECT_RETRY_ATTEMPTS")

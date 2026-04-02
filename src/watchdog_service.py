@@ -137,16 +137,16 @@ class QuantWatchdogService:
                 )
             )
 
-        if settings.t0_strategy_enabled and settings.watchdog_enable_t0_sync:
+        if settings.t0_strategy_enabled and settings.watchdog_enable_t0_reconcile:
             targets.append(
                 ManagedTarget(
-                    name="t0_position_sync",
+                    name="t0_reconcile",
                     kind="job",
-                    description="T0 position sync",
-                    command_patterns=("main.py t0-sync-position",),
-                launch_command=self._python_main_command("t0-sync-position"),
+                    description="T0 end-of-day reconciliation",
+                    command_patterns=("main.py t0-reconcile",),
+                    launch_command=self._python_main_command("t0-reconcile"),
                     require_trading_day=True,
-                    schedule_time=self._parse_clock(settings.watchdog_t0_sync_time),
+                    schedule_time=self._parse_clock(settings.watchdog_t0_reconcile_time),
                 )
             )
 

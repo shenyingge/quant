@@ -1448,6 +1448,18 @@ class QMTTrader:
         with self.order_lock:
             return len(self.active_orders)
 
+    def get_today_orders(self, stock_code: Optional[str] = None) -> Optional[List[Dict[str, Any]]]:
+        """Return today's QMT order snapshots as normalized dictionaries."""
+        if not self.xt_trader or not self.account:
+            logger.error("QMT未连接或未初始化，无法获取当日委托")
+            return None
+
+        try:
+            return self._get_today_orders(stock_code)
+        except Exception as e:
+            logger.error(f"获取当日委托时发生错误: {e}")
+            return None
+
     def get_active_orders_info(self) -> List[Dict[str, Any]]:
         """获取活跃委托信息"""
         with self.order_lock:
@@ -1661,6 +1673,46 @@ class QMTTrader:
 
         except Exception as e:
             logger.error(f"查询持仓异常: {e}")
+            return None
+
+    def _get_today_orders(self, stock_code: Optional[str] = None) -> Optional[List[Dict[str, Any]]]:
+        """Query today's orders and normalize them for reconciliation/reporting."""
+        try:
+            orders = self.xt_trader.query_stock_orders(self.account, cancelable_only=False)
+
+            if orders is None:
+                return None
+
+            target = str(stock_code or "").strip().upper()
+            results: List[Dict[str, Any]] = []
+            for order in orders:
+                order_code = str(getattr(order, "stock_code", "") or "").strip()
+                if target and order_code.upper() != target:
+                    continue
+
+                order_type = getattr(order, "order_type", None)
+                if order_type == xtconstant.STOCK_BUY or str(order_type).strip().upper() == "BUY":
+                    direction = "BUY"
+                elif order_type == xtconstant.STOCK_SELL or str(order_type).strip().upper() == "SELL":
+                    direction = "SELL"
+                else:
+                    direction = "UNKNOWN"
+                results.append(
+                    {
+                        "order_id": str(getattr(order, "order_id", "") or ""),
+                        "stock_code": order_code,
+                        "direction": direction,
+                        "order_volume": int(getattr(order, "order_volume", 0) or 0),
+                        "traded_volume": int(getattr(order, "traded_volume", 0) or 0),
+                        "traded_price": float(getattr(order, "traded_price", 0) or 0.0),
+                        "order_status": getattr(order, "order_status", None),
+                        "order_time": getattr(order, "order_time", None),
+                    }
+                )
+
+            return results
+        except Exception as e:
+            logger.error(f"鏌ヨ褰撴棩濮旀墭寮傚父: {e}")
             return None
 
     def _start_timeout_monitor(self):

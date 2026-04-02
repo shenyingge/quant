@@ -49,6 +49,7 @@ def _resolve_app_role(command: Optional[str]) -> str:
         "t0-strategy": "strategy_engine",
         "t0-daemon": "strategy_engine",
         "t0-sync-position": "strategy_engine",
+        "t0-reconcile": "strategy_engine",
         "t0-backtest": "strategy_engine",
         "cms-check": "cms_server",
         "cms-server": "cms_server",
@@ -133,6 +134,9 @@ def main():
             return 0
         elif command == "t0-sync-position":
             sync_t0_position()
+            return 0
+        elif command == "t0-reconcile":
+            reconcile_t0_state()
             return 0
         elif command == "t0-backtest":
             run_t0_backtest(sys.argv[2:])
@@ -769,6 +773,66 @@ def sync_t0_position():
         FeishuNotifier().notify_t0_position_sync(settings.t0_stock_code, False, f"同步异常: {e}")
 
 
+def reconcile_t0_state():
+    """Run the end-of-day read-only T0 reconciliation."""
+    if _should_skip_non_trading_day(STRATEGY_ENGINE_NAME):
+        return
+
+    logger.info(f"收盘对账 {STRATEGY_ENGINE_NAME}")
+    try:
+        from src.notifications import FeishuNotifier
+        from src.strategy.t0_reconciler import T0Reconciler
+        from src.trader import QMTTrader
+
+        session_id = _resolve_qmt_session_id("t0-sync")
+        logger.info(f"{STRATEGY_ENGINE_NAME} 收盘对账使用 QMT Session ID: {session_id}")
+        connect_retry_attempts = max(int(settings.t0_sync_connect_retry_attempts), 1)
+        connect_retry_delay_seconds = max(int(settings.t0_sync_connect_retry_delay_seconds), 1)
+        connected = False
+        trader = None
+
+        for attempt in range(1, connect_retry_attempts + 1):
+            trader = QMTTrader(session_id=session_id)
+            if trader.connect():
+                connected = True
+                break
+
+            logger.warning(f"QMT 收盘对账连接失败，重试 {attempt}/{connect_retry_attempts}")
+            try:
+                trader.disconnect()
+            except Exception:
+                pass
+            if attempt < connect_retry_attempts:
+                time.sleep(connect_retry_delay_seconds)
+
+        if not connected:
+            logger.error("QMT 连接失败，无法执行收盘对账")
+            FeishuNotifier().notify_runtime_event(
+                STRATEGY_ENGINE_NAME,
+                "收盘对账异常",
+                (
+                    f"QMT 连接失败，未能执行收盘对账 "
+                    f"(retries={connect_retry_attempts}, delay={connect_retry_delay_seconds}s)"
+                ),
+                "warning",
+            )
+            return
+
+        reconciler = T0Reconciler(notifier=FeishuNotifier())
+        report = reconciler.run(trader, notify=True)
+        if report.get("ok"):
+            logger.info("收盘对账通过")
+        else:
+            logger.warning("收盘对账发现异常: {}", " | ".join(report.get("issues", [])))
+
+        trader.disconnect()
+    except Exception as e:
+        logger.error(f"收盘对账失败: {e}")
+        FeishuNotifier().notify_runtime_event(
+            STRATEGY_ENGINE_NAME, "收盘对账异常", f"执行异常: {e}", "warning"
+        )
+
+
 def run_t0_backtest(argv=None):
     """运行 T+0 文件回测。"""
     try:
@@ -858,7 +922,8 @@ def print_usage():
     logger.info("  python main.py export-daily           - 导出每日持仓与成交记录")
     logger.info(f"  python main.py t0-strategy            - 运行一次 {STRATEGY_ENGINE_NAME}")
     logger.info(f"  python main.py t0-daemon              - 持续运行 {STRATEGY_ENGINE_NAME}")
-    logger.info("  python main.py t0-sync-position       - 从 QMT 同步 T0 仓位")
+    logger.info("  python main.py t0-sync-position       - 从 QMT 手工同步 T0 仓位")
+    logger.info("  python main.py t0-reconcile           - 收盘后校验 T0 持仓与成交")
     logger.info("  python main.py t0-backtest            - 运行 T+0 文件回测")
     logger.info("  python main.py t0-signal-viewer       - 启动 T+0 信号查看器（从 Redis 读取并展示）")
     logger.info("  python main.py export-minute-history  - 导出分钟历史行情")

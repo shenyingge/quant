@@ -26,15 +26,15 @@ def test_position_syncer_normalizes_base_and_tactical_capacity():
     position = syncer._normalize_position_state(
         {
             "stock_code": "601138.SH",
-            "total_position": 3500,
+            "total_position": 4000,
             "available_volume": 3500,
             "cost_price": 72.68,
         }
     )
 
-    assert position["base_position"] == 2600
+    assert position["base_position"] == 3100
     assert position["tactical_position"] == 900
-    assert position["max_position"] == 3500
+    assert position["max_position"] == 4000
     assert position["t0_sell_available"] == 900
     assert position["t0_buy_capacity"] == 0
 
@@ -45,9 +45,11 @@ def test_position_syncer_loads_existing_position_file(tmp_path):
         json.dumps(
             {
                 "stock_code": "601138.SH",
-                "total_position": 3500,
+                "total_position": 4000,
                 "available_volume": 3500,
                 "cost_price": 72.68,
+                "base_position": 2600,
+                "tactical_position": 900,
             }
         ),
         encoding="utf-8",
@@ -57,9 +59,11 @@ def test_position_syncer_loads_existing_position_file(tmp_path):
     portfolio = syncer.load_portfolio_state()
 
     assert position is not None
-    assert position["total_position"] == 3500
+    assert position["total_position"] == 4000
+    assert position["base_position"] == 3100
     assert position["t0_sell_available"] == 900
-    assert portfolio.total_position == 3500
+    assert portfolio.total_position == 4000
+    assert portfolio.base_position == 3100
     assert portfolio.t0_sell_available == 900
 
 
@@ -93,7 +97,7 @@ def test_position_syncer_reconciles_local_fills_into_position_state(tmp_path, mo
         json.dumps(
             {
                 "stock_code": "601138.SH",
-                "total_position": 3500,
+                "total_position": 4000,
                 "available_volume": 3500,
                 "cost_price": 50.0,
                 "last_sync_source": "qmt",
@@ -124,9 +128,9 @@ def test_position_syncer_reconciles_local_fills_into_position_state(tmp_path, mo
 
     position = syncer.load_position()
 
-    assert position["total_position"] == 3400
+    assert position["total_position"] == 3900
     assert position["available_volume"] == 3400
-    assert round(position["cost_price"], 4) == round((3200 * 50.0 + 200 * 52.5) / 3400, 4)
+    assert round(position["cost_price"], 4) == round((3700 * 50.0 + 200 * 52.5) / 3900, 4)
     assert position["t0_sell_available"] == 800
     assert position["t0_buy_capacity"] == 100
     assert position["last_sync_source"] == "local_db_reconciled"

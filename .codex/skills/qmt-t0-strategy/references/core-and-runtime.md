@@ -75,7 +75,8 @@ Commands:
 
 - `t0-strategy`: run once
 - `t0-daemon`: poll every minute
-- `t0-sync-position`: sync QMT position into the T+0 state file
+- `t0-sync-position`: manually sync QMT position into the T+0 state file
+- `t0-reconcile`: run the end-of-day read-only reconciliation for T+0 state, positions, and fills
 - `t0-backtest`: file-driven Linux/Windows backtest entry
 
 ## Typed Models

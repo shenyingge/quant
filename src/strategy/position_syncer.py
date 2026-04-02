@@ -140,10 +140,11 @@ class PositionSyncer:
 
         total_position = int(normalized.get("total_position") or 0)
         available_volume = int(normalized.get("available_volume") or 0)
-        base_position = int(normalized.get("base_position") or settings.t0_base_position)
-        tactical_position = int(
-            normalized.get("tactical_position") or settings.t0_tactical_position
-        )
+        # The live T0 base/tactical split is configuration, not runtime state.
+        # Persisted position files may contain stale values from a prior setup, so
+        # we always recompute these capacities from the current settings.
+        base_position = int(settings.t0_base_position)
+        tactical_position = int(settings.t0_tactical_position)
         max_position = base_position + tactical_position
 
         normalized["base_position"] = base_position
@@ -257,7 +258,7 @@ class PositionSyncer:
                 return None
 
     def _utcnow(self) -> datetime:
-        return datetime.utcnow()
+        return datetime.now()
 
     def _round_down_lot(self, volume: int) -> int:
         trade_unit = max(int(settings.t0_trade_unit), 1)

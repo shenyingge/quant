@@ -222,6 +222,8 @@ uv run python main.py t0-daemon
 uv run python main.py t0-sync-position
 
 # 运行 T+0 文件回测
+uv run python main.py t0-reconcile
+
 uv run python main.py t0-backtest --minute-data minute.csv --daily-data daily.csv
 ```
 

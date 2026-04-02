@@ -34,10 +34,10 @@ It is the right starting point when you need to answer:
   - always on
   - starts or stops expected services based on trading-day and time-window policy
 
-- `main.py t0-sync-position`
+- `main.py t0-reconcile`
   - one-shot task
   - expected once per trading day
-  - synchronizes T0 strategy position state from QMT to local snapshot
+  - validates T0 position and filled-trade consistency across QMT, Meta DB, and local strategy state
 
 ## Process Graph
 
@@ -45,7 +45,7 @@ It is the right starting point when you need to answer:
 2. The watchdog checks trading-day and process windows
 3. The watchdog ensures `cms-server` stays alive all day
 4. On trading days, the watchdog starts `trading_engine` and `strategy_engine` in their expected windows
-5. At the configured once-per-day time, the watchdog triggers `t0-sync-position`
+5. At the configured once-per-day time, the watchdog triggers `t0-reconcile`
 6. Operators and dashboards query `cms-server` for system health, account-facing data, and WebSocket quotes
 7. Frontend quote subscriptions flow through Redis to the trading engine; latest quote snapshots stay in Redis across process restarts and are judged by timestamp rather than stop-time cleanup
 

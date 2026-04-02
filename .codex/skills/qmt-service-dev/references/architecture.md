@@ -2,7 +2,7 @@
 
 ## Entry Points
 
-- `main.py` is the only CLI entry. It dispatches `run`, `test-run`, `test`, `backup`, `backup-config`, `stock-info`, `calendar`, `pnl-summary`, `export-daily`, `t0-strategy`, `t0-daemon`, `t0-sync-position`, `t0-backtest`, `cms-check`, and `cms-server`.
+- `main.py` is the only CLI entry. It dispatches `run`, `test-run`, `test`, `backup`, `backup-config`, `stock-info`, `calendar`, `pnl-summary`, `export-daily`, `t0-strategy`, `t0-daemon`, `t0-sync-position`, `t0-reconcile`, `t0-backtest`, `cms-check`, and `cms-server`.
 - `run` and `test-run` both end up in `run_service()`, which creates `TradingService` and manages startup retries.
 - Trading-day gating happens before the service loop unless test mode is enabled.
 - `cms-server` runs independently of the trading and strategy engines and should be treated as a separate always-on operator service.

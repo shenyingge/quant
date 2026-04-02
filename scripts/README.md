@@ -4,7 +4,7 @@ This directory now follows a single-entry runtime model on Windows:
 
 - `Quant_Watchdog_Service` is the only startup scheduled task.
 - The watchdog keeps `cms-server` alive 24x7.
-- On trading days, the watchdog manages `run`, `t0-daemon`, and `t0-sync-position`.
+- On trading days, the watchdog manages `run`, `t0-daemon`, and the end-of-day `t0-reconcile` job.
 - Minute-history export remains an optional separate daily task.
 
 ## Current Scripts

@@ -28,7 +28,7 @@
 - `src/strategy/core/`: 纯策略核心与 typed models
 - `src/strategy/`: 实时数据适配、状态仓储、信号编排
 - `src/backtest/`: Linux/文件驱动回测加载、重放、CLI
-- `main.py`: `t0-strategy`、`t0-daemon`、`t0-sync-position`、`t0-backtest` 四个入口
+- `main.py`: `t0-strategy`、`t0-daemon`、`t0-sync-position`、`t0-reconcile`、`t0-backtest` 五个入口
 
 ---
 

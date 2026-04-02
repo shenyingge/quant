@@ -56,9 +56,9 @@ One-shot processes expected once per trading day.
 
 Current job targets:
 
-- `t0_position_sync`
-  - default schedule: `15:00`
-  - launch path: `python main.py t0-sync-position`
+- `t0_reconcile`
+  - default schedule: `15:10`
+  - launch path: `python main.py t0-reconcile`
 
 ## State Model
 
