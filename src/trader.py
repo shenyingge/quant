@@ -250,10 +250,16 @@ class QMTCallback(XtQuantTraderCallback):
             order_id = getattr(trade, "order_id", "")
             traded_volume = getattr(trade, "traded_volume", getattr(trade, "filled_qty", 0))
             traded_price = getattr(trade, "traded_price", getattr(trade, "filled_price", 0))
-            trade_id = getattr(trade, "trade_id", f"trade_{int(time.time())}")
+            trade_id = self._extract_trade_identifier(trade) or f"trade_{int(time.time())}"
             trade_amount = traded_volume * traded_price
 
-            callback_key = f"stock_trade_{order_id}_{trade_id}_{traded_volume}_{traded_price}"
+            callback_key = self._build_trade_callback_key(
+                trade=trade,
+                raw_order_id=order_id,
+                stock_code=stock_code,
+                traded_volume=traded_volume,
+                traded_price=traded_price,
+            )
             if callback_key in self.trader._last_callback_data:
                 logger.debug(f"Skipping duplicate trade callback: {callback_key}")
                 return
@@ -328,6 +334,14 @@ class QMTCallback(XtQuantTraderCallback):
                 sync_account_positions_from_qmt(self.trader, source="trade_callback")
             except Exception as sync_error:
                 logger.error(f"Trade callback position sync failed: {sync_error}")
+
+            try:
+                from src.strategy.position_syncer import PositionSyncer
+
+                direction = self._infer_trade_direction(trade, stock_code=stock_code)
+                PositionSyncer().apply_fill(direction, traded_volume, traded_price)
+            except Exception as t0_sync_error:
+                logger.error(f"T0 strategy position apply_fill failed: {t0_sync_error}")
 
             with self.trader.stats_lock:
                 self.trader.stats["total_trade_amount"] = (
@@ -431,6 +445,49 @@ class QMTCallback(XtQuantTraderCallback):
             trade_part = f"trade_{int(time.time())}"
         return f"MANUAL_{trade_part}"[:50]
 
+    def _extract_trade_identifier(self, trade: Any) -> Optional[str]:
+        for attr in ("trade_id", "traded_id", "trade_no", "deal_id", "business_id", "fill_id"):
+            value = str(getattr(trade, attr, "") or "").strip()
+            if value and value != "0":
+                return value
+        return None
+
+    def _build_trade_callback_key(
+        self,
+        *,
+        trade: Any,
+        raw_order_id: Any,
+        stock_code: str,
+        traded_volume: int,
+        traded_price: float,
+    ) -> str:
+        trade_identifier = self._extract_trade_identifier(trade)
+        normalized_order_id = self._normalize_order_id(raw_order_id)
+        order_sysid = str(getattr(trade, "order_sysid", "") or "").strip()
+
+        if trade_identifier:
+            owner = normalized_order_id or order_sysid or stock_code or "unknown"
+            return f"stock_trade_{owner}_{trade_identifier}"
+
+        traded_time = str(
+            getattr(trade, "traded_time", "")
+            or getattr(trade, "trade_time", "")
+            or getattr(trade, "filled_time", "")
+            or ""
+        ).strip()
+        order_part = normalized_order_id or str(raw_order_id or "").strip() or "0"
+        return "|".join(
+            [
+                "stock_trade_fallback",
+                stock_code or "",
+                order_part,
+                order_sysid,
+                traded_time,
+                str(int(traded_volume or 0)),
+                f"{float(traded_price or 0.0):.8f}",
+            ]
+        )
+
     def _normalize_order_id(self, raw_order_id: Any) -> Optional[str]:
         order_id = str(raw_order_id or "").strip()
         if not order_id or order_id == "0":
@@ -450,11 +507,22 @@ class QMTCallback(XtQuantTraderCallback):
         if value in (None, ""):
             return None
 
+        if isinstance(value, (int, float)):
+            return self._parse_trade_timestamp(str(int(value)))
+
         text_value = str(value).strip()
         if text_value.isdigit() and len(text_value) == 14:
             try:
                 return datetime.strptime(text_value, "%Y%m%d%H%M%S")
             except ValueError:
+                return None
+        if text_value.isdigit() and len(text_value) in {10, 13}:
+            try:
+                timestamp = int(text_value)
+                if len(text_value) == 13:
+                    timestamp = timestamp / 1000
+                return datetime.fromtimestamp(timestamp)
+            except (TypeError, ValueError, OSError, OverflowError):
                 return None
 
         try:

@@ -11,6 +11,15 @@ from src.logger_config import logger
 from src.strategy.core.models import PortfolioState
 
 
+class _FillProxy:
+    """Minimal fill record used by apply_fill to reuse _apply_filled_order logic."""
+
+    def __init__(self, direction: str, volume: int, price: float):
+        self.direction = direction.upper()
+        self.filled_volume = int(volume)
+        self.filled_price = float(price)
+
+
 class PositionSyncer:
     """Keeps the strategy position state aligned with QMT and local fills."""
 
@@ -113,6 +122,41 @@ class PositionSyncer:
             t0_buy_capacity=int(position.get("t0_buy_capacity", 0)),
             cash_available=float(position.get("cash_available", 0) or 0),
         )
+
+    def apply_fill(self, direction: str, volume: int, price: float) -> bool:
+        """Update the strategy position state immediately upon a trade fill.
+
+        Reads the current position file, applies the fill, and writes it back so
+        the next run_once() cycle picks up the change without any extra sync step.
+        """
+        try:
+            position = self._load_position_file()
+            if position is None:
+                logger.warning(
+                    "apply_fill: position file not found, cannot apply fill direction={} volume={} price={}",
+                    direction,
+                    volume,
+                    price,
+                )
+                return False
+
+            self._apply_filled_order(position, _FillProxy(direction, volume, price))
+            position["last_sync_time"] = self._format_timestamp(self._utcnow())
+            position["last_sync_source"] = "trade_callback"
+            position = self._normalize_position_state(position)
+            self._save_position(position)
+            logger.info(
+                "apply_fill: position updated direction={} volume={} price={} -> total={} available={}",
+                direction,
+                volume,
+                price,
+                position["total_position"],
+                position["available_volume"],
+            )
+            return True
+        except Exception as exc:
+            logger.error(f"apply_fill failed: {exc}")
+            return False
 
     def _save_position(self, position: dict):
         """Persist the current strategy position state to disk."""
