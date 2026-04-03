@@ -73,6 +73,9 @@ uv run python main.py t0-daemon
 # Sync T+0 position from QMT
 uv run python main.py t0-sync-position
 
+# Run T+0 strategy diagnostics (detailed decision process)
+uv run python main.py t0-diagnose
+
 # Run file-driven T+0 backtest
 uv run python main.py t0-backtest --minute-data minute.csv --daily-data daily.csv
 

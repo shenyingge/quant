@@ -26,15 +26,27 @@ class FeatureCalculator:
             if minute_data is None or minute_data.empty:
                 return None
 
+            # 过滤掉零值数据（集合竞价期间的无效数据）
+            valid_data = minute_data[
+                (minute_data["open"] > 0) &
+                (minute_data["high"] > 0) &
+                (minute_data["low"] > 0) &
+                (minute_data["close"] > 0)
+            ].copy()
+
+            if valid_data.empty:
+                logger.warning("过滤零值后无有效数据")
+                return None
+
             # 基础特征
-            day_open = minute_data.iloc[0]["open"]
-            current_close = minute_data.iloc[-1]["close"]
-            high_so_far = minute_data["high"].max()
-            low_so_far = minute_data["low"].min()
-            latest_bar_time = minute_data.index[-1]
+            day_open = valid_data.iloc[0]["open"]
+            current_close = valid_data.iloc[-1]["close"]
+            high_so_far = valid_data["high"].max()
+            low_so_far = valid_data["low"].min()
+            latest_bar_time = valid_data.index[-1]
 
             # VWAP计算
-            vwap = self._calculate_vwap(minute_data)
+            vwap = self._calculate_vwap(valid_data)
 
             # 相对特征
             close_vs_vwap = ((current_close - vwap) / vwap * 100) if vwap > 0 else 0
@@ -47,10 +59,10 @@ class FeatureCalculator:
 
             # 代理评分
             fake_breakout_score = self._calculate_fake_breakout_score(
-                minute_data, day_open, high_so_far, current_close, vwap
+                valid_data, day_open, high_so_far, current_close, vwap
             )
             absorption_score = self._calculate_absorption_score(
-                minute_data, low_so_far, current_close, vwap
+                valid_data, low_so_far, current_close, vwap
             )
 
             features = {

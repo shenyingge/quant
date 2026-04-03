@@ -44,6 +44,14 @@ class SignalGenerator:
             evaluation_time = current_time or evaluation_datetime.time()
             normalized_position = self._normalize_position(position)
             history_events = self._normalize_signal_history(signal_history)
+
+            # 记录策略输入
+            logger.debug(
+                f"信号生成输入: regime={regime}, "
+                f"time={evaluation_time.strftime('%H:%M:%S')}, "
+                f"history_count={len(history_events)}"
+            )
+
             signal = self.engine.generate_signal(
                 regime=regime,
                 features=self._normalize_features(features),
@@ -52,6 +60,14 @@ class SignalGenerator:
                 current_datetime=evaluation_datetime,
                 signal_history=history_events,
             )
+
+            # 记录策略输出
+            logger.debug(
+                f"信号生成输出: action={signal['action']}, "
+                f"reason={signal['reason']}, "
+                f"branch={signal.get('branch')}"
+            )
+
             return self._normalize_decision(signal)
 
         except Exception as e:

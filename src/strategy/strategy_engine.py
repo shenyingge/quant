@@ -63,7 +63,7 @@ class StrategyEngine:
         start_time = time.time()
         try:
             trade_date = date.today()
-            logger.info(f"开始执行策略引擎: {self.stock_code}, {trade_date}")
+            logger.debug(f"开始执行策略引擎: {self.stock_code}, {trade_date}")
 
             # 1. 获取数据 (realtime模式跳过download_history_data)
             minute_data = self.data_fetcher.fetch_minute_data(self.stock_code, trade_date, realtime=True)
@@ -76,17 +76,45 @@ class StrategyEngine:
 
             # 2. 识别regime
             regime = self.regime_identifier.identify_regime(daily_data, trade_date)
+            logger.debug(f"市场状态: regime={regime}")
 
             # 3. 计算特征
             features = self.feature_calculator.calculate_snapshot(minute_data)
             if features is None:
                 return self._finalize_signal_card(self._error_signal_card("特征计算失败"))
 
+            # 记录关键特征
+            feature_dict = features.to_dict() if hasattr(features, "to_dict") else dict(features)
+            logger.debug(
+                f"特征计算: price={feature_dict.get('current_close', 0):.2f}, "
+                f"vwap={feature_dict.get('vwap', 0):.2f}, "
+                f"high={feature_dict.get('high_so_far', 0):.2f}, "
+                f"low={feature_dict.get('low_so_far', 0):.2f}, "
+                f"bounce={feature_dict.get('bounce_from_low', 0):.2f}%, "
+                f"fake_breakout={feature_dict.get('fake_breakout_score', 0):.2f}, "
+                f"absorption={feature_dict.get('absorption_score', 0):.2f}"
+            )
+
             # 4. 加载仓位
             position = self.position_syncer.load_portfolio_state()
+            position_dict = position.to_dict() if hasattr(position, "to_dict") else dict(position)
+            logger.debug(
+                f"仓位状态: total={position_dict.get('total_position', 0)}, "
+                f"available={position_dict.get('available_volume', 0)}, "
+                f"t0_sell_avail={position_dict.get('t0_sell_available', 0)}, "
+                f"t0_buy_capacity={position_dict.get('t0_buy_capacity', 0)}, "
+                f"cost={position_dict.get('cost_price', 0):.2f}"
+            )
 
             # 4.1 加载当日已产出的策略信号历史
             signal_history = self.signal_repository.load_today_history(trade_date)
+            if signal_history:
+                logger.debug(
+                    f"今日信号历史: {len(signal_history)}条, "
+                    f"actions={[s.action for s in signal_history]}"
+                )
+            else:
+                logger.debug("今日信号历史: 无")
 
             # 4.2 获取实时快照，补齐最新市场信息
             snapshot = self.data_fetcher.fetch_realtime_snapshot(self.stock_code)
@@ -111,7 +139,19 @@ class StrategyEngine:
                 )
 
             elapsed = time.time() - start_time
-            logger.info(f"策略执行完成: {signal.action}, 耗时={elapsed:.2f}秒")
+
+            # 只在有实际信号时输出详细日志
+            if signal.action != "observe":
+                logger.info(
+                    f"🔔 策略信号: action={signal.action}, reason={signal.reason}, "
+                    f"price={signal.price:.2f}, volume={signal.volume}, "
+                    f"branch={signal.branch}, 耗时={elapsed:.2f}秒"
+                )
+            else:
+                logger.debug(
+                    f"策略执行: action={signal.action}, reason={signal.reason}, 耗时={elapsed:.2f}秒"
+                )
+
             return self._finalize_signal_card(signal_card)
 
         except Exception as e:

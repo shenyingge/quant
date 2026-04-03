@@ -51,6 +51,7 @@ def _resolve_app_role(command: Optional[str]) -> str:
         "t0-sync-position": "strategy_engine",
         "t0-reconcile": "strategy_engine",
         "t0-backtest": "strategy_engine",
+        "t0-diagnose": "strategy_engine",
         "cms-check": "cms_server",
         "cms-server": "cms_server",
         "watchdog": "watchdog",
@@ -143,6 +144,9 @@ def main():
             return 0
         elif command == "t0-signal-viewer":
             run_signal_viewer()
+            return 0
+        elif command == "t0-diagnose":
+            run_t0_diagnose()
             return 0
         elif command == "cms-check":
             return run_cms_check(sys.argv[2:])
@@ -857,6 +861,15 @@ def run_signal_viewer():
     viewer.watch(interval=settings.t0_poll_interval_seconds)
 
 
+def run_t0_diagnose():
+    """运行 T+0 策略诊断工具"""
+    from src.strategy.strategy_diagnostics import StrategyDiagnostics
+
+    logger.info("启动 T+0 策略诊断工具")
+    diagnostics = StrategyDiagnostics()
+    diagnostics.diagnose()
+
+
 def run_cms_check(argv=None):
     """输出一次标准化 health check 结果。"""
     import json
@@ -926,6 +939,7 @@ def print_usage():
     logger.info("  python main.py t0-reconcile           - 收盘后校验 T0 持仓与成交")
     logger.info("  python main.py t0-backtest            - 运行 T+0 文件回测")
     logger.info("  python main.py t0-signal-viewer       - 启动 T+0 信号查看器（从 Redis 读取并展示）")
+    logger.info("  python main.py t0-diagnose            - 运行 T+0 策略诊断工具（显示详细判断过程）")
     logger.info("  python main.py export-minute-history  - 导出分钟历史行情")
     logger.info("  python main.py export-minute-daily    - 导出当日分钟行情")
     logger.info("  python main.py cms-check              - 输出 CMS check JSON 结果")

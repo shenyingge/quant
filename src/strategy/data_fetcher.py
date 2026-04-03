@@ -71,7 +71,7 @@ class DataFetcher:
                 if not valid:
                     raise ValueError(msg)
 
-                logger.info(
+                logger.debug(
                     "获取日内数据成功: {}, period={}, rows={}",
                     stock_code,
                     self.intraday_period,
@@ -248,7 +248,7 @@ class DataFetcher:
                     raise ValueError(f"数据不足: {len(df)}天")
 
                 self._daily_cache[cache_key] = (datetime.now(), df)
-                logger.info(f"获取日线数据成功: {stock_code}, {len(df)}天")
+                logger.debug(f"获取日线数据成功: {stock_code}, {len(df)}天")
                 return df
 
             except Exception as e:
