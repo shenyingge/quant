@@ -205,14 +205,14 @@ class StrategyDiagnostics:
         print("\n  正T回补条件:")
         print(f"    - 时间窗口: {'✓' if positive_buyback_window else '✗'}")
         print(
-            f"    - 价格 <= VWAP * {1 + self.params.t0_positive_buyback_vwap_discount}: "
-            f"{'✓' if current_close <= vwap * (1 + self.params.t0_positive_buyback_vwap_discount) else '✗'} "
-            f"(当前: {current_close:.2f}, 阈值: {vwap * (1 + self.params.t0_positive_buyback_vwap_discount):.2f})"
+            f"    - 反弹 >= 0.4%: "
+            f"{'✓' if bounce >= 0.4 else '✗'} "
+            f"(实际: {bounce:.2f}%)"
         )
         print(
-            f"    - 假突破分数 >= {self.params.t0_positive_buyback_min_fake_breakout}: "
-            f"{'✓' if fake_breakout >= self.params.t0_positive_buyback_min_fake_breakout else '✗'} "
-            f"(实际: {fake_breakout:.2f})"
+            f"    - 吸收分数 >= 0.6: "
+            f"{'✓' if absorption >= 0.6 else '✗'} "
+            f"(实际: {absorption:.2f})"
         )
         print(f"    - T+0可买 > 0: {'✓' if t0_buy_capacity > 0 else '✗'} (实际: {t0_buy_capacity})")
 
@@ -240,15 +240,16 @@ class StrategyDiagnostics:
         print("\n  反T卖出条件:")
         print(f"    - 时间窗口: {'✓' if reverse_sell_window else '✗'}")
         profit_pct = ((current_close - cost_price) / cost_price * 100) if cost_price > 0 else 0
+        close_vs_vwap_abs = abs(close_vs_vwap)
         print(
-            f"    - 盈利 >= {self.params.t0_reverse_sell_min_profit}%: "
+            f"    - 浮盈 >= {self.params.t0_reverse_sell_min_profit}% (相对买入价，此处用成本价估算): "
             f"{'✓' if profit_pct >= self.params.t0_reverse_sell_min_profit else '✗'} "
             f"(实际: {profit_pct:.2f}%)"
         )
         print(
-            f"    - 价格 >= VWAP: "
-            f"{'✓' if current_close >= vwap else '✗'} "
-            f"(当前: {current_close:.2f}, VWAP: {vwap:.2f})"
+            f"    - |价格 vs VWAP| <= {self.params.t0_reverse_sell_max_vwap_distance}%: "
+            f"{'✓' if close_vs_vwap_abs <= self.params.t0_reverse_sell_max_vwap_distance else '✗'} "
+            f"(实际: {close_vs_vwap_abs:.2f}%)"
         )
         print(f"    - T+0可卖 > 0: {'✓' if t0_sell_available > 0 else '✗'} (实际: {t0_sell_available})")
 
