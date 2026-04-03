@@ -16,6 +16,7 @@ import psutil
 from src.config import settings
 from src.logger_config import configured_logger as logger
 from src.notifications import FeishuNotifier
+from src.process_utils import find_matching_processes
 from src.trading_day_checker import is_trading_day
 
 
@@ -162,7 +163,7 @@ class QuantWatchdogService:
 
         if healthy and expected:
             self._probe_failure_counts[target.name] = 0
-            logger.info("{} is healthy with {} process(es)", target.name, len(matches))
+            logger.info("{} is healthy with {} logical process(es)", target.name, len(matches))
             return
 
         if matches and not expected:
@@ -176,7 +177,7 @@ class QuantWatchdogService:
         if matches and expected and not healthy:
             failure_count = self._record_probe_failure(target)
             logger.warning(
-                "{} has {} matching process(es) but failed its readiness probe ({})",
+                "{} has {} logical process(es) but failed its readiness probe ({})",
                 target.name,
                 len(matches),
                 failure_count,
@@ -454,15 +455,7 @@ class QuantWatchdogService:
         processes: List[Dict[str, Any]],
         command_patterns: Sequence[str],
     ) -> List[Dict[str, Any]]:
-        patterns = [pattern.lower() for pattern in command_patterns]
-        matches: List[Dict[str, Any]] = []
-
-        for process in processes:
-            command_line = (process.get("command_line") or "").lower()
-            if any(pattern in command_line for pattern in patterns):
-                matches.append(process)
-
-        return matches
+        return find_matching_processes(processes, command_patterns)
 
     def _list_processes(self) -> List[Dict[str, Any]]:
         if os.name == "nt":
@@ -479,11 +472,11 @@ class QuantWatchdogService:
                 "-Command",
                 (
                     "Get-CimInstance Win32_Process | "
-                    "Select-Object Name,ProcessId,CommandLine | ConvertTo-Json -Compress"
+                    "Select-Object Name,ProcessId,ParentProcessId,CommandLine | ConvertTo-Json -Compress"
                 ),
             ]
         else:
-            command = ["ps", "-eo", "pid=,comm=,args="]
+            command = ["ps", "-eo", "pid=,ppid=,comm=,args="]
 
         try:
             result = subprocess.run(
@@ -513,6 +506,7 @@ class QuantWatchdogService:
                 {
                     "name": item.get("Name") or "",
                     "pid": int(item.get("ProcessId") or 0),
+                    "parent_pid": int(item.get("ParentProcessId") or 0),
                     "command_line": item.get("CommandLine") or "",
                 }
                 for item in data
@@ -520,21 +514,29 @@ class QuantWatchdogService:
 
         processes: List[Dict[str, Any]] = []
         for line in result.stdout.splitlines():
-            parts = line.strip().split(None, 2)
-            if len(parts) != 3:
+            parts = line.strip().split(None, 3)
+            if len(parts) != 4:
                 continue
-            pid_text, name, command_line = parts
+            pid_text, parent_pid_text, name, command_line = parts
             try:
                 pid = int(pid_text)
+                parent_pid = int(parent_pid_text)
             except ValueError:
                 continue
-            processes.append({"name": name, "pid": pid, "command_line": command_line})
+            processes.append(
+                {
+                    "name": name,
+                    "pid": pid,
+                    "parent_pid": parent_pid,
+                    "command_line": command_line,
+                }
+            )
         return processes
 
     def _list_processes_windows_native(self) -> List[Dict[str, Any]]:
         processes: List[Dict[str, Any]] = []
 
-        for process in psutil.process_iter(attrs=["pid", "name", "cmdline"]):
+        for process in psutil.process_iter(attrs=["pid", "ppid", "name", "cmdline"]):
             try:
                 info = process.info
             except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
@@ -546,6 +548,7 @@ class QuantWatchdogService:
                 {
                     "name": info.get("name") or "",
                     "pid": int(info.get("pid") or 0),
+                    "parent_pid": int(info.get("ppid") or 0),
                     "command_line": command_line,
                 }
             )
