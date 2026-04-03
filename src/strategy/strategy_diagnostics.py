@@ -201,6 +201,21 @@ class StrategyDiagnostics:
         )
         print(f"    - T+0可卖 > 0: {'✓' if t0_sell_available > 0 else '✗'} (实际: {t0_sell_available})")
 
+        # 正T回补条件
+        print("\n  正T回补条件:")
+        print(f"    - 时间窗口: {'✓' if positive_buyback_window else '✗'}")
+        print(
+            f"    - 价格 <= VWAP * {1 + self.params.t0_positive_buyback_vwap_discount}: "
+            f"{'✓' if current_close <= vwap * (1 + self.params.t0_positive_buyback_vwap_discount) else '✗'} "
+            f"(当前: {current_close:.2f}, 阈值: {vwap * (1 + self.params.t0_positive_buyback_vwap_discount):.2f})"
+        )
+        print(
+            f"    - 假突破分数 >= {self.params.t0_positive_buyback_min_fake_breakout}: "
+            f"{'✓' if fake_breakout >= self.params.t0_positive_buyback_min_fake_breakout else '✗'} "
+            f"(实际: {fake_breakout:.2f})"
+        )
+        print(f"    - T+0可买 > 0: {'✓' if t0_buy_capacity > 0 else '✗'} (实际: {t0_buy_capacity})")
+
         # 反T买入条件
         print("\n  反T买入条件:")
         print(f"    - 时间窗口: {'✓' if reverse_buy_window else '✗'}")
@@ -220,6 +235,22 @@ class StrategyDiagnostics:
             f"(实际: {absorption:.2f})"
         )
         print(f"    - T+0可买 > 0: {'✓' if t0_buy_capacity > 0 else '✗'} (实际: {t0_buy_capacity})")
+
+        # 反T卖出条件
+        print("\n  反T卖出条件:")
+        print(f"    - 时间窗口: {'✓' if reverse_sell_window else '✗'}")
+        profit_pct = ((current_close - cost_price) / cost_price * 100) if cost_price > 0 else 0
+        print(
+            f"    - 盈利 >= {self.params.t0_reverse_sell_min_profit}%: "
+            f"{'✓' if profit_pct >= self.params.t0_reverse_sell_min_profit else '✗'} "
+            f"(实际: {profit_pct:.2f}%)"
+        )
+        print(
+            f"    - 价格 >= VWAP: "
+            f"{'✓' if current_close >= vwap else '✗'} "
+            f"(当前: {current_close:.2f}, VWAP: {vwap:.2f})"
+        )
+        print(f"    - T+0可卖 > 0: {'✓' if t0_sell_available > 0 else '✗'} (实际: {t0_sell_available})")
 
         print(f"\n{'='*80}\n")
 
