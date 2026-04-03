@@ -30,6 +30,7 @@ from src.account_data_service import AccountDataService, parse_pagination
 from src.config import settings
 from src.database import OrderRecord, TradingSignal, engine as application_db_engine, get_database_details
 from src.logger_config import configured_logger as logger
+from src.process_utils import find_matching_processes
 from src.quote_stream_service import normalize_stock_code
 from src.trading_day_checker import is_trading_day
 
@@ -719,9 +720,7 @@ class ProjectCmsChecker:
         )
 
     def _check_watchdog_process(self, processes: List[Dict[str, Any]]) -> CmsCheckResult:
-        matches = [
-            process for process in processes if "main.py watchdog" in process["command_line"]
-        ]
+        matches = find_matching_processes(processes, ("main.py watchdog",))
         return self._build_process_check(
             name="watchdog_process",
             component="watchdog",
@@ -732,12 +731,7 @@ class ProjectCmsChecker:
     def _check_trading_engine_process(
         self, processes: List[Dict[str, Any]], trading_day_check: CmsCheckResult
     ) -> CmsCheckResult:
-        matches = [
-            process
-            for process in processes
-            if "main.py run" in process["command_line"]
-            or "main.py test-run" in process["command_line"]
-        ]
+        matches = find_matching_processes(processes, ("main.py run", "main.py test-run"))
         return self._build_process_check(
             name="trading_engine_process",
             component="trading_engine",
@@ -748,9 +742,7 @@ class ProjectCmsChecker:
     def _check_strategy_engine_process(
         self, processes: List[Dict[str, Any]], trading_day_check: CmsCheckResult
     ) -> CmsCheckResult:
-        matches = [
-            process for process in processes if "main.py t0-daemon" in process["command_line"]
-        ]
+        matches = find_matching_processes(processes, ("main.py t0-daemon",))
         return self._build_process_check(
             name="strategy_engine_process",
             component="strategy_engine",
@@ -879,11 +871,11 @@ class ProjectCmsChecker:
                 "-Command",
                 (
                     "Get-CimInstance Win32_Process | "
-                    "Select-Object Name,ProcessId,CommandLine | ConvertTo-Json -Compress"
+                    "Select-Object Name,ProcessId,ParentProcessId,CommandLine | ConvertTo-Json -Compress"
                 ),
             ]
         else:
-            command = ["ps", "-eo", "pid=,comm=,args="]
+            command = ["ps", "-eo", "pid=,ppid=,comm=,args="]
 
         try:
             result = subprocess.run(
@@ -913,6 +905,7 @@ class ProjectCmsChecker:
                 {
                     "name": (item.get("Name") or ""),
                     "pid": int(item.get("ProcessId") or 0),
+                    "parent_pid": int(item.get("ParentProcessId") or 0),
                     "command_line": item.get("CommandLine") or "",
                 }
                 for item in data
@@ -920,21 +913,29 @@ class ProjectCmsChecker:
 
         processes = []
         for line in result.stdout.splitlines():
-            parts = line.strip().split(None, 2)
-            if len(parts) != 3:
+            parts = line.strip().split(None, 3)
+            if len(parts) != 4:
                 continue
-            pid_text, name, command_line = parts
+            pid_text, parent_pid_text, name, command_line = parts
             try:
                 pid = int(pid_text)
+                parent_pid = int(parent_pid_text)
             except ValueError:
                 continue
-            processes.append({"name": name, "pid": pid, "command_line": command_line})
+            processes.append(
+                {
+                    "name": name,
+                    "pid": pid,
+                    "parent_pid": parent_pid,
+                    "command_line": command_line,
+                }
+            )
         return processes
 
     def _list_processes_windows_native(self) -> List[Dict[str, Any]]:
         processes: List[Dict[str, Any]] = []
 
-        for process in psutil.process_iter(attrs=["pid", "name", "cmdline"]):
+        for process in psutil.process_iter(attrs=["pid", "ppid", "name", "cmdline"]):
             try:
                 info = process.info
             except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
@@ -946,6 +947,7 @@ class ProjectCmsChecker:
                 {
                     "name": info.get("name") or "",
                     "pid": int(info.get("pid") or 0),
+                    "parent_pid": int(info.get("ppid") or 0),
                     "command_line": command_line,
                 }
             )
@@ -984,6 +986,12 @@ class _CmsRequestHandler(BaseHTTPRequestHandler):
             self._handle_data_policy()
         elif parsed.path == "/api/account-overview":
             self._handle_account_overview()
+        elif parsed.path == "/api/t0-strategy-status":
+            self._handle_t0_strategy_status()
+        elif parsed.path == "/" or parsed.path == "/t0-monitor":
+            self._handle_static_file("static/t0-monitor.html")
+        elif parsed.path.startswith("/static/"):
+            self._handle_static_file(parsed.path[1:])
         else:
             self.send_error(HTTPStatus.NOT_FOUND, "Not Found")
 
@@ -1105,6 +1113,50 @@ class _CmsRequestHandler(BaseHTTPRequestHandler):
             )
         except Exception as e:
             self._send_error_response(f"Failed to get account overview: {e}")
+
+    def _handle_t0_strategy_status(self) -> None:
+        """处理 T+0 策略状态请求"""
+        try:
+            from src.strategy.strategy_status_service import StrategyStatusService
+
+            service = StrategyStatusService()
+            result = service.get_strategy_status()
+            self._send_json_response(
+                json.dumps(result, ensure_ascii=False, indent=2).encode("utf-8")
+            )
+        except Exception as e:
+            logger.error(f"获取 T+0 策略状态失败: {e}", exc_info=True)
+            self._send_error_response(f"Failed to get T+0 strategy status: {e}")
+
+    def _handle_static_file(self, file_path: str) -> None:
+        """处理静态文件请求"""
+        try:
+            full_path = Path(file_path)
+            if not full_path.exists():
+                self.send_error(HTTPStatus.NOT_FOUND, "File not found")
+                return
+
+            # 确定 MIME 类型
+            content_type = "text/html; charset=utf-8"
+            if file_path.endswith(".css"):
+                content_type = "text/css; charset=utf-8"
+            elif file_path.endswith(".js"):
+                content_type = "application/javascript; charset=utf-8"
+            elif file_path.endswith(".json"):
+                content_type = "application/json; charset=utf-8"
+
+            with open(full_path, "rb") as f:
+                content = f.read()
+
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(content)))
+            self.end_headers()
+            self.wfile.write(content)
+
+        except Exception as e:
+            logger.error(f"读取静态文件失败: {e}")
+            self.send_error(HTTPStatus.INTERNAL_SERVER_ERROR, "Failed to read file")
 
     def _send_json_response(self, payload: bytes, status_code: int = HTTPStatus.OK) -> None:
         self.send_response(status_code)

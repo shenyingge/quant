@@ -114,6 +114,32 @@ def test_process_check_warns_when_component_expected_but_missing():
     assert result.status == "warn"
 
 
+def test_strategy_engine_process_check_collapses_windows_launcher_chain():
+    checker = cms_server.ProjectCmsChecker()
+    trading_day = make_check("trading_day", "pass")
+    processes = [
+        {
+            "pid": 1336,
+            "parent_pid": 4868,
+            "command_line": r"C:\Users\sai\quant\.venv\Scripts\python.exe main.py t0-daemon",
+        },
+        {
+            "pid": 12324,
+            "parent_pid": 1336,
+            "command_line": (
+                r"C:\Users\sai\AppData\Roaming\uv\python\cpython-3.9.23-windows-x86_64-none"
+                r"\python.exe main.py t0-daemon"
+            ),
+        },
+    ]
+
+    result = checker._check_strategy_engine_process(processes, trading_day)
+
+    assert result.status == "pass"
+    assert result.details["count"] == 1
+    assert result.details["pids"] == [1336]
+
+
 def test_background_health_server_serves_snapshot(monkeypatch):
     snapshot = cms_server.CmsSnapshot(
         service="quant",
