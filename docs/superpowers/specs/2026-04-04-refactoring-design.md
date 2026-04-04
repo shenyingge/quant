@@ -78,7 +78,6 @@ class OrderRecord(Base):
     order_type      = Column(String(50), nullable=False, default="LIMIT")  # LIMIT / MARKET / MARKET_SH_BEST_5_CANCEL / MARKET_SZ_INSTANT_CANCEL 等
     order_time      = Column(DateTime, default=datetime.utcnow)
     order_status    = Column(String(20), default="PENDING")         # 派生状态，由 trade_executions 更新
-    fill_notified   = Column(Boolean, default=False)                 # 是否已发送成交通知
     error_message   = Column(Text, nullable=True)
     created_at      = Column(DateTime, default=datetime.utcnow)
     updated_at      = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
