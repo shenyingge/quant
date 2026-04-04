@@ -14,10 +14,11 @@
 
 1. **Phase 0** — 测试基础设施与安全隔离
 2. **Phase 1** — 成交记录归属重构（修复漏单 bug，新增 trade_executions / order_cancellations 表）
-3. **Phase 2** — 高频行情接入（tick 级或 3 秒快照，替代分钟级）
-4. **Phase 3** — 策略解耦与多策略并行（backtrader 兼容）
-5. **Phase 4** — src 目录结构化迁移
-6. **Phase 5** — 清理、文档、skills 整理
+3. **Phase 2** — 分钟行情 DB 入库（gold.stock_minute_bars_1m，每日 15:10 增量同步）
+4. **Phase 3** — 高频行情接入（tick 级或 3 秒快照，替代分钟级）
+5. **Phase 4** — 策略解耦与多策略并行（backtrader 兼容）
+6. **Phase 5** — src 目录结构化迁移
+7. **Phase 6** — 清理、文档、skills 整理
 
 **生产安全原则：** 交易下单、成交回调、持仓同步是最高风险区，所有改动必须先建回归测试再动代码。
 
@@ -27,27 +28,29 @@
 
 ```text
 src/
-├── app/                         # CLI 入口、调度编排
+├── app/                         # CLI 入口
 │   └── cli/
 ├── trading/                     # 实盘交易域
 │   ├── execution/               # qmt_trader, qmt_callbacks
 │   ├── persistence/             # order_repository, execution_repository, attribution_service
-│   ├── runtime/                 # engine (原 trading_engine.py)
-│   └── models/                  # order_ids, execution_models
+│   ├── reconciliation/          # 对账逻辑
+│   └── runtime/                 # engine (原 trading_engine.py)
 ├── strategy/
 │   ├── t0/
 │   │   ├── core/                # 纯策略核心，无副作用
 │   │   ├── runtime/             # 实时适配器
-│   │   └── persistence/         # 信号/状态持久化
+│   │   ├── persistence/         # 信号/状态持久化
+│   │   └── contracts/           # DTO 类型定义（BarData, SignalCard 等）
 │   └── shared/                  # StrategyManager, SignalRouter, PositionAllocator
 ├── market_data/
-│   ├── ingestion/               # tick/3s 快照接入
+│   ├── ingestion/               # tick/3s 快照接入 + 分钟行情入库
 │   ├── storage/
 │   └── export/
 ├── infrastructure/
 │   ├── db/
 │   ├── redis/
 │   ├── notifications/
+│   ├── scheduling/              # 定时任务统一管理（15:10 行情入库等）
 │   └── qmt/
 ├── broker/                      # 已有 broker 抽象，保留
 └── backtest/                    # 只依赖 strategy/t0/core
@@ -75,6 +78,7 @@ class OrderRecord(Base):
     order_type      = Column(String(50), nullable=False, default="LIMIT")  # LIMIT / MARKET / MARKET_SH_BEST_5_CANCEL / MARKET_SZ_INSTANT_CANCEL 等
     order_time      = Column(DateTime, default=datetime.utcnow)
     order_status    = Column(String(20), default="PENDING")         # 派生状态，由 trade_executions 更新
+    fill_notified   = Column(Boolean, default=False)                 # 是否已发送成交通知
     error_message   = Column(Text, nullable=True)
     created_at      = Column(DateTime, default=datetime.utcnow)
     updated_at      = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -241,13 +245,35 @@ class StrategyBase(ABC):
 
 ---
 
-### Phase 2：高频行情接入
+### Phase 2：分钟行情 DB 入库
+
+**目标：** 落地 `gold.stock_minute_bars_1m`，每日 15:10 增量同步。
+
+**新表设计：**
+```python
+# gold.stock_minute_bars_1m
+# 唯一键：(symbol, bar_time)
+# 索引：(trade_date), (symbol, trade_date)
+```
+
+**任务：**
+- 新建 ORM model `StockMinuteBar`（symbol, trade_date, bar_time, open, high, low, close, volume, amount, source, ingested_at）
+- 实现 `MinuteHistoryIngestor`，支持 bootstrap（当年 0101 至今）和 daily（仅当日）两种模式
+- 新增 CLI：`ingest-minute-history`（bootstrap）、`ingest-minute-daily`（daily）
+- 在 `src/infrastructure/scheduling/` 注册 15:10 定时任务
+- 保留现有 `export-minute-history` / `export-minute-daily` 命令不变
+
+**验收：** 当年历史可一次性回补，每日 15:10 仅同步当日增量，同一 bar 不重复，非交易日自动跳过。
+
+---
+
+### Phase 3：高频行情接入
 
 **目标：** 将实盘行情从分钟级升级为 tick 级或 3 秒快照。
 
 **任务：**
-- 定义 `MarketDataProvider` 协议
-- 实现 `QMTTickProvider` 和 `QMTSnapshotProvider`
+- 定义 `MarketDataProvider` 协议（在 `strategy/t0/contracts/` 中）
+- 实现 `QMTTickProvider` 和 `QMTSnapshotProvider`（在 `market_data/ingestion/`）
 - 更新 T0 策略 runtime 使用新行情接口
 - 保留分钟行情作为回测数据源
 
@@ -255,24 +281,25 @@ class StrategyBase(ABC):
 
 ---
 
-### Phase 3：策略解耦与多策略并行
+### Phase 4：策略解耦与多策略并行
 
 **目标：** 策略核心与运行时完全解耦，支持多策略并行，兼容 backtrader。
 
 **任务：**
 - 固化 `T0StrategyKernel` 为唯一核心入口
 - 将 `src/strategy/core/*` 迁移到 `src/strategy/t0/core/`
-- 实现 `StrategyBase` 抽象基类
-- 实现 `StrategyManager`, `SignalRouter`, `PositionAllocator`
+- 在 `src/strategy/t0/contracts/` 定义 DTO：`BarData`, `TickData`, `SignalCard`, `TradeData`, `StrategyParams`
+- 实现 `StrategyBase` 抽象基类（`on_bar`, `on_tick`, `on_trade`）
+- 实现 `StrategyManager`, `SignalRouter`, `PositionAllocator`（在 `strategy/shared/`）
 - 实现 `BacktraderAdapter`, `QMTDataFeed`, `QMTBrokerInterface`
 - 保留兼容 wrapper（`src/strategy/t0_orchestrator.py` 等）
-- 确保 `src/backtest/*` 只依赖 `strategy/t0/core`
+- 确保 `src/backtest/*` 只依赖 `strategy/t0/core` 和 `strategy/t0/contracts`
 
 **验收：** 策略 core 不依赖 QMT/Redis/DB/通知，回测与实时复用同一核心，策略可在 backtrader 中运行。
 
 ---
 
-### Phase 4：src 目录结构化迁移
+### Phase 5：src 目录结构化迁移
 
 **目标：** 将零散模块迁入明确域包。
 
@@ -288,7 +315,7 @@ class StrategyBase(ABC):
 
 ---
 
-### Phase 5：清理、文档、skills 整理
+### Phase 6：清理、文档、skills 整理
 
 **目标：** 工程化收尾，整理 superpowers skills。
 
@@ -331,5 +358,4 @@ class StrategyBase(ABC):
 - 一次性重写所有 broker 抽象
 - 一次性迁移全部 `src/*.py`
 - 替换所有 CLI 命令名
-- 分钟行情 DB 入库（gold schema）— 已在旧方案中，本轮暂不执行
 
