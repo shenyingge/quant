@@ -10,6 +10,8 @@ from src.config import settings
 TRADING_META_TABLE_NAMES = (
     "trading_signals",
     "order_records",
+    "trade_executions",
+    "order_cancellations",
     "trading_calendar",
     "stock_info",
     "strategy_regime_state",

@@ -44,6 +44,10 @@ class OrderRecord(Base):
     id = Column(Integer, primary_key=True, index=True)
     signal_id = Column(String(50), index=True)
     order_id = Column(String(50), unique=True)  # 委托编号
+    order_uid = Column(String(50), unique=True, index=True, nullable=True)
+    order_type = Column(String(50), nullable=False, default="LIMIT")
+    submit_request_id = Column(String(50), index=True, nullable=True)
+    order_source = Column(String(50), default="signal_submit")
     stock_code = Column(String(20), nullable=False)  # 证券代码
     direction = Column(String(10), nullable=False)  # 买卖方向: BUY, SELL
     volume = Column(Integer, nullable=False)  # 委托数量
@@ -66,6 +70,46 @@ class OrderRecord(Base):
     error_message = Column(Text, nullable=True)  # 错误信息
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class TradeExecution(Base):
+    """Each fill from QMT gets its own immutable row."""
+
+    __tablename__ = "trade_executions"
+
+    id = Column(Integer, primary_key=True)
+    execution_uid = Column(String(50), unique=True, index=True, nullable=False)
+    order_uid = Column(String(50), index=True, nullable=True)
+    broker_trade_id = Column(String(50), index=True, nullable=True)
+    broker_order_id = Column(String(50), index=True, nullable=True)
+    stock_code = Column(String(20), nullable=False)
+    direction = Column(String(10), nullable=False)
+    filled_volume = Column(Integer, nullable=False)
+    filled_price = Column(Float, nullable=False)
+    filled_amount = Column(Float, nullable=False)
+    filled_time = Column(DateTime, nullable=False)
+    commission = Column(Float, nullable=True)
+    transfer_fee = Column(Float, nullable=True)
+    stamp_duty = Column(Float, nullable=True)
+    total_fee = Column(Float, nullable=True)
+    execution_source = Column(String(50), default="qmt_trade_callback")
+    dedupe_key = Column(String(100), unique=True, index=True, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class OrderCancellation(Base):
+    """Each cancellation event gets its own row."""
+
+    __tablename__ = "order_cancellations"
+
+    id = Column(Integer, primary_key=True)
+    order_uid = Column(String(50), index=True, nullable=False)
+    broker_order_id = Column(String(50), index=True, nullable=True)
+    stock_code = Column(String(20), nullable=False)
+    cancelled_volume = Column(Integer, nullable=False)
+    cancel_time = Column(DateTime, nullable=False)
+    cancel_reason = Column(String(100), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
 
 
 class TradingCalendar(Base):
