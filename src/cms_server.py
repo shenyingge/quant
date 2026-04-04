@@ -696,7 +696,7 @@ class ProjectCmsChecker:
                 component="redis",
                 status="fail",
                 message=f"Redis ping failed: {exc}",
-                critical=True,
+                critical=False,
                 details={
                     "host": settings.redis_host,
                     "port": settings.redis_port,

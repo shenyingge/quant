@@ -140,6 +140,44 @@ def test_mock_data_summary():
         raise
 
 
+def test_mock_data_summary_uses_fee_adjusted_realized_pnl():
+    base_time = datetime.now().replace(hour=10, minute=30, second=0, microsecond=0)
+    mock_orders = [
+        type(
+            "MockOrder",
+            (),
+            {
+                "stock_code": "601138.SH",
+                "direction": "BUY",
+                "filled_volume": 100,
+                "filled_price": Decimal("50.00"),
+                "filled_time": base_time,
+                "order_id": "buy-1",
+            },
+        )(),
+        type(
+            "MockOrder",
+            (),
+            {
+                "stock_code": "601138.SH",
+                "direction": "SELL",
+                "filled_volume": 100,
+                "filled_price": Decimal("50.20"),
+                "filled_time": base_time.replace(hour=14, minute=0),
+                "order_id": "sell-1",
+            },
+        )(),
+    ]
+
+    calculator = DailyPnLCalculator()
+    summary = calculator._calculate_trading_summary(mock_orders, date.today())
+
+    assert summary["performance"]["estimated_realized_pnl"] == 7.39
+    assert summary["performance"]["gross_realized_pnl"] == 20.0
+    assert summary["performance"]["trading_cost_estimate"] == 12.61
+    assert summary["stock_breakdown"][0]["total_fees"] == 12.61
+
+
 def test_notification_format():
     """测试通知格式"""
     print("\n=== 测试通知格式 ===")

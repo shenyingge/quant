@@ -10,6 +10,7 @@ from src.strategy.data_fetcher import DataFetcher
 from src.strategy.feature_calculator import FeatureCalculator
 from src.strategy.position_syncer import PositionSyncer
 from src.strategy.regime_identifier import RegimeIdentifier
+from src.strategy.signal_state_repository import StrategySignalRepository
 
 
 class StrategyDiagnostics:
@@ -22,6 +23,7 @@ class StrategyDiagnostics:
         self.regime_identifier = RegimeIdentifier()
         self.feature_calculator = FeatureCalculator()
         self.position_syncer = PositionSyncer()
+        self.signal_repository = StrategySignalRepository()
 
     def diagnose(self) -> dict:
         """运行完整诊断并返回详细信息"""
@@ -131,6 +133,27 @@ class StrategyDiagnostics:
         print(f"  T+0可卖: {t0_sell_available}")
         print(f"  T+0可买: {t0_buy_capacity}\n")
 
+        # 4.5 今日信号历史
+        print("【4.5 今日信号历史】")
+        signal_history = self.signal_repository.load_today_history(trade_date)
+        today_actions = [s.action for s in signal_history] if signal_history else []
+        has_positive_sell = "positive_t_sell" in today_actions
+        has_positive_buyback = "positive_t_buyback" in today_actions
+        has_reverse_buy = "reverse_t_buy" in today_actions
+        has_reverse_sell = "reverse_t_sell" in today_actions
+        if signal_history:
+            for s in signal_history:
+                print(f"  {s.action}  price={s.price}  volume={s.volume}  time={s.signal_time}")
+        else:
+            print("  （今日无信号历史）")
+        positive_t_completed = has_positive_sell and has_positive_buyback
+        reverse_t_completed = has_reverse_buy and has_reverse_sell
+        if positive_t_completed:
+            print("  ⚠️  正T闭环已完成（卖出+回补），今日不再发正T信号")
+        if reverse_t_completed:
+            print("  ⚠️  反T闭环已完成（买入+卖出），今日不再发反T信号")
+        print()
+
         # 5. 时间窗口检查
         print("【5. 时间窗口检查】")
         print(f"  当前时间: {current_time.strftime('%H:%M:%S')}")
@@ -203,6 +226,7 @@ class StrategyDiagnostics:
 
         # 正T回补条件
         print("\n  正T回补条件:")
+        print(f"    - 今日已执行正T卖出 (前置): {'✓' if has_positive_sell else '✗ 未满足，策略不会检查后续条件'}")
         print(f"    - 时间窗口: {'✓' if positive_buyback_window else '✗'}")
         print(
             f"    - 反弹 >= 0.4%: "
@@ -238,6 +262,7 @@ class StrategyDiagnostics:
 
         # 反T卖出条件
         print("\n  反T卖出条件:")
+        print(f"    - 今日已执行反T买入 (前置): {'✓' if has_reverse_buy else '✗ 未满足，策略不会检查后续条件'}")
         print(f"    - 时间窗口: {'✓' if reverse_sell_window else '✗'}")
         profit_pct = ((current_close - cost_price) / cost_price * 100) if cost_price > 0 else 0
         close_vs_vwap_abs = abs(close_vs_vwap)

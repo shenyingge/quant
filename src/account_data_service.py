@@ -6,12 +6,17 @@ from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 from sqlalchemy import desc
 
+from src.config import settings
 from src.daily_pnl_calculator import calculate_daily_summary
 from src.database import AccountPosition, OrderRecord, SessionLocal, TradingSignal
+from src.trading_costs import TradingFeeSchedule, analyze_filled_trades, load_trade_breakdown
 
 
 class AccountDataService:
     """Centralize the source-of-truth policy for account-related data."""
+
+    def __init__(self) -> None:
+        self.fee_schedule = TradingFeeSchedule.from_settings(settings)
 
     def get_data_policy(self) -> Dict[str, Any]:
         return {
@@ -194,6 +199,12 @@ class AccountDataService:
                 .limit(limit)
                 .all()
             )
+        normalized_trades = analyze_filled_trades(trades, self.fee_schedule)["trades"]
+        trades_by_order_id = {
+            str(item.get("order_id")): item
+            for item in normalized_trades
+            if item.get("order_id") is not None
+        }
 
         return {
             "total": total,
@@ -201,15 +212,7 @@ class AccountDataService:
             "limit": limit,
             "source": "meta_db",
             "data": [
-                {
-                    "id": t.id,
-                    "order_id": t.order_id,
-                    "stock_code": t.stock_code,
-                    "direction": t.direction,
-                    "filled_volume": t.filled_volume,
-                    "filled_price": t.filled_price,
-                    "filled_time": t.filled_time.isoformat() if t.filled_time else None,
-                }
+                self._serialize_trade_row(t, trades_by_order_id.get(str(t.order_id), {}))
                 for t in trades
             ],
         }
@@ -218,35 +221,32 @@ class AccountDataService:
         with self._open_db_session() as session:
             trades = session.query(OrderRecord).filter(OrderRecord.filled_volume > 0).all()
 
-        pnl_by_stock: Dict[str, Dict[str, Any]] = {}
-        for trade in trades:
-            bucket = pnl_by_stock.setdefault(
-                trade.stock_code,
+        analytics = analyze_filled_trades(trades, self.fee_schedule)
+        breakdown = []
+        for stock_code, item in sorted(analytics["per_stock"].items()):
+            breakdown.append(
                 {
-                    "stock_code": trade.stock_code,
-                    "buy_amount": 0.0,
-                    "sell_amount": 0.0,
-                    "buy_volume": 0,
-                    "sell_volume": 0,
-                    "net_volume": 0,
-                    "pnl": 0.0,
-                    "realized_pnl_estimate": 0.0,
+                    "stock_code": stock_code,
+                    "buy_amount": round(float(item.get("buy_amount") or 0.0), 4),
+                    "sell_amount": round(float(item.get("sell_amount") or 0.0), 4),
+                    "buy_volume": int(item.get("buy_volume") or 0),
+                    "sell_volume": int(item.get("sell_volume") or 0),
+                    "buy_fees": round(float(item.get("buy_fees") or 0.0), 4),
+                    "sell_fees": round(float(item.get("sell_fees") or 0.0), 4),
+                    "total_fees": round(float(item.get("total_fees") or 0.0), 4),
+                    "matched_volume": int(item.get("matched_volume") or 0),
+                    "gross_realized_pnl": round(float(item.get("gross_realized_pnl") or 0.0), 4),
+                    "pnl": round(float(item.get("net_realized_pnl") or 0.0), 4),
+                    "realized_pnl_estimate": round(
+                        float(item.get("net_realized_pnl") or 0.0),
+                        4,
+                    ),
+                    "net_volume": int(item.get("net_volume") or 0),
+                    "roundtrip_count": int(item.get("roundtrip_count") or 0),
                     "source": "meta_db",
-                },
+                }
             )
-            filled_volume = int(trade.filled_volume or 0)
-            amount = float(filled_volume * (trade.filled_price or 0))
-            if str(trade.direction).upper() == "BUY":
-                bucket["buy_amount"] += amount
-                bucket["buy_volume"] += filled_volume
-            else:
-                bucket["sell_amount"] += amount
-                bucket["sell_volume"] += filled_volume
-                bucket["pnl"] = bucket["sell_amount"] - bucket["buy_amount"]
-                bucket["realized_pnl_estimate"] = bucket["pnl"]
-            bucket["net_volume"] = bucket["buy_volume"] - bucket["sell_volume"]
-
-        return sorted(pnl_by_stock.values(), key=lambda item: item["stock_code"])
+        return breakdown
 
     def get_unrealized_pnl_snapshot(self) -> Dict[str, Any]:
         positions_snapshot = self.get_positions_snapshot()
@@ -267,9 +267,7 @@ class AccountDataService:
 
             cost_basis = round(avg_price * volume, 4)
             unrealized_pnl = (
-                round(market_value - cost_basis, 4)
-                if market_value is not None
-                else None
+                round(market_value - cost_basis, 4) if market_value is not None else None
             )
             unrealized_pnl_pct = (
                 round(unrealized_pnl / cost_basis * 100, 4)
@@ -331,6 +329,14 @@ class AccountDataService:
         realized_sell_amount = round(
             sum(float(item.get("sell_amount") or 0.0) for item in realized_breakdown), 4
         )
+        realized_total_fees = round(
+            sum(float(item.get("total_fees") or 0.0) for item in realized_breakdown),
+            4,
+        )
+        gross_realized_pnl = round(
+            sum(float(item.get("gross_realized_pnl") or 0.0) for item in realized_breakdown),
+            4,
+        )
         realized_pnl_estimate = round(
             sum(float(item.get("realized_pnl_estimate") or 0.0) for item in realized_breakdown), 4
         )
@@ -339,11 +345,13 @@ class AccountDataService:
             "source": "meta_db",
             "kind": "realized_and_unrealized_pnl",
             "realized": {
-                "method": "execution_ledger_estimate",
+                "method": "fee_adjusted_execution_ledger_estimate",
                 "summary": {
                     "stocks": len(realized_breakdown),
                     "buy_amount": realized_buy_amount,
                     "sell_amount": realized_sell_amount,
+                    "gross_realized_pnl": gross_realized_pnl,
+                    "total_fees": realized_total_fees,
                     "realized_pnl_estimate": realized_pnl_estimate,
                 },
                 "breakdown": realized_breakdown,
@@ -390,6 +398,38 @@ class AccountDataService:
             return float(value)
         except (TypeError, ValueError):
             return None
+
+    def _serialize_trade_row(
+        self, trade_row: OrderRecord, normalized_trade: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        trade_amount = round(float(normalized_trade.get("notional") or 0.0), 4)
+        transaction_cost = round(float(normalized_trade.get("total_fee") or 0.0), 4)
+        direction = str(normalized_trade.get("direction") or trade_row.direction or "").upper()
+        settlement_amount = (
+            round(trade_amount - transaction_cost, 4)
+            if direction == "SELL"
+            else round(trade_amount + transaction_cost, 4)
+        )
+
+        return {
+            "id": trade_row.id,
+            "order_id": trade_row.order_id,
+            "stock_code": trade_row.stock_code,
+            "direction": trade_row.direction,
+            "filled_volume": trade_row.filled_volume,
+            "filled_price": trade_row.filled_price,
+            "filled_time": trade_row.filled_time.isoformat() if trade_row.filled_time else None,
+            "trade_amount": trade_amount,
+            "commission": round(float(normalized_trade.get("commission") or 0.0), 4),
+            "transfer_fee": round(float(normalized_trade.get("transfer_fee") or 0.0), 4),
+            "stamp_duty": round(float(normalized_trade.get("stamp_duty") or 0.0), 4),
+            "total_fee": transaction_cost,
+            "transaction_cost": transaction_cost,
+            "settlement_amount": settlement_amount,
+            "net_cash_effect": round(float(normalized_trade.get("net_cash_effect") or 0.0), 4),
+            "trade_breakdown": load_trade_breakdown(trade_row),
+        }
+
 
 def parse_pagination(query_params: Dict[str, List[str]]) -> Tuple[int, int, int]:
     page = int(query_params.get("page", ["1"])[0])

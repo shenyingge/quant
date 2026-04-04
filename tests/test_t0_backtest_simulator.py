@@ -96,13 +96,17 @@ def test_backtest_simulator_applies_commission_transfer_fee_and_stamp_duty():
         cash_available=70000,
     )
 
-    with patch.object(T0BacktestSimulator, "__init__", lambda self, params=None, execution_mode="same_bar_close": None):
+    with patch.object(
+        T0BacktestSimulator,
+        "__init__",
+        lambda self, params=None, execution_mode="same_bar_close": None,
+    ):
         simulator = T0BacktestSimulator()
         simulator.params = SimpleNamespace(
             t0_trade_unit=100,
             t0_commission_rate=0.0001,
             t0_min_commission=5.0,
-            t0_transfer_fee_rate=0.00002,
+            t0_transfer_fee_rate=0.00001,
             t0_stamp_duty_rate=0.0005,
         )
         simulator.execution_mode = "same_bar_close"
@@ -127,10 +131,10 @@ def test_backtest_simulator_applies_commission_transfer_fee_and_stamp_duty():
 
     fill = result["fills"].iloc[0]
     assert fill["commission"] == 5.0
-    assert fill["transfer_fee"] == 0.9
+    assert fill["transfer_fee"] == 0.45
     assert fill["stamp_duty"] == 22.5
-    assert fill["total_fee"] == 28.4
-    assert result["final_position"].cash_available == 70000 + 50.0 * 900 - 28.4
+    assert fill["total_fee"] == 27.95
+    assert result["final_position"].cash_available == 70000 + 50.0 * 900 - 27.95
 
 
 def test_backtest_simulator_next_bar_open_executes_on_following_bar():
@@ -178,7 +182,11 @@ def test_backtest_simulator_next_bar_open_executes_on_following_bar():
             }
         return {"action": "observe", "reason": "test", "price": 0.0, "volume": 0, "branch": None}
 
-    with patch.object(T0BacktestSimulator, "__init__", lambda self, params=None, execution_mode="same_bar_close": None):
+    with patch.object(
+        T0BacktestSimulator,
+        "__init__",
+        lambda self, params=None, execution_mode="same_bar_close": None,
+    ):
         simulator = T0BacktestSimulator()
         simulator.params = SimpleNamespace(t0_trade_unit=100)
         simulator.execution_mode = "next_bar_open"
@@ -247,7 +255,11 @@ def test_backtest_simulator_next_bar_open_can_fill_next_day_open():
             }
         return {"action": "observe", "reason": "test", "price": 0.0, "volume": 0, "branch": None}
 
-    with patch.object(T0BacktestSimulator, "__init__", lambda self, params=None, execution_mode="same_bar_close": None):
+    with patch.object(
+        T0BacktestSimulator,
+        "__init__",
+        lambda self, params=None, execution_mode="same_bar_close": None,
+    ):
         simulator = T0BacktestSimulator()
         simulator.params = SimpleNamespace(t0_trade_unit=100)
         simulator.execution_mode = "next_bar_open"
@@ -313,7 +325,9 @@ def test_backtest_simulator_resets_intraday_window_each_trade_day():
 
     result = T0BacktestSimulator().run(minute_data, daily_data, position)
 
-    day_two_open_signal = result["signals"].loc[result["signals"]["timestamp"] == minute_index[2]].iloc[0]
+    day_two_open_signal = (
+        result["signals"].loc[result["signals"]["timestamp"] == minute_index[2]].iloc[0]
+    )
     assert day_two_open_signal["timestamp"] == minute_index[2]
     assert day_two_open_signal["action"] == "observe"
 
@@ -405,7 +419,9 @@ def test_backtest_simulator_carries_open_branch_and_restores_available_volume_ne
     def fake_generate_signal(**kwargs):
         current_datetime = kwargs["current_datetime"]
         captured_positions.append((current_datetime, dict(kwargs["position"])))
-        captured_histories.append((current_datetime, [event.action for event in kwargs["signal_history"]]))
+        captured_histories.append(
+            (current_datetime, [event.action for event in kwargs["signal_history"]])
+        )
         if current_datetime == minute_index[0].to_pydatetime():
             return {
                 "action": "reverse_t_buy",
@@ -424,9 +440,7 @@ def test_backtest_simulator_carries_open_branch_and_restores_available_volume_ne
             }
         return {"action": "observe", "reason": "test", "price": 0.0, "volume": 0, "branch": None}
 
-    with patch.object(
-        T0BacktestSimulator, "__init__", lambda self, params=None: None
-    ):
+    with patch.object(T0BacktestSimulator, "__init__", lambda self, params=None: None):
         simulator = T0BacktestSimulator()
         simulator.params = SimpleNamespace(t0_trade_unit=100)
         simulator.execution_mode = "same_bar_close"
@@ -444,8 +458,14 @@ def test_backtest_simulator_carries_open_branch_and_restores_available_volume_ne
         result = simulator.run(minute_data, daily_data, position)
 
     assert list(result["fills"]["action"]) == ["reverse_t_buy", "reverse_t_sell"]
-    day_two_position = next(pos for timestamp, pos in captured_positions if timestamp == minute_index[1].to_pydatetime())
-    day_two_history = next(history for timestamp, history in captured_histories if timestamp == minute_index[1].to_pydatetime())
+    day_two_position = next(
+        pos for timestamp, pos in captured_positions if timestamp == minute_index[1].to_pydatetime()
+    )
+    day_two_history = next(
+        history
+        for timestamp, history in captured_histories
+        if timestamp == minute_index[1].to_pydatetime()
+    )
     assert day_two_position["available_volume"] == 3500
     assert day_two_position["t0_sell_available"] == 900
     assert day_two_history == ["reverse_t_buy"]
@@ -487,7 +507,9 @@ def test_backtest_simulator_clears_completed_branch_history_on_next_day():
 
     def fake_generate_signal(**kwargs):
         current_datetime = kwargs["current_datetime"]
-        captured_histories.append((current_datetime, [event.action for event in kwargs["signal_history"]]))
+        captured_histories.append(
+            (current_datetime, [event.action for event in kwargs["signal_history"]])
+        )
         if current_datetime == minute_index[0].to_pydatetime():
             return {
                 "action": "reverse_t_buy",
@@ -506,9 +528,7 @@ def test_backtest_simulator_clears_completed_branch_history_on_next_day():
             }
         return {"action": "observe", "reason": "test", "price": 0.0, "volume": 0, "branch": None}
 
-    with patch.object(
-        T0BacktestSimulator, "__init__", lambda self, params=None: None
-    ):
+    with patch.object(T0BacktestSimulator, "__init__", lambda self, params=None: None):
         simulator = T0BacktestSimulator()
         simulator.params = SimpleNamespace(t0_trade_unit=100)
         simulator.execution_mode = "same_bar_close"
@@ -526,6 +546,8 @@ def test_backtest_simulator_clears_completed_branch_history_on_next_day():
         simulator.run(minute_data, daily_data, position)
 
     day_three_history = next(
-        history for timestamp, history in captured_histories if timestamp == minute_index[2].to_pydatetime()
+        history
+        for timestamp, history in captured_histories
+        if timestamp == minute_index[2].to_pydatetime()
     )
     assert day_three_history == []

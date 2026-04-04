@@ -33,6 +33,9 @@ def test_build_meta_db_trading_metadata_uses_trading_schema(monkeypatch):
         "trading.stock_info",
         "trading.strategy_regime_state",
         "trading.strategy_signal_history",
+        "trading.account_positions",
+        "trading.strategy_positions",
+        "trading.strategy_event_outbox",
     }
     assert "trading.service_logs" not in metadata.tables
 

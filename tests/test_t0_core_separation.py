@@ -97,3 +97,90 @@ def test_engine_blocks_close_before_min_hold_minutes():
 
     assert signal["action"] == "observe"
     assert "最小持有时间未满足" in signal["reason"]
+
+
+def test_engine_blocks_reverse_t_sell_when_fees_exceed_profit():
+    params = T0StrategyParams(
+        t0_trade_unit=100,
+        t0_commission_rate=0.0001,
+        t0_min_commission=5.0,
+        t0_transfer_fee_rate=0.00001,
+        t0_stamp_duty_rate=0.0005,
+        t0_reverse_sell_min_profit=0.0,
+    )
+    engine = T0StrategyEngine(params)
+    features = {
+        "day_open": 50.0,
+        "current_close": 50.05,
+        "high_so_far": 50.2,
+        "low_so_far": 49.8,
+        "vwap": 50.05,
+        "close_vs_vwap": 0.0,
+        "bounce_from_low": 0.6,
+        "fake_breakout_score": 0.0,
+        "absorption_score": 0.7,
+    }
+    position = {
+        "total_position": 2700,
+        "available_volume": 100,
+        "base_position": 2600,
+        "tactical_position": 900,
+        "max_position": 3500,
+        "t0_sell_available": 100,
+        "t0_buy_capacity": 0,
+    }
+    history = [SignalEvent(action="reverse_t_buy", branch="reverse_t", price=50.0, volume=100)]
+
+    signal = engine.generate_signal(
+        regime="transition",
+        features=features,
+        position=position,
+        current_time=time(13, 30),
+        signal_history=history,
+    )
+
+    assert signal["action"] == "observe"
+    assert "手续费" in signal["reason"]
+
+
+def test_engine_blocks_positive_t_buyback_when_fees_exceed_spread():
+    params = T0StrategyParams(
+        t0_trade_unit=100,
+        t0_commission_rate=0.0001,
+        t0_min_commission=5.0,
+        t0_transfer_fee_rate=0.00001,
+        t0_stamp_duty_rate=0.0005,
+    )
+    engine = T0StrategyEngine(params)
+    features = {
+        "day_open": 50.0,
+        "current_close": 49.98,
+        "high_so_far": 50.1,
+        "low_so_far": 49.7,
+        "vwap": 49.95,
+        "close_vs_vwap": 0.06,
+        "bounce_from_low": 0.5,
+        "fake_breakout_score": 0.0,
+        "absorption_score": 0.7,
+    }
+    position = {
+        "total_position": 2600,
+        "available_volume": 2600,
+        "base_position": 2600,
+        "tactical_position": 900,
+        "max_position": 3500,
+        "t0_sell_available": 0,
+        "t0_buy_capacity": 100,
+    }
+    history = [SignalEvent(action="positive_t_sell", branch="positive_t", price=50.0, volume=100)]
+
+    signal = engine.generate_signal(
+        regime="transition",
+        features=features,
+        position=position,
+        current_time=time(13, 40),
+        signal_history=history,
+    )
+
+    assert signal["action"] == "observe"
+    assert "手续费" in signal["reason"]

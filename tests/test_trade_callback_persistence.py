@@ -44,14 +44,54 @@ class DummyTrader:
         self.order_lock = threading.Lock()
 
 
+class DummyPositionSyncer:
+    def __init__(self):
+        self.applied = []
+        self.publish_calls = []
+
+    def apply_fill_transactional(
+        self,
+        db,
+        direction,
+        volume,
+        price,
+        *,
+        stock_code=None,
+        filled_time=None,
+        source="trade_callback",
+    ):
+        self.applied.append(
+            {
+                "direction": direction,
+                "volume": volume,
+                "price": price,
+                "stock_code": stock_code,
+                "filled_time": filled_time,
+                "source": source,
+            }
+        )
+        return {
+            "stock_code": stock_code,
+            "position_version": 1,
+            "total_position": volume,
+            "available_volume": volume,
+        }
+
+    def publish_pending_events(self, limit=20):
+        self.publish_calls.append(limit)
+        return 1
+
+
 def test_trade_callback_creates_standalone_order_record(monkeypatch):
     trader = DummyTrader()
     callback = QMTCallback(trader)
     session = DummySession()
     sync_calls = []
+    position_syncer = DummyPositionSyncer()
 
     monkeypatch.setattr("src.trader.SessionLocal", lambda: session)
     monkeypatch.setattr("src.trader.get_stock_display_name", lambda stock_code: stock_code)
+    monkeypatch.setattr("src.strategy.position_syncer.PositionSyncer", lambda: position_syncer)
     monkeypatch.setattr(
         QMTCallback,
         "_load_order_record_for_trade",
@@ -88,6 +128,8 @@ def test_trade_callback_creates_standalone_order_record(monkeypatch):
     assert trader.notifier.payloads[0]["stock_code"] == "601138.SH"
     assert session.commit_count == 2
     assert sync_calls == ["trade_callback"]
+    assert position_syncer.applied[0]["direction"] == "BUY"
+    assert position_syncer.publish_calls == [20]
     assert trader.stats["total_trade_volume"] == 100
 
 
@@ -96,6 +138,7 @@ def test_trade_callback_updates_existing_record_when_match_is_resolved(monkeypat
     callback = QMTCallback(trader)
     session = DummySession()
     sync_calls = []
+    position_syncer = DummyPositionSyncer()
     existing_record = OrderRecord(
         signal_id="sig-1",
         order_id="ORDER-1",
@@ -109,6 +152,7 @@ def test_trade_callback_updates_existing_record_when_match_is_resolved(monkeypat
 
     monkeypatch.setattr("src.trader.SessionLocal", lambda: session)
     monkeypatch.setattr("src.trader.get_stock_display_name", lambda stock_code: stock_code)
+    monkeypatch.setattr("src.strategy.position_syncer.PositionSyncer", lambda: position_syncer)
     monkeypatch.setattr(
         QMTCallback,
         "_load_order_record_for_trade",
@@ -134,11 +178,12 @@ def test_trade_callback_updates_existing_record_when_match_is_resolved(monkeypat
     assert session.added == []
     assert existing_record.filled_volume == 100
     assert existing_record.filled_price == 52.14
-    assert existing_record.order_status == "FILLED"
+    assert existing_record.order_status == "部分成交"
     assert existing_record.fill_notified is True
     assert trader.notifier.payloads[0]["order_id"] == "ORDER-1"
     assert session.commit_count == 2
     assert sync_calls == ["trade_callback"]
+    assert position_syncer.applied[0]["direction"] == "BUY"
 
 
 def test_trade_callback_uses_xtquant_traded_id_when_trade_id_is_missing(monkeypatch):
@@ -146,9 +191,11 @@ def test_trade_callback_uses_xtquant_traded_id_when_trade_id_is_missing(monkeypa
     callback = QMTCallback(trader)
     session = DummySession()
     sync_calls = []
+    position_syncer = DummyPositionSyncer()
 
     monkeypatch.setattr("src.trader.SessionLocal", lambda: session)
     monkeypatch.setattr("src.trader.get_stock_display_name", lambda stock_code: stock_code)
+    monkeypatch.setattr("src.strategy.position_syncer.PositionSyncer", lambda: position_syncer)
     monkeypatch.setattr(
         QMTCallback,
         "_load_order_record_for_trade",
@@ -177,6 +224,7 @@ def test_trade_callback_uses_xtquant_traded_id_when_trade_id_is_missing(monkeypa
     assert order_record.direction == "SELL"
     assert trader.notifier.payloads[0]["order_id"] == "MANUAL_D0001"
     assert sync_calls == ["trade_callback"]
+    assert position_syncer.applied[0]["direction"] == "SELL"
 
 
 def test_trade_callback_keeps_distinct_partial_fills_with_different_traded_id(monkeypatch):
@@ -184,9 +232,11 @@ def test_trade_callback_keeps_distinct_partial_fills_with_different_traded_id(mo
     callback = QMTCallback(trader)
     session = DummySession()
     sync_calls = []
+    position_syncer = DummyPositionSyncer()
 
     monkeypatch.setattr("src.trader.SessionLocal", lambda: session)
     monkeypatch.setattr("src.trader.get_stock_display_name", lambda stock_code: stock_code)
+    monkeypatch.setattr("src.strategy.position_syncer.PositionSyncer", lambda: position_syncer)
     monkeypatch.setattr(
         QMTCallback,
         "_load_order_record_for_trade",
@@ -225,6 +275,73 @@ def test_trade_callback_keeps_distinct_partial_fills_with_different_traded_id(mo
     assert [item.order_id for item in session.added] == ["MANUAL_D0001", "MANUAL_D0002"]
     assert len(trader.notifier.payloads) == 2
     assert trader.stats["total_trade_volume"] == 200
+    assert sync_calls == ["trade_callback", "trade_callback"]
+    assert [item["direction"] for item in position_syncer.applied] == ["SELL", "SELL"]
+
+
+def test_trade_callback_accumulates_trade_breakdown_on_existing_order_record(monkeypatch):
+    trader = DummyTrader()
+    callback = QMTCallback(trader)
+    session = DummySession()
+    sync_calls = []
+    position_syncer = DummyPositionSyncer()
+    existing_record = OrderRecord(
+        signal_id="sig-2",
+        order_id="ORDER-2",
+        stock_code="601138.SH",
+        direction="BUY",
+        volume=500,
+        price=52.14,
+        order_status="PENDING",
+        fill_notified=False,
+    )
+    matched_records = [existing_record, existing_record]
+
+    monkeypatch.setattr("src.trader.SessionLocal", lambda: session)
+    monkeypatch.setattr("src.trader.get_stock_display_name", lambda stock_code: stock_code)
+    monkeypatch.setattr("src.strategy.position_syncer.PositionSyncer", lambda: position_syncer)
+    monkeypatch.setattr(
+        QMTCallback,
+        "_load_order_record_for_trade",
+        lambda self, db, raw_order_id, stock_code, traded_volume: matched_records.pop(0),
+    )
+    monkeypatch.setattr(
+        "src.trader.sync_account_positions_from_qmt",
+        lambda trader_instance, source: sync_calls.append(source),
+    )
+
+    trade_one = SimpleNamespace(
+        account_id="8884394806",
+        stock_code="601138.SH",
+        order_id="ORDER-2",
+        traded_volume=100,
+        traded_price=52.14,
+        traded_time="20260402132156",
+        traded_id="B0001",
+        order_type=23,
+    )
+    trade_two = SimpleNamespace(
+        account_id="8884394806",
+        stock_code="601138.SH",
+        order_id="ORDER-2",
+        traded_volume=400,
+        traded_price=52.14,
+        traded_time="20260402132159",
+        traded_id="B0002",
+        order_type=23,
+    )
+
+    callback.on_stock_trade(trade_one)
+    callback.on_stock_trade(trade_two)
+
+    assert existing_record.filled_volume == 500
+    assert existing_record.filled_price == 52.14
+    assert existing_record.order_status == "FILLED"
+    assert existing_record.trade_breakdown is not None
+    assert '"trade_id":"B0001"' in existing_record.trade_breakdown
+    assert '"trade_id":"B0002"' in existing_record.trade_breakdown
+    assert existing_record.transfer_fee == 0.25
+    assert existing_record.total_fee == 5.25
     assert sync_calls == ["trade_callback", "trade_callback"]
 
 

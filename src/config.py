@@ -27,6 +27,13 @@ class Settings(BaseSettings):
     redis_tick_cache_ttl: int = Field(default=28800, env="REDIS_TICK_CACHE_TTL")
     redis_t0_signal_key: str = Field(default="t0_signal_card", env="REDIS_T0_SIGNAL_KEY")
     redis_t0_signal_ttl: int = Field(default=86400, env="REDIS_T0_SIGNAL_TTL")
+    redis_t0_position_channel: str = Field(
+        default="t0_position_updates", env="REDIS_T0_POSITION_CHANNEL"
+    )
+    redis_t0_position_latest_prefix: str = Field(
+        default="t0_position_latest:", env="REDIS_T0_POSITION_LATEST_PREFIX"
+    )
+    redis_t0_position_latest_ttl: int = Field(default=86400, env="REDIS_T0_POSITION_LATEST_TTL")
     redis_quote_stream_channel: str = Field(
         default="quote_stream", env="REDIS_QUOTE_STREAM_CHANNEL"
     )
@@ -36,12 +43,8 @@ class Settings(BaseSettings):
     redis_quote_control_channel: str = Field(
         default="quote_subscription_events", env="REDIS_QUOTE_CONTROL_CHANNEL"
     )
-    redis_quote_latest_prefix: str = Field(
-        default="quote_latest:", env="REDIS_QUOTE_LATEST_PREFIX"
-    )
-    redis_quote_latest_ttl_seconds: int = Field(
-        default=0, env="REDIS_QUOTE_LATEST_TTL_SECONDS"
-    )
+    redis_quote_latest_prefix: str = Field(default="quote_latest:", env="REDIS_QUOTE_LATEST_PREFIX")
+    redis_quote_latest_ttl_seconds: int = Field(default=0, env="REDIS_QUOTE_LATEST_TTL_SECONDS")
     redis_quote_enriched_stream_channel: str = Field(
         default="quote_stream_enriched", env="REDIS_QUOTE_ENRICHED_STREAM_CHANNEL"
     )
@@ -101,13 +104,9 @@ class Settings(BaseSettings):
     cms_server_refresh_interval_seconds: int = Field(
         default=15, env="CMS_SERVER_REFRESH_INTERVAL_SECONDS"
     )
-    cms_quote_position_cache_seconds: int = Field(
-        default=2, env="CMS_QUOTE_POSITION_CACHE_SECONDS"
-    )
+    cms_quote_position_cache_seconds: int = Field(default=2, env="CMS_QUOTE_POSITION_CACHE_SECONDS")
     watchdog_enabled: bool = Field(default=True, env="WATCHDOG_ENABLED")
-    watchdog_check_interval_seconds: int = Field(
-        default=30, env="WATCHDOG_CHECK_INTERVAL_SECONDS"
-    )
+    watchdog_check_interval_seconds: int = Field(default=30, env="WATCHDOG_CHECK_INTERVAL_SECONDS")
     watchdog_min_restart_interval_seconds: int = Field(
         default=120, env="WATCHDOG_MIN_RESTART_INTERVAL_SECONDS"
     )
@@ -121,21 +120,13 @@ class Settings(BaseSettings):
         default=True, env="WATCHDOG_ENABLE_TRADING_SERVICE"
     )
     watchdog_enable_t0_daemon: bool = Field(default=True, env="WATCHDOG_ENABLE_T0_DAEMON")
-    watchdog_enable_t0_reconcile: bool = Field(
-        default=True, env="WATCHDOG_ENABLE_T0_RECONCILE"
-    )
-    watchdog_trading_start_time: str = Field(
-        default="08:35", env="WATCHDOG_TRADING_START_TIME"
-    )
+    watchdog_enable_t0_reconcile: bool = Field(default=True, env="WATCHDOG_ENABLE_T0_RECONCILE")
+    watchdog_trading_start_time: str = Field(default="08:35", env="WATCHDOG_TRADING_START_TIME")
     watchdog_trading_stop_time: str = Field(default="21:05", env="WATCHDOG_TRADING_STOP_TIME")
     watchdog_t0_start_time: str = Field(default="09:20", env="WATCHDOG_T0_START_TIME")
     watchdog_t0_stop_time: str = Field(default="15:05", env="WATCHDOG_T0_STOP_TIME")
-    watchdog_t0_reconcile_time: str = Field(
-        default="15:10", env="WATCHDOG_T0_RECONCILE_TIME"
-    )
-    watchdog_job_max_delay_minutes: int = Field(
-        default=120, env="WATCHDOG_JOB_MAX_DELAY_MINUTES"
-    )
+    watchdog_t0_reconcile_time: str = Field(default="15:10", env="WATCHDOG_T0_RECONCILE_TIME")
+    watchdog_job_max_delay_minutes: int = Field(default=120, env="WATCHDOG_JOB_MAX_DELAY_MINUTES")
     trading_day_check_enabled: bool = Field(default=True, env="TRADING_DAY_CHECK_ENABLED")
     test_mode_enabled: bool = Field(default=False, env="TEST_MODE_ENABLED")
     tushare_token: Optional[str] = Field(default=None, env="TUSHARE_TOKEN")
@@ -153,6 +144,10 @@ class Settings(BaseSettings):
     t0_trade_unit: int = Field(default=100, env="T0_TRADE_UNIT")
     t0_max_trade_value: float = Field(default=50000, env="T0_MAX_TRADE_VALUE")
     t0_intraday_bar_period: str = Field(default="1m", env="T0_INTRADAY_BAR_PERIOD")
+    t0_commission_rate: float = Field(default=0.0001, env="T0_COMMISSION_RATE")
+    t0_min_commission: float = Field(default=5.0, env="T0_MIN_COMMISSION")
+    t0_transfer_fee_rate: float = Field(default=0.00001, env="T0_TRANSFER_FEE_RATE")
+    t0_stamp_duty_rate: float = Field(default=0.0005, env="T0_STAMP_DUTY_RATE")
     t0_poll_interval_seconds: int = Field(default=60, env="T0_POLL_INTERVAL_SECONDS")
     t0_sync_connect_retry_attempts: int = Field(default=3, env="T0_SYNC_CONNECT_RETRY_ATTEMPTS")
     t0_sync_connect_retry_delay_seconds: int = Field(

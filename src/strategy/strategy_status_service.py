@@ -64,9 +64,7 @@ class StrategyStatusService:
             time_windows = self._check_time_windows(current_time)
 
             # 6. 策略条件检查
-            conditions = self._check_strategy_conditions(
-                feature_dict, position_dict, time_windows
-            )
+            conditions = self._check_strategy_conditions(feature_dict, position_dict, time_windows)
 
             return {
                 "status": "ok",
@@ -94,13 +92,16 @@ class StrategyStatusService:
                     "available": position_dict.get("available_volume", 0),
                     "cost_price": position_dict.get("cost_price", 0),
                     "base": position_dict.get("base_position", self.params.t0_base_position),
-                    "tactical": position_dict.get("tactical_position", self.params.t0_tactical_position),
+                    "tactical": position_dict.get(
+                        "tactical_position", self.params.t0_tactical_position
+                    ),
                     "max": position_dict.get(
                         "max_position",
                         self.params.t0_base_position + self.params.t0_tactical_position,
                     ),
                     "t0_sell_available": position_dict.get("t0_sell_available", 0),
                     "t0_buy_capacity": position_dict.get("t0_buy_capacity", 0),
+                    "position_version": position_dict.get("position_version", 0),
                 },
                 "time_windows": time_windows,
                 "conditions": conditions,
@@ -108,7 +109,9 @@ class StrategyStatusService:
 
         except Exception as e:
             logger.error(f"获取策略状态失败: {e}", exc_info=True)
-            return self._error_response(f"系统异常: {str(e)}", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+            return self._error_response(
+                f"系统异常: {str(e)}", datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            )
 
     def _check_time_windows(self, current_time) -> Dict:
         """检查时间窗口"""
@@ -195,13 +198,15 @@ class StrategyStatusService:
                         "value": t0_sell_available,
                     },
                 ],
-                "all_passed": all([
-                    time_windows["positive_sell"]["active"],
-                    rise >= self.params.t0_positive_sell_min_rise,
-                    pullback >= self.params.t0_positive_sell_min_pullback,
-                    current_close < vwap,
-                    t0_sell_available > 0,
-                ]),
+                "all_passed": all(
+                    [
+                        time_windows["positive_sell"]["active"],
+                        rise >= self.params.t0_positive_sell_min_rise,
+                        pullback >= self.params.t0_positive_sell_min_pullback,
+                        current_close < vwap,
+                        t0_sell_available > 0,
+                    ]
+                ),
             },
             "reverse_t_buy": {
                 "checks": [
@@ -231,13 +236,15 @@ class StrategyStatusService:
                         "value": t0_buy_capacity,
                     },
                 ],
-                "all_passed": all([
-                    time_windows["reverse_buy"]["active"],
-                    bounce >= self.params.t0_reverse_buy_min_bounce,
-                    close_vs_vwap >= -0.5,
-                    absorption >= 0.6,
-                    t0_buy_capacity > 0,
-                ]),
+                "all_passed": all(
+                    [
+                        time_windows["reverse_buy"]["active"],
+                        bounce >= self.params.t0_reverse_buy_min_bounce,
+                        close_vs_vwap >= -0.5,
+                        absorption >= 0.6,
+                        t0_buy_capacity > 0,
+                    ]
+                ),
             },
         }
 

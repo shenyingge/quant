@@ -10,6 +10,7 @@ from src.strategy.core.models import PortfolioState, SignalEvent
 from src.strategy.core.params import T0StrategyParams
 from src.strategy.core.regime_classifier import RegimeClassifier
 from src.strategy.feature_calculator import FeatureCalculator
+from src.trading_costs import TradingFeeSchedule
 
 
 class T0BacktestSimulator:
@@ -240,7 +241,9 @@ class T0BacktestSimulator:
             "price": execution_price,
             "volume": fill_volume,
             "execution_mode": self.execution_mode,
-            **self._calculate_fee_breakdown(action=action, price=execution_price, volume=fill_volume),
+            **self._calculate_fee_breakdown(
+                action=action, price=execution_price, volume=fill_volume
+            ),
         }
         signal_event = SignalEvent(
             action=action,
@@ -273,7 +276,9 @@ class T0BacktestSimulator:
         total_position = position.total_position
         available_volume = position.available_volume
         cash_available = position.cash_available
-        fees = fee_breakdown or self._calculate_fee_breakdown(action=action, price=price, volume=volume)
+        fees = fee_breakdown or self._calculate_fee_breakdown(
+            action=action, price=price, volume=volume
+        )
         total_fee = float(fees.get("total_fee", 0.0))
 
         if action == "positive_t_sell":
@@ -314,25 +319,18 @@ class T0BacktestSimulator:
             cash_available=cash_available,
         )
 
-    def _calculate_fee_breakdown(self, *, action: str, price: float, volume: int) -> Dict[str, float]:
-        notional = max(float(price) * int(volume), 0.0)
-        commission_rate = float(getattr(self.params, "t0_commission_rate", 0.0) or 0.0)
-        min_commission = float(getattr(self.params, "t0_min_commission", 0.0) or 0.0)
-        transfer_fee_rate = float(getattr(self.params, "t0_transfer_fee_rate", 0.0) or 0.0)
-        stamp_duty_rate = float(getattr(self.params, "t0_stamp_duty_rate", 0.0) or 0.0)
-
-        commission = max(notional * commission_rate, min_commission) if notional > 0 else 0.0
-        transfer_fee = notional * transfer_fee_rate
-        stamp_duty = notional * stamp_duty_rate if action.endswith("sell") else 0.0
-        total_fee = commission + transfer_fee + stamp_duty
-
-        return {
-            "notional": round(notional, 6),
-            "commission": round(commission, 6),
-            "transfer_fee": round(transfer_fee, 6),
-            "stamp_duty": round(stamp_duty, 6),
-            "total_fee": round(total_fee, 6),
-        }
+    def _calculate_fee_breakdown(
+        self, *, action: str, price: float, volume: int
+    ) -> Dict[str, float]:
+        return (
+            TradingFeeSchedule.from_t0_params(self.params)
+            .calculate(
+                side=action,
+                price=price,
+                volume=volume,
+            )
+            .to_dict()
+        )
 
     def _as_datetime(self, timestamp) -> datetime:
         if isinstance(timestamp, datetime):

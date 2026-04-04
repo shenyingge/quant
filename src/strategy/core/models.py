@@ -48,6 +48,7 @@ class PortfolioState:
     t0_sell_available: int
     t0_buy_capacity: int
     cash_available: float = 0.0
+    position_version: int = 0
 
     def to_dict(self) -> Dict:
         return {
@@ -60,6 +61,7 @@ class PortfolioState:
             "t0_sell_available": self.t0_sell_available,
             "t0_buy_capacity": self.t0_buy_capacity,
             "cash_available": self.cash_available,
+            "position_version": self.position_version,
         }
 
 
@@ -109,6 +111,7 @@ class PositionSnapshot:
     max: int
     t0_sell_available: int
     t0_buy_capacity: int
+    position_version: int = 0
 
     def to_dict(self) -> Dict:
         return asdict(self)

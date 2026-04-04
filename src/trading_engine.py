@@ -2,7 +2,7 @@ import sys
 import threading
 import time
 from datetime import datetime
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from schedule import Scheduler
 from sqlalchemy.orm import Session
@@ -21,13 +21,21 @@ from src.qmt_constants import OrderStatus, get_status_name, is_filled_status, is
 from src.quote_stream_service import QuoteStreamService
 from src.redis_listener import RedisSignalListener
 from src.stock_info import get_stock_display_name
+from src.strategy.position_syncer import PositionSyncer
 from src.trader import QMTTrader
 from src.trading_calendar_manager import initialize_trading_calendar, trading_calendar_manager
+from src.trading_costs import (
+    TradingFeeSchedule,
+    append_trade_breakdown_leg,
+    apply_trade_cost_fields,
+    summarize_trade_breakdown,
+)
 
 
 class TradingEngine:
     def __init__(self):
         self.notifier = FeishuNotifier()
+        self.fee_schedule = TradingFeeSchedule.from_settings(settings)
         session_id = settings.qmt_session_id_trading_service or settings.qmt_session_id
         self.trader = QMTTrader(self.notifier, session_id=session_id)
         self.redis_listener = None
@@ -303,6 +311,15 @@ class TradingEngine:
                     return
 
             # 保存信号到数据库
+            guard_error = self._resolve_position_guard_mismatch(signal_data)
+            if guard_error:
+                logger.warning(guard_error)
+                self._persist_rejected_signal(signal_data, guard_error)
+                self.notifier.notify_error(
+                    guard_error, f"淇″彿ID: {signal_data.get('signal_id', 'Unknown')}"
+                )
+                return
+
             db = SessionLocal()
             try:
                 # 检查信号是否已处理
@@ -342,6 +359,68 @@ class TradingEngine:
             self.notifier.notify_error(
                 str(e), f"处理信号: {signal_data.get('signal_id', 'Unknown')}"
             )
+
+    def _resolve_position_guard_mismatch(self, signal_data: Dict[str, Any]) -> Optional[str]:
+        expected_version = self._extract_expected_position_version(signal_data)
+        if expected_version is None:
+            return None
+
+        stock_code = str(signal_data.get("stock_code") or "").strip()
+        current_version = PositionSyncer().get_position_version(stock_code=stock_code or None)
+        if current_version == expected_version:
+            return None
+
+        return (
+            f"Stale trading signal rejected: stock={stock_code}, "
+            f"expected_position_version={expected_version}, current_position_version={current_version}"
+        )
+
+    def _extract_expected_position_version(self, signal_data: Dict[str, Any]) -> Optional[int]:
+        for key in ("expected_position_version", "position_version", "strategy_position_version"):
+            raw_value = signal_data.get(key)
+            if raw_value in (None, ""):
+                continue
+            try:
+                return int(raw_value)
+            except (TypeError, ValueError):
+                logger.warning(
+                    "Ignoring invalid position version guard on signal {}: key={} value={}",
+                    signal_data.get("signal_id"),
+                    key,
+                    raw_value,
+                )
+                return None
+        return None
+
+    def _persist_rejected_signal(self, signal_data: Dict[str, Any], error_message: str) -> None:
+        db = SessionLocal()
+        try:
+            existing_signal = (
+                db.query(TradingSignal)
+                .filter(TradingSignal.signal_id == signal_data["signal_id"])
+                .first()
+            )
+            if existing_signal:
+                return
+
+            db.add(
+                TradingSignal(
+                    signal_id=signal_data["signal_id"],
+                    stock_code=signal_data["stock_code"],
+                    direction=signal_data["direction"],
+                    volume=signal_data["volume"],
+                    price=signal_data.get("price"),
+                    signal_time=datetime.utcnow(),
+                    processed=True,
+                    error_message=error_message,
+                )
+            )
+            db.commit()
+        except Exception as exc:
+            db.rollback()
+            logger.error(f"Failed to persist rejected trading signal: {exc}")
+        finally:
+            db.close()
 
     def _execute_trade(self, signal_data: Dict[str, Any], db: Session):
         """执行交易（使用超时保护的同步下单）"""
@@ -598,6 +677,8 @@ class TradingEngine:
                             )
 
                             if has_valid_fill:
+                                previous_filled_volume = int(order.filled_volume or 0)
+                                delta_volume = int(filled_volume or 0) - previous_filled_volume
                                 logger.info(
                                     f"订单 {order.order_id} 有新成交: 状态={current_status}({get_status_name(current_status) if isinstance(current_status, int) else current_status}), 成交={filled_volume}"
                                 )
@@ -605,6 +686,31 @@ class TradingEngine:
                                 order.filled_volume = filled_volume
                                 order.filled_price = order_status.get("avg_price", 0)
                                 order.filled_time = datetime.utcnow()
+                                if order.price in (None, 0):
+                                    order.price = float(order.filled_price or 0.0)
+                                if delta_volume > 0:
+                                    breakdown = append_trade_breakdown_leg(
+                                        order,
+                                        volume=delta_volume,
+                                        price=float(order_status.get("avg_price", 0) or 0.0),
+                                        filled_time=order.filled_time,
+                                        trade_id=f"monitor:{order.order_id}:{filled_volume}",
+                                        source="order_monitor",
+                                    )
+                                    summary = summarize_trade_breakdown(breakdown)
+                                    if summary:
+                                        order.filled_volume = int(summary.get("filled_volume") or 0)
+                                        order.filled_price = float(
+                                            summary.get("filled_price") or 0.0
+                                        )
+                                try:
+                                    apply_trade_cost_fields(order, fee_schedule=self.fee_schedule)
+                                except Exception as exc:
+                                    logger.warning(
+                                        "Unable to apply persisted trade cost fields for order {}: {}",
+                                        order.order_id,
+                                        exc,
+                                    )
 
                                 # 如果完全成交且还没发送过成交通知，则发送通知
                                 if order.filled_volume >= order.volume and not getattr(

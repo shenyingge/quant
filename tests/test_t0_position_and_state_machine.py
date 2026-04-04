@@ -137,6 +137,32 @@ def test_position_syncer_reconciles_local_fills_into_position_state(tmp_path, mo
     assert position["last_reconciled_fill_time"] == "2026-03-26T10:15:00"
 
 
+def test_position_syncer_builds_fill_state_with_reconcile_marker():
+    syncer = PositionSyncer()
+
+    updated = syncer._build_filled_position_state(
+        {
+            "stock_code": "601138.SH",
+            "total_position": 4000,
+            "available_volume": 3500,
+            "cost_price": 50.0,
+            "position_version": 7,
+        },
+        direction="SELL",
+        volume=300,
+        price=53.0,
+        filled_time=datetime(2026, 3, 26, 10, 5, 0),
+        source="trade_callback",
+    )
+
+    assert updated["total_position"] == 3700
+    assert updated["available_volume"] == 3200
+    assert updated["last_sync_source"] == "trade_callback"
+    assert updated["last_fill_time"] == "2026-03-26T10:05:00"
+    assert updated["last_reconciled_fill_time"] == "2026-03-26T10:05:00"
+    assert updated["position_version"] == 7
+
+
 def test_reverse_t_buy_is_blocked_when_tactical_buy_capacity_is_zero():
     generator = SignalGenerator()
     features = {

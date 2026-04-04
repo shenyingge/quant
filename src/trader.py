@@ -25,6 +25,13 @@ from src.qmt_constants import (
 )
 from src.redis_client import redis_trade_client
 from src.stock_info import get_stock_display_name
+from src.trading_costs import (
+    TradingFeeSchedule,
+    append_trade_breakdown_leg,
+    apply_trade_cost_fields,
+    load_trade_breakdown,
+    summarize_trade_breakdown,
+)
 
 
 class QMTCallback(XtQuantTraderCallback):
@@ -33,6 +40,7 @@ class QMTCallback(XtQuantTraderCallback):
     def __init__(self, trader_instance):
         super().__init__()
         self.trader = trader_instance
+        self.fee_schedule = TradingFeeSchedule.from_settings(settings)
 
     def on_disconnected(self):
         """
@@ -251,6 +259,8 @@ class QMTCallback(XtQuantTraderCallback):
             traded_volume = getattr(trade, "traded_volume", getattr(trade, "filled_qty", 0))
             traded_price = getattr(trade, "traded_price", getattr(trade, "filled_price", 0))
             trade_id = self._extract_trade_identifier(trade) or f"trade_{int(time.time())}"
+            filled_time = self._extract_trade_timestamp(trade)
+            direction = self._infer_trade_direction(trade, stock_code=stock_code)
             trade_amount = traded_volume * traded_price
 
             callback_key = self._build_trade_callback_key(
@@ -280,6 +290,22 @@ class QMTCallback(XtQuantTraderCallback):
             }
 
             try:
+                sync_account_positions_from_qmt(self.trader, source="trade_callback")
+            except Exception as sync_error:
+                logger.error(f"Trade callback position sync failed: {sync_error}")
+
+            position_syncer = None
+            if stock_code == settings.t0_stock_code:
+                try:
+                    from src.strategy.position_syncer import PositionSyncer
+
+                    position_syncer = PositionSyncer()
+                except Exception as position_sync_error:
+                    logger.error(
+                        f"Failed to initialize T0 strategy position syncer during trade callback: {position_sync_error}"
+                    )
+
+            try:
                 db = SessionLocal()
                 try:
                     order_record = self._load_order_record_for_trade(
@@ -291,7 +317,8 @@ class QMTCallback(XtQuantTraderCallback):
                             order_record,
                             traded_volume=traded_volume,
                             traded_price=traded_price,
-                            filled_time=self._extract_trade_timestamp(trade),
+                            filled_time=filled_time,
+                            trade_identifier=trade_id,
                         )
                     else:
                         order_record = self._create_order_record_from_trade(
@@ -307,9 +334,23 @@ class QMTCallback(XtQuantTraderCallback):
                             f"Created standalone order record from trade callback: order_id={order_record.order_id}, stock_code={stock_code}, trade_id={trade_id}"
                         )
 
+                    if position_syncer is not None:
+                        position_syncer.apply_fill_transactional(
+                            db,
+                            direction,
+                            traded_volume,
+                            traded_price,
+                            stock_code=stock_code,
+                            filled_time=filled_time,
+                            source="trade_callback",
+                        )
+
                     should_notify = not getattr(order_record, "fill_notified", False)
                     notification_payload["order_id"] = order_record.order_id
                     db.commit()
+
+                    if position_syncer is not None:
+                        position_syncer.publish_pending_events(limit=20)
 
                     if should_notify and hasattr(self.trader, "notifier") and self.trader.notifier:
                         self.trader.notifier.notify_order_filled(notification_payload)
@@ -329,19 +370,6 @@ class QMTCallback(XtQuantTraderCallback):
                 logger.error(f"Failed to persist trade callback into Meta DB: {exc}")
                 if hasattr(self.trader, "notifier") and self.trader.notifier:
                     self.trader.notifier.notify_order_filled(notification_payload)
-
-            try:
-                sync_account_positions_from_qmt(self.trader, source="trade_callback")
-            except Exception as sync_error:
-                logger.error(f"Trade callback position sync failed: {sync_error}")
-
-            try:
-                from src.strategy.position_syncer import PositionSyncer
-
-                direction = self._infer_trade_direction(trade, stock_code=stock_code)
-                PositionSyncer().apply_fill(direction, traded_volume, traded_price)
-            except Exception as t0_sync_error:
-                logger.error(f"T0 strategy position apply_fill failed: {t0_sync_error}")
 
             with self.trader.stats_lock:
                 self.trader.stats["total_trade_amount"] = (
@@ -394,16 +422,25 @@ class QMTCallback(XtQuantTraderCallback):
         traded_volume: int,
         traded_price: float,
         filled_time: datetime,
+        trade_identifier: Optional[str] = None,
     ) -> None:
-        order_record.filled_volume = int(traded_volume or 0)
-        order_record.filled_price = float(traded_price or 0.0)
-        order_record.filled_time = filled_time
         if order_record.price in (None, 0):
             order_record.price = float(traded_price or 0.0)
         if order_record.volume in (None, 0):
             order_record.volume = int(traded_volume or 0)
-        if not order_record.order_status or order_record.order_status == "PENDING":
+        self._append_trade_leg_to_order_record(
+            order_record,
+            traded_volume=traded_volume,
+            traded_price=traded_price,
+            filled_time=filled_time,
+            trade_identifier=trade_identifier,
+            source="trade_callback",
+        )
+        if int(order_record.filled_volume or 0) >= int(order_record.volume or 0):
             order_record.order_status = "FILLED"
+        elif not order_record.order_status or order_record.order_status == "PENDING":
+            order_record.order_status = "部分成交"
+        self._apply_trade_costs_to_order_record(order_record)
 
     def _create_order_record_from_trade(
         self,
@@ -419,7 +456,7 @@ class QMTCallback(XtQuantTraderCallback):
         signal_id = self._infer_signal_id_from_active_orders(raw_order_id, stock_code)
         direction = self._infer_trade_direction(trade, stock_code=stock_code)
         order_id = self._build_trade_order_id(raw_order_id, trade_id)
-        return OrderRecord(
+        order_record = OrderRecord(
             signal_id=signal_id,
             order_id=order_id,
             stock_code=stock_code,
@@ -428,12 +465,78 @@ class QMTCallback(XtQuantTraderCallback):
             price=float(traded_price or 0.0),
             order_status="FILLED",
             order_time=filled_time,
-            filled_price=float(traded_price or 0.0),
-            filled_volume=int(traded_volume or 0),
-            filled_time=filled_time,
+            filled_price=0.0,
+            filled_volume=0,
+            filled_time=None,
             fill_notified=False,
             error_message="Created from QMT trade callback without a matching order record",
         )
+        self._append_trade_leg_to_order_record(
+            order_record,
+            traded_volume=traded_volume,
+            traded_price=traded_price,
+            filled_time=filled_time,
+            trade_identifier=trade_id,
+            source="trade_callback",
+        )
+        self._apply_trade_costs_to_order_record(order_record)
+        return order_record
+
+    def _append_trade_leg_to_order_record(
+        self,
+        order_record: OrderRecord,
+        *,
+        traded_volume: int,
+        traded_price: float,
+        filled_time: datetime,
+        trade_identifier: Optional[str],
+        source: str,
+    ) -> None:
+        existing_breakdown = load_trade_breakdown(order_record)
+        if (
+            not existing_breakdown
+            and int(getattr(order_record, "filled_volume", 0) or 0) > 0
+            and float(getattr(order_record, "filled_price", 0.0) or 0.0) > 0
+        ):
+            append_trade_breakdown_leg(
+                order_record,
+                volume=int(order_record.filled_volume or 0),
+                price=float(order_record.filled_price or 0.0),
+                filled_time=getattr(order_record, "filled_time", None),
+                trade_id="seed_existing_fill",
+                source="seed_existing_fill",
+            )
+
+        breakdown = append_trade_breakdown_leg(
+            order_record,
+            volume=traded_volume,
+            price=traded_price,
+            filled_time=filled_time,
+            trade_id=trade_identifier,
+            source=source,
+        )
+        summary = summarize_trade_breakdown(breakdown)
+        if not summary:
+            order_record.filled_volume = int(traded_volume or 0)
+            order_record.filled_price = float(traded_price or 0.0)
+            order_record.filled_time = filled_time
+            return
+
+        order_record.filled_volume = int(summary.get("filled_volume") or 0)
+        order_record.filled_price = float(summary.get("filled_price") or 0.0)
+        parsed_time = self._parse_trade_timestamp(summary.get("filled_time"))
+        order_record.filled_time = parsed_time or filled_time
+
+    def _apply_trade_costs_to_order_record(self, order_record: OrderRecord) -> None:
+        try:
+            apply_trade_cost_fields(order_record, fee_schedule=self.fee_schedule)
+        except Exception as exc:
+            logger.warning(
+                "Unable to apply persisted trade cost fields for order_id={} stock_code={}: {}",
+                getattr(order_record, "order_id", None),
+                getattr(order_record, "stock_code", None),
+                exc,
+            )
 
     def _build_trade_order_id(self, raw_order_id: Any, trade_id: Any) -> str:
         normalized_order_id = self._normalize_order_id(raw_order_id)
@@ -1761,7 +1864,9 @@ class QMTTrader:
                 order_type = getattr(order, "order_type", None)
                 if order_type == xtconstant.STOCK_BUY or str(order_type).strip().upper() == "BUY":
                     direction = "BUY"
-                elif order_type == xtconstant.STOCK_SELL or str(order_type).strip().upper() == "SELL":
+                elif (
+                    order_type == xtconstant.STOCK_SELL or str(order_type).strip().upper() == "SELL"
+                ):
                     direction = "SELL"
                 else:
                     direction = "UNKNOWN"

@@ -63,10 +63,13 @@ class StrategyEngine:
         start_time = time.time()
         try:
             trade_date = date.today()
+            self.position_syncer.publish_pending_events(limit=20)
             logger.debug(f"开始执行策略引擎: {self.stock_code}, {trade_date}")
 
             # 1. 获取数据 (realtime模式跳过download_history_data)
-            minute_data = self.data_fetcher.fetch_minute_data(self.stock_code, trade_date, realtime=True)
+            minute_data = self.data_fetcher.fetch_minute_data(
+                self.stock_code, trade_date, realtime=True
+            )
             if minute_data is None:
                 return self._finalize_signal_card(self._error_signal_card("分钟数据获取失败"))
 
@@ -96,14 +99,16 @@ class StrategyEngine:
             )
 
             # 4. 加载仓位
-            position = self.position_syncer.load_portfolio_state()
+            position_state = self.position_syncer.load_position()
+            position = self.position_syncer.to_portfolio_state(position_state)
             position_dict = position.to_dict() if hasattr(position, "to_dict") else dict(position)
             logger.debug(
                 f"仓位状态: total={position_dict.get('total_position', 0)}, "
                 f"available={position_dict.get('available_volume', 0)}, "
                 f"t0_sell_avail={position_dict.get('t0_sell_available', 0)}, "
                 f"t0_buy_capacity={position_dict.get('t0_buy_capacity', 0)}, "
-                f"cost={position_dict.get('cost_price', 0):.2f}"
+                f"cost={position_dict.get('cost_price', 0):.2f}, "
+                f"version={position_dict.get('position_version', 0)}"
             )
 
             # 4.1 加载当日已产出的策略信号历史
@@ -206,6 +211,7 @@ class StrategyEngine:
                 ),
                 t0_sell_available=position_dict.get("t0_sell_available", 0),
                 t0_buy_capacity=position_dict.get("t0_buy_capacity", 0),
+                position_version=position_dict.get("position_version", 0),
             ),
             market=market,
             signal=StrategyDecision(
@@ -243,7 +249,7 @@ class StrategyEngine:
                 self.redis_client.setex(
                     settings.redis_t0_signal_key,
                     settings.redis_t0_signal_ttl,
-                    json.dumps(signal_dict, ensure_ascii=False)
+                    json.dumps(signal_dict, ensure_ascii=False),
                 )
                 logger.debug(f"信号卡片已写入 Redis: {settings.redis_t0_signal_key}")
             except Exception as e:

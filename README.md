@@ -104,6 +104,10 @@ FEISHU_SECRET=your-secret-key
 T0_STOCK_CODE=601138.SH
 T0_BASE_POSITION=2600
 T0_TACTICAL_POSITION=900
+T0_COMMISSION_RATE=0.0001
+T0_MIN_COMMISSION=5.0
+T0_TRANSFER_FEE_RATE=0.00001
+T0_STAMP_DUTY_RATE=0.0005
 T0_NOTIFY_OBSERVE_SIGNALS=false
 
 # 日志配置
@@ -275,7 +279,7 @@ uv run python main.py t0-backtest --config ./configs/t0_backtest_601138.json
   "cash_available": 2133.81,
   "commission_rate": 0.0001,
   "min_commission": 5.0,
-  "transfer_fee_rate": 0.00002,
+  "transfer_fee_rate": 0.00001,
   "stamp_duty_rate": 0.0005
 }
 ```

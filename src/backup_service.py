@@ -168,6 +168,15 @@ class DatabaseBackupService:
                         "filled_price": row.filled_price,
                         "filled_volume": row.filled_volume,
                         "filled_time": row.filled_time.isoformat() if row.filled_time else None,
+                        "trade_amount": row.trade_amount,
+                        "commission": row.commission,
+                        "transfer_fee": row.transfer_fee,
+                        "stamp_duty": row.stamp_duty,
+                        "total_fee": row.total_fee,
+                        "transaction_cost": row.transaction_cost,
+                        "settlement_amount": row.settlement_amount,
+                        "net_cash_effect": row.net_cash_effect,
+                        "trade_breakdown": row.trade_breakdown,
                         "error_message": row.error_message,
                         "created_at": row.created_at.isoformat() if row.created_at else None,
                         "updated_at": row.updated_at.isoformat() if row.updated_at else None,
@@ -209,6 +218,7 @@ class DatabaseBackupService:
 
         logger.info(f"Created backup file: {backup_file}")
         return str(backup_file)
+
     def _backup_to_local(self, backup_file: str) -> bool:
         """Copy the backup file to local backup storage."""
         try:

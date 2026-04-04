@@ -11,10 +11,10 @@ class T0StrategyParams:
     t0_trade_unit: int = 100
     t0_max_trade_value: float = 50000
     t0_intraday_bar_period: str = "1m"
-    t0_commission_rate: float = 0.0
-    t0_min_commission: float = 0.0
-    t0_transfer_fee_rate: float = 0.0
-    t0_stamp_duty_rate: float = 0.0
+    t0_commission_rate: float = 0.0001
+    t0_min_commission: float = 5.0
+    t0_transfer_fee_rate: float = 0.00001
+    t0_stamp_duty_rate: float = 0.0005
     t0_min_hold_minutes: int = 20
     t0_positive_sell_start_time: str = "09:45"
     t0_positive_sell_end_time: str = "11:20"

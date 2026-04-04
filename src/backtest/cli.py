@@ -23,7 +23,9 @@ def run_backtest_cli(argv: Optional[list] = None) -> int:
     _normalize_datetime_args(args)
 
     loader = BacktestDataLoader()
-    minute_path = loader.resolve_data_path(args.minute_data, symbol=args.symbol, dataset_kind="minute")
+    minute_path = loader.resolve_data_path(
+        args.minute_data, symbol=args.symbol, dataset_kind="minute"
+    )
     daily_path = loader.resolve_data_path(args.daily_data, symbol=args.symbol, dataset_kind="daily")
 
     minute_data = loader.load_minute_data(
@@ -112,28 +114,95 @@ def _build_parser(argv: Optional[list]) -> argparse.ArgumentParser:
     cfg = lambda key, default=None: config.get(key, default)
 
     parser.add_argument("--config", help="JSON 配置文件路径")
-    parser.add_argument("--minute-data", required=cfg("minute_data") is None, default=cfg("minute_data"), help="分钟线 csv/parquet 文件或目录")
-    parser.add_argument("--daily-data", required=cfg("daily_data") is None, default=cfg("daily_data"), help="日线 csv/parquet 文件或目录")
+    parser.add_argument(
+        "--minute-data",
+        required=cfg("minute_data") is None,
+        default=cfg("minute_data"),
+        help="分钟线 csv/parquet 文件或目录",
+    )
+    parser.add_argument(
+        "--daily-data",
+        required=cfg("daily_data") is None,
+        default=cfg("daily_data"),
+        help="日线 csv/parquet 文件或目录",
+    )
     parser.add_argument("--symbol", default=cfg("symbol", settings.t0_stock_code), help="股票代码")
-    parser.add_argument("--output-dir", default=cfg("output_dir"), help="回测输出目录；默认写到 output/backtest_<timestamp>")
+    parser.add_argument(
+        "--output-dir",
+        default=cfg("output_dir"),
+        help="回测输出目录；默认写到 output/backtest_<timestamp>",
+    )
     parser.add_argument("--timezone", default=cfg("timezone", "Asia/Shanghai"), help="数据时区")
-    parser.add_argument("--start-date", default=cfg("start_date"), help="分钟数据开始日期，例如 2026-03-01")
-    parser.add_argument("--end-date", default=cfg("end_date"), help="分钟数据结束日期，例如 2026-03-24")
-    parser.add_argument("--start-datetime", default=cfg("start_datetime"), help="分钟数据开始时间，例如 2026-03-12 09:58:00")
-    parser.add_argument("--end-datetime", default=cfg("end_datetime"), help="分钟数据结束时间，例如 2026-03-24 15:00:00")
+    parser.add_argument(
+        "--start-date", default=cfg("start_date"), help="分钟数据开始日期，例如 2026-03-01"
+    )
+    parser.add_argument(
+        "--end-date", default=cfg("end_date"), help="分钟数据结束日期，例如 2026-03-24"
+    )
+    parser.add_argument(
+        "--start-datetime",
+        default=cfg("start_datetime"),
+        help="分钟数据开始时间，例如 2026-03-12 09:58:00",
+    )
+    parser.add_argument(
+        "--end-datetime",
+        default=cfg("end_datetime"),
+        help="分钟数据结束时间，例如 2026-03-24 15:00:00",
+    )
     parser.add_argument("--daily-start-date", default=cfg("daily_start_date"), help="日线开始日期")
     parser.add_argument("--daily-end-date", default=cfg("daily_end_date"), help="日线结束日期")
-    parser.add_argument("--daily-start-datetime", default=cfg("daily_start_datetime"), help="日线开始时间")
-    parser.add_argument("--daily-end-datetime", default=cfg("daily_end_datetime"), help="日线结束时间")
+    parser.add_argument(
+        "--daily-start-datetime", default=cfg("daily_start_datetime"), help="日线开始时间"
+    )
+    parser.add_argument(
+        "--daily-end-datetime", default=cfg("daily_end_datetime"), help="日线结束时间"
+    )
 
-    parser.add_argument("--base-position", type=int, default=cfg("base_position", settings.t0_base_position), help="底仓股数")
-    parser.add_argument("--tactical-position", type=int, default=cfg("tactical_position", settings.t0_tactical_position), help="机动仓股数")
-    parser.add_argument("--trade-unit", type=int, default=cfg("trade_unit", settings.t0_trade_unit), help="最小交易单位")
-    parser.add_argument("--max-trade-value", type=float, default=cfg("max_trade_value", settings.t0_max_trade_value), help="单次最大可动用金额")
-    parser.add_argument("--initial-position", type=int, default=cfg("initial_position"), help="初始总持仓股数，默认 base + tactical")
-    parser.add_argument("--available-volume", type=int, default=cfg("available_volume"), help="初始可用股数，默认 initial_position")
-    parser.add_argument("--cost-price", type=float, default=cfg("cost_price", 80.0), help="初始成本价")
-    parser.add_argument("--cash-available", type=float, default=cfg("cash_available", settings.t0_max_trade_value), help="初始可用现金")
+    parser.add_argument(
+        "--base-position",
+        type=int,
+        default=cfg("base_position", settings.t0_base_position),
+        help="底仓股数",
+    )
+    parser.add_argument(
+        "--tactical-position",
+        type=int,
+        default=cfg("tactical_position", settings.t0_tactical_position),
+        help="机动仓股数",
+    )
+    parser.add_argument(
+        "--trade-unit",
+        type=int,
+        default=cfg("trade_unit", settings.t0_trade_unit),
+        help="最小交易单位",
+    )
+    parser.add_argument(
+        "--max-trade-value",
+        type=float,
+        default=cfg("max_trade_value", settings.t0_max_trade_value),
+        help="单次最大可动用金额",
+    )
+    parser.add_argument(
+        "--initial-position",
+        type=int,
+        default=cfg("initial_position"),
+        help="初始总持仓股数，默认 base + tactical",
+    )
+    parser.add_argument(
+        "--available-volume",
+        type=int,
+        default=cfg("available_volume"),
+        help="初始可用股数，默认 initial_position",
+    )
+    parser.add_argument(
+        "--cost-price", type=float, default=cfg("cost_price", 80.0), help="初始成本价"
+    )
+    parser.add_argument(
+        "--cash-available",
+        type=float,
+        default=cfg("cash_available", settings.t0_max_trade_value),
+        help="初始可用现金",
+    )
 
     parser.add_argument(
         "--execution-mode",
@@ -141,25 +210,93 @@ def _build_parser(argv: Optional[list]) -> argparse.ArgumentParser:
         default=cfg("execution_mode", "same_bar_close"),
         help="成交模型：当前 bar 收盘成交或下一 bar 开盘成交",
     )
-    parser.add_argument("--commission-rate", type=float, default=cfg("commission_rate", 0.0), help="佣金费率")
-    parser.add_argument("--min-commission", type=float, default=cfg("min_commission", 0.0), help="最低佣金")
-    parser.add_argument("--transfer-fee-rate", type=float, default=cfg("transfer_fee_rate", 0.0), help="过户费费率")
-    parser.add_argument("--stamp-duty-rate", type=float, default=cfg("stamp_duty_rate", 0.0), help="印花税费率")
+    parser.add_argument(
+        "--commission-rate",
+        type=float,
+        default=cfg("commission_rate", settings.t0_commission_rate),
+        help="佣金费率",
+    )
+    parser.add_argument(
+        "--min-commission",
+        type=float,
+        default=cfg("min_commission", settings.t0_min_commission),
+        help="最低佣金",
+    )
+    parser.add_argument(
+        "--transfer-fee-rate",
+        type=float,
+        default=cfg("transfer_fee_rate", settings.t0_transfer_fee_rate),
+        help="过户费费率",
+    )
+    parser.add_argument(
+        "--stamp-duty-rate",
+        type=float,
+        default=cfg("stamp_duty_rate", settings.t0_stamp_duty_rate),
+        help="印花税费率",
+    )
 
-    parser.add_argument("--min-hold-minutes", type=int, default=cfg("min_hold_minutes", settings.t0_min_hold_minutes))
-    parser.add_argument("--positive-sell-start-time", default=cfg("positive_sell_start_time", settings.t0_positive_sell_start_time))
-    parser.add_argument("--positive-sell-end-time", default=cfg("positive_sell_end_time", settings.t0_positive_sell_end_time))
-    parser.add_argument("--positive-buyback-start-time", default=cfg("positive_buyback_start_time", settings.t0_positive_buyback_start_time))
-    parser.add_argument("--positive-buyback-end-time", default=cfg("positive_buyback_end_time", settings.t0_positive_buyback_end_time))
-    parser.add_argument("--reverse-buy-start-time", default=cfg("reverse_buy_start_time", settings.t0_reverse_buy_start_time))
-    parser.add_argument("--reverse-buy-end-time", default=cfg("reverse_buy_end_time", settings.t0_reverse_buy_end_time))
-    parser.add_argument("--reverse-sell-start-time", default=cfg("reverse_sell_start_time", settings.t0_reverse_sell_start_time))
-    parser.add_argument("--reverse-sell-end-time", default=cfg("reverse_sell_end_time", settings.t0_reverse_sell_end_time))
-    parser.add_argument("--positive-sell-min-rise", type=float, default=cfg("positive_sell_min_rise", settings.t0_positive_sell_min_rise))
-    parser.add_argument("--positive-sell-min-pullback", type=float, default=cfg("positive_sell_min_pullback", settings.t0_positive_sell_min_pullback))
-    parser.add_argument("--reverse-buy-min-drop", type=float, default=cfg("reverse_buy_min_drop", settings.t0_reverse_buy_min_drop))
-    parser.add_argument("--reverse-buy-min-bounce", type=float, default=cfg("reverse_buy_min_bounce", settings.t0_reverse_buy_min_bounce))
-    parser.add_argument("--reverse-sell-min-profit", type=float, default=cfg("reverse_sell_min_profit", settings.t0_reverse_sell_min_profit))
+    parser.add_argument(
+        "--min-hold-minutes",
+        type=int,
+        default=cfg("min_hold_minutes", settings.t0_min_hold_minutes),
+    )
+    parser.add_argument(
+        "--positive-sell-start-time",
+        default=cfg("positive_sell_start_time", settings.t0_positive_sell_start_time),
+    )
+    parser.add_argument(
+        "--positive-sell-end-time",
+        default=cfg("positive_sell_end_time", settings.t0_positive_sell_end_time),
+    )
+    parser.add_argument(
+        "--positive-buyback-start-time",
+        default=cfg("positive_buyback_start_time", settings.t0_positive_buyback_start_time),
+    )
+    parser.add_argument(
+        "--positive-buyback-end-time",
+        default=cfg("positive_buyback_end_time", settings.t0_positive_buyback_end_time),
+    )
+    parser.add_argument(
+        "--reverse-buy-start-time",
+        default=cfg("reverse_buy_start_time", settings.t0_reverse_buy_start_time),
+    )
+    parser.add_argument(
+        "--reverse-buy-end-time",
+        default=cfg("reverse_buy_end_time", settings.t0_reverse_buy_end_time),
+    )
+    parser.add_argument(
+        "--reverse-sell-start-time",
+        default=cfg("reverse_sell_start_time", settings.t0_reverse_sell_start_time),
+    )
+    parser.add_argument(
+        "--reverse-sell-end-time",
+        default=cfg("reverse_sell_end_time", settings.t0_reverse_sell_end_time),
+    )
+    parser.add_argument(
+        "--positive-sell-min-rise",
+        type=float,
+        default=cfg("positive_sell_min_rise", settings.t0_positive_sell_min_rise),
+    )
+    parser.add_argument(
+        "--positive-sell-min-pullback",
+        type=float,
+        default=cfg("positive_sell_min_pullback", settings.t0_positive_sell_min_pullback),
+    )
+    parser.add_argument(
+        "--reverse-buy-min-drop",
+        type=float,
+        default=cfg("reverse_buy_min_drop", settings.t0_reverse_buy_min_drop),
+    )
+    parser.add_argument(
+        "--reverse-buy-min-bounce",
+        type=float,
+        default=cfg("reverse_buy_min_bounce", settings.t0_reverse_buy_min_bounce),
+    )
+    parser.add_argument(
+        "--reverse-sell-min-profit",
+        type=float,
+        default=cfg("reverse_sell_min_profit", settings.t0_reverse_sell_min_profit),
+    )
     parser.add_argument(
         "--reverse-sell-max-vwap-distance",
         type=float,
@@ -201,7 +338,9 @@ def build_initial_position(args: argparse.Namespace, params: T0StrategyParams) -
         base_position=params.t0_base_position,
         tactical_position=params.t0_tactical_position,
         max_position=max_position,
-        t0_sell_available=round_down_lot(min(available_volume, max(total_position - params.t0_base_position, 0))),
+        t0_sell_available=round_down_lot(
+            min(available_volume, max(total_position - params.t0_base_position, 0))
+        ),
         t0_buy_capacity=round_down_lot(max(max_position - total_position, 0)),
         cash_available=float(args.cash_available),
     )

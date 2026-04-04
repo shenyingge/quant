@@ -17,7 +17,7 @@
   "cash_available": 2133.81,
   "commission_rate": 0.0001,
   "min_commission": 5.0,
-  "transfer_fee_rate": 0.00002,
+  "transfer_fee_rate": 0.00001,
   "stamp_duty_rate": 0.0005,
   "min_hold_minutes": 20,
   "positive_sell_min_rise": 1.0,

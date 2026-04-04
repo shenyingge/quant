@@ -4,6 +4,7 @@ from datetime import datetime, time
 from typing import Dict, List, Optional
 
 from src.strategy.core.models import BranchState, SignalEvent
+from src.trading_costs import TradingFeeSchedule
 
 
 class T0StrategyEngine:
@@ -11,6 +12,7 @@ class T0StrategyEngine:
 
     def __init__(self, params):
         self.params = params
+        self.fee_schedule = TradingFeeSchedule.from_t0_params(params)
 
     def generate_signal(
         self,
@@ -108,12 +110,22 @@ class T0StrategyEngine:
     ) -> Dict:
         bounce = features["bounce_from_low"]
         absorption = features["absorption_score"]
+        sell_price = branch_state.entry_price
         volume = self._get_buy_volume(position, features["current_close"], branch_state.volume)
 
+        if sell_price is None:
+            return self._observe_signal("缺少positive_t卖出价格，无法判断回补")
         if volume <= 0:
             return self._observe_signal("当前无可用机动仓回补")
 
         if bounce >= 0.4 and absorption >= 0.6:
+            roundtrip = self.fee_schedule.estimate_roundtrip(
+                buy_price=features["current_close"],
+                sell_price=sell_price,
+                volume=volume,
+            )
+            if roundtrip["net_pnl"] <= 0:
+                return self._observe_signal(self._build_fee_block_reason("正T回补", roundtrip))
             return {
                 "action": "positive_t_buyback",
                 "reason": f"急跌反弹: 反弹{bounce:.1f}%",
@@ -166,16 +178,24 @@ class T0StrategyEngine:
         )
         near_vwap = abs(features["close_vs_vwap"]) <= self.params.t0_reverse_sell_max_vwap_distance
 
-        if profit >= self.params.t0_reverse_sell_min_profit and near_vwap:
-            return {
-                "action": "reverse_t_sell",
-                "reason": f"反T止盈: 相对买入价浮盈{profit:.1f}%",
-                "price": features["current_close"],
-                "volume": volume,
-                "branch": "reverse_t",
-            }
+        if not near_vwap or profit < self.params.t0_reverse_sell_min_profit:
+            return self._observe_signal("反T卖出条件不满足")
 
-        return self._observe_signal("反T卖出条件不满足")
+        roundtrip = self.fee_schedule.estimate_roundtrip(
+            buy_price=entry_price,
+            sell_price=features["current_close"],
+            volume=volume,
+        )
+        if roundtrip["net_pnl"] <= 0:
+            return self._observe_signal(self._build_fee_block_reason("反T卖出", roundtrip))
+
+        return {
+            "action": "reverse_t_sell",
+            "reason": f"反T止盈: 相对买入价浮盈{profit:.1f}%",
+            "price": features["current_close"],
+            "volume": volume,
+            "branch": "reverse_t",
+        }
 
     def _handle_existing_branch(
         self,
@@ -219,7 +239,7 @@ class T0StrategyEngine:
         branch = first_signal.branch or self._infer_branch(first_signal.action)
         actions = [item.action for item in history]
         volume = next((item.volume for item in history if item.volume), 0)
-        entry_price = next((item.price for item in history if item.action == "reverse_t_buy"), None)
+        entry_price = next((item.price for item in history if item.price is not None), None)
         entry_time = next((item.signal_time for item in history if item.signal_time), None)
         completed = False
 
@@ -234,6 +254,13 @@ class T0StrategyEngine:
             volume=volume,
             entry_price=entry_price,
             entry_time=entry_time,
+        )
+
+    def _build_fee_block_reason(self, prefix: str, roundtrip: Dict[str, float]) -> str:
+        return (
+            f"{prefix}价差不足覆盖手续费: "
+            f"毛利{roundtrip['gross_pnl']:.2f}元, "
+            f"费用{roundtrip['total_fee']:.2f}元"
         )
 
     def _check_min_hold(
