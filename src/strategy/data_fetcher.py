@@ -25,13 +25,14 @@ class DataFetcher:
 
     _PERIOD_RE = re.compile(r"^(?P<value>\d+)(?P<unit>[sm])$", re.IGNORECASE)
 
-    def __init__(self, cache_dir: str = "./cache", intraday_period: Optional[str] = None):
+    def __init__(self, cache_dir: str = "./cache", intraday_period: Optional[str] = None, market_data_provider=None):
         self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self._daily_cache = {}
         self._snapshot_cache = None
         self._snapshot_cache_time = None
         self.tick_cache = RedisTickCache()
+        self.market_data_provider = market_data_provider
         raw_period = intraday_period or getattr(settings, "t0_intraday_bar_period", "1m")
         self.intraday_period = self._normalize_intraday_period(raw_period)
         self.intraday_period_seconds = self._period_to_seconds(self.intraday_period)
@@ -262,7 +263,25 @@ class DataFetcher:
         return None
 
     def fetch_realtime_snapshot(self, stock_code: str) -> Optional[dict]:
-        """Fetches the latest tick snapshot."""
+        """Fetches the latest tick snapshot.
+
+        Provider-first: if a MarketDataProvider is attached, query it first.
+        Falls back to xtdata when the provider is absent or returns None.
+        """
+        if self.market_data_provider is not None:
+            snap = self.market_data_provider.get_latest_snapshot(stock_code)
+            if snap is not None:
+                return {
+                    "time": snap.time,
+                    "price": snap.price,
+                    "high": snap.high,
+                    "low": snap.low,
+                    "open": snap.open,
+                    "amount": snap.amount,
+                    "volume": snap.volume,
+                    "pre_close": snap.pre_close,
+                }
+
         if self._snapshot_cache is not None and self._snapshot_cache_time is not None:
             elapsed = (datetime.now() - self._snapshot_cache_time).total_seconds()
             if elapsed < settings.t0_poll_interval_seconds:
