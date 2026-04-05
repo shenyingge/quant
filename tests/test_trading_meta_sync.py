@@ -1,6 +1,7 @@
 from datetime import date, datetime
 
 from sqlalchemy import create_engine
+from sqlalchemy import MetaData
 
 from src.database import Base
 from src.trading_meta_sync import _read_source_rows, sync_sqlite_to_meta_db
@@ -12,10 +13,14 @@ def test_read_source_rows_collects_trading_tables(monkeypatch, tmp_path):
     engine = create_engine(db_url)
 
     try:
-        Base.metadata.create_all(bind=engine)
+        sqlite_metadata = MetaData()
+        for table in Base.metadata.tables.values():
+            table.to_metadata(sqlite_metadata, schema=None)
+
+        sqlite_metadata.create_all(bind=engine)
         with engine.begin() as connection:
             connection.execute(
-                Base.metadata.tables["trading_signals"].insert(),
+                sqlite_metadata.tables["trading_signals"].insert(),
                 [
                     {
                         "id": 1,
@@ -32,7 +37,7 @@ def test_read_source_rows_collects_trading_tables(monkeypatch, tmp_path):
                 ],
             )
             connection.execute(
-                Base.metadata.tables["trading_calendar"].insert(),
+                sqlite_metadata.tables["trading_calendar"].insert(),
                 [
                     {
                         "id": 1,
@@ -46,7 +51,7 @@ def test_read_source_rows_collects_trading_tables(monkeypatch, tmp_path):
                 ],
             )
 
-        monkeypatch.setattr("src.trading_meta_sync.settings.db_url", db_url)
+        monkeypatch.setattr("src.trading_meta_sync._resolve_source_db_url", lambda: db_url)
         rows_by_table = _read_source_rows()
     finally:
         engine.dispose()
