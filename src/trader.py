@@ -353,8 +353,8 @@ class QMTCallback(XtQuantTraderCallback):
                     try:
                         attribution_service = AttributionService(session=db)
                         attribution_service.record_execution(
-                            broker_trade_id=str(getattr(trade, "trade_id", "") or ""),
-                            broker_order_id=str(getattr(trade, "order_id", "") or ""),
+                            broker_trade_id=str(getattr(trade, "trade_id", "") or "") or None,
+                            broker_order_id=str(getattr(trade, "order_id", "") or "") or None,
                             submit_request_id=None,
                             stock_code=str(getattr(trade, "stock_code", "") or ""),
                             direction=str(getattr(order_record, "direction", "") or ""),
