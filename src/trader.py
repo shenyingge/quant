@@ -361,7 +361,7 @@ class QMTCallback(XtQuantTraderCallback):
                             filled_volume=int(traded_volume),
                             filled_price=float(traded_price),
                             filled_amount=float(traded_volume) * float(traded_price),
-                            filled_time=datetime.utcnow(),
+                            filled_time=filled_time,
                             commission=getattr(order_record, "commission", None),
                             transfer_fee=getattr(order_record, "transfer_fee", None),
                             stamp_duty=getattr(order_record, "stamp_duty", None),
