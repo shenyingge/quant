@@ -1,16 +1,11 @@
-"""Backward compatibility wrapper for src.database -> src.infrastructure.db migration.
+"""Database infrastructure package."""
 
-All model definitions and session management have been migrated to
-src.infrastructure.db. This module now re-exports them for backward compatibility.
-"""
-
-# Re-export all models and session utilities from new location
-from src.infrastructure.db.models import (
+from .models import (
     Base,
-    TradingSignal,
     OrderRecord,
     TradeExecution,
     OrderCancellation,
+    TradingSignal,
     TradingCalendar,
     StockInfo,
     StrategyRegimeState,
@@ -19,20 +14,14 @@ from src.infrastructure.db.models import (
     StrategyPositionState,
     StrategyEventOutbox,
 )
-from src.infrastructure.db.session import (
-    create_tables,
-    get_database_details,
-    get_db_session,
-    get_db,
-    SessionLocal,
-)
+from .session import create_tables, get_database_details, get_db_session, get_db, SessionLocal
 
 __all__ = [
     "Base",
-    "TradingSignal",
     "OrderRecord",
     "TradeExecution",
     "OrderCancellation",
+    "TradingSignal",
     "TradingCalendar",
     "StockInfo",
     "StrategyRegimeState",
