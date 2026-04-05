@@ -47,6 +47,7 @@ Thumbs.db
 *.temp
 
 .claude
+.worktrees/
 
 examples/
 
