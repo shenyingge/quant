@@ -14,6 +14,7 @@ from typing import Any, Dict, List, Optional, Sequence
 import psutil
 
 from src.config import settings
+from src.infrastructure.scheduling.minute_history import get_minute_daily_ingest_schedule_time
 from src.logger_config import configured_logger as logger
 from src.notifications import FeishuNotifier
 from src.process_utils import find_matching_processes
@@ -150,6 +151,18 @@ class QuantWatchdogService:
                     schedule_time=self._parse_clock(settings.watchdog_t0_reconcile_time),
                 )
             )
+
+        targets.append(
+            ManagedTarget(
+                name="minute_history_ingest_daily",
+                kind="job",
+                description="Daily minute history ingest to Meta DB",
+                command_patterns=("main.py ingest-minute-daily",),
+                launch_command=self._python_main_command("ingest-minute-daily"),
+                require_trading_day=True,
+                schedule_time=get_minute_daily_ingest_schedule_time(),
+            )
+        )
 
         return targets
 

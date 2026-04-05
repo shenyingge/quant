@@ -510,6 +510,42 @@ def run_watchdog(args: List[str]) -> int:
     return 0
 
 
+def export_minute_history(args: List[str]) -> int:
+    """导出分钟历史行情包"""
+    from src.minute_history_exporter import main as export_main
+
+    return export_main(args)
+
+
+def export_minute_daily(args: List[str]) -> int:
+    """按日任务默认参数导出分钟行情包"""
+    if not is_trading_day():
+        logger.info("今天不是交易日，跳过分钟行情导出")
+        return 0
+
+    trade_date = date.today().strftime("%Y%m%d")
+    default_args = ["--trade-date", trade_date, "--listed-only", "--overwrite", "--skip-zip"]
+    return export_minute_history(default_args + list(args))
+
+
+def ingest_minute_history(args: List[str]) -> int:
+    """将分钟历史行情入库到 Meta DB"""
+    from src.minute_history_ingestor import main as ingest_main
+
+    return ingest_main(args)
+
+
+def ingest_minute_daily(args: List[str]) -> int:
+    """按日任务默认参数将当日分钟行情入库"""
+    if not is_trading_day():
+        logger.info("今天不是交易日，跳过分钟行情入库")
+        return 0
+
+    trade_date = date.today().strftime("%Y%m%d")
+    default_args = ["--trade-date", trade_date, "--listed-only"]
+    return ingest_minute_history(default_args + list(args))
+
+
 # ============================================================================
 # 命令注册表
 # ============================================================================
@@ -532,6 +568,12 @@ COMMANDS = {
     'cms-check': run_cms_check,
     'cms-server': run_cms_server,
     'watchdog': run_watchdog,
+
+    # 分钟行情
+    'export-minute-history': export_minute_history,
+    'export-minute-daily': export_minute_daily,
+    'ingest-minute-history': ingest_minute_history,
+    'ingest-minute-daily': ingest_minute_daily,
 }
 
 
@@ -554,6 +596,10 @@ def _resolve_app_role(command: Optional[str]) -> str:
         "cms-check": "cms_server",
         "cms-server": "cms_server",
         "watchdog": "watchdog",
+        "export-minute-history": "minute_history_export",
+        "export-minute-daily": "minute_history_export",
+        "ingest-minute-history": "minute_history_ingest",
+        "ingest-minute-daily": "minute_history_ingest",
     }
     return role_map.get(command or "", "cli")
 
@@ -599,6 +645,12 @@ def print_usage():
     logger.info("  python main.py cms-check              - 输出 CMS check JSON 结果")
     logger.info("  python main.py cms-server             - 启动独立常驻的 HTTP /health CMS 服务")
     logger.info("  python main.py watchdog               - 启动 24x7 看门狗服务")
+    logger.info("")
+    logger.info("分钟行情:")
+    logger.info("  python main.py export-minute-history  - 导出分钟历史行情包")
+    logger.info("  python main.py export-minute-daily    - 按日任务导出当日分钟行情包")
+    logger.info("  python main.py ingest-minute-history  - 分钟历史行情入库")
+    logger.info("  python main.py ingest-minute-daily    - 按日任务入库当日分钟行情")
     logger.info("")
     logger.info("重试参数（仅适用于 run / test-run）:")
     logger.info("  --max-retries=N                       - 最大重试次数（默认: 3）")

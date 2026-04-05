@@ -74,3 +74,37 @@ def test_export_minute_daily_uses_trade_date_defaults(monkeypatch):
 def test_resolve_app_role_includes_minute_export_commands():
     assert main_module._resolve_app_role("export-minute-history") == "minute_history_export"
     assert main_module._resolve_app_role("export-minute-daily") == "minute_history_export"
+
+
+def test_ingest_minute_daily_skips_on_non_trading_day(monkeypatch):
+    monkeypatch.setattr(main_module, "is_trading_day", lambda: False)
+    called = {"value": False}
+
+    def fake_ingest(_):
+        called["value"] = True
+        return 0
+
+    monkeypatch.setattr(main_module, "ingest_minute_history", fake_ingest)
+
+    assert main_module.ingest_minute_daily([]) == 0
+    assert called["value"] is False
+
+
+def test_ingest_minute_daily_uses_trade_date_defaults(monkeypatch):
+    monkeypatch.setattr(main_module, "is_trading_day", lambda: True)
+    monkeypatch.setattr(main_module, "date", FixedDate)
+    captured = {}
+
+    def fake_ingest(args):
+        captured["args"] = args
+        return 0
+
+    monkeypatch.setattr(main_module, "ingest_minute_history", fake_ingest)
+
+    assert main_module.ingest_minute_daily([]) == 0
+    assert captured["args"] == ["--trade-date", "20260326", "--listed-only"]
+
+
+def test_resolve_app_role_includes_minute_ingest_commands():
+    assert main_module._resolve_app_role("ingest-minute-history") == "minute_history_ingest"
+    assert main_module._resolve_app_role("ingest-minute-daily") == "minute_history_ingest"
