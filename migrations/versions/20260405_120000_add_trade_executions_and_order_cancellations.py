@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import sqlalchemy as sa
 from alembic import op
-from sqlalchemy import inspect, text
+from sqlalchemy import inspect
+
+from src.meta_db import get_meta_db_trading_schema
 
 # revision identifiers, used by Alembic.
 revision = "20260405_120000"
@@ -17,7 +19,7 @@ down_revision = "20260329_180000"
 branch_labels = None
 depends_on = None
 
-SCHEMA = "trading"
+SCHEMA = get_meta_db_trading_schema()
 
 
 def _table_exists(bind, schema: str, table_name: str) -> bool:
@@ -25,17 +27,26 @@ def _table_exists(bind, schema: str, table_name: str) -> bool:
 
 
 def _column_exists(bind, schema: str, table_name: str, column_name: str) -> bool:
-    cols = [c["name"] for c in inspect(bind).get_columns(table_name, schema=schema)]
+    insp = inspect(bind)
+    if not insp.has_table(table_name, schema=schema):
+        return False
+    cols = [c["name"] for c in insp.get_columns(table_name, schema=schema)]
     return column_name in cols
 
 
 def _index_exists(bind, schema: str, table_name: str, index_name: str) -> bool:
-    indexes = inspect(bind).get_indexes(table_name, schema=schema)
+    insp = inspect(bind)
+    if not insp.has_table(table_name, schema=schema):
+        return False
+    indexes = insp.get_indexes(table_name, schema=schema)
     return any(ix["name"] == index_name for ix in indexes)
 
 
 def _constraint_exists(bind, schema: str, table_name: str, constraint_name: str) -> bool:
-    ucs = inspect(bind).get_unique_constraints(table_name, schema=schema)
+    insp = inspect(bind)
+    if not insp.has_table(table_name, schema=schema):
+        return False
+    ucs = insp.get_unique_constraints(table_name, schema=schema)
     return any(uc["name"] == constraint_name for uc in ucs)
 
 
@@ -65,18 +76,21 @@ def upgrade() -> None:
             sa.Column("dedupe_key", sa.String(100), nullable=False),
             sa.Column("created_at", sa.DateTime(), nullable=True),
             sa.PrimaryKeyConstraint("id"),
-            sa.UniqueConstraint("execution_uid"),
-            sa.UniqueConstraint("dedupe_key"),
+            sa.UniqueConstraint("execution_uid", name="uq_trade_executions_execution_uid"),
+            sa.UniqueConstraint("dedupe_key", name="uq_trade_executions_dedupe_key"),
+            sa.Index("ix_trade_executions_order_uid", "order_uid"),
+            sa.Index("ix_trade_executions_broker_trade_id", "broker_trade_id"),
+            sa.Index("ix_trade_executions_broker_order_id", "broker_order_id"),
             schema=SCHEMA,
         )
-
-    for index_name, col in [
-        ("ix_trade_executions_order_uid", "order_uid"),
-        ("ix_trade_executions_broker_trade_id", "broker_trade_id"),
-        ("ix_trade_executions_broker_order_id", "broker_order_id"),
-    ]:
-        if not _index_exists(bind, SCHEMA, "trade_executions", index_name):
-            op.create_index(index_name, "trade_executions", [col], schema=SCHEMA)
+    else:
+        for index_name, col in [
+            ("ix_trade_executions_order_uid", "order_uid"),
+            ("ix_trade_executions_broker_trade_id", "broker_trade_id"),
+            ("ix_trade_executions_broker_order_id", "broker_order_id"),
+        ]:
+            if not _index_exists(bind, SCHEMA, "trade_executions", index_name):
+                op.create_index(index_name, "trade_executions", [col], schema=SCHEMA)
 
     # --- order_cancellations table ---
     if not _table_exists(bind, SCHEMA, "order_cancellations"):
@@ -91,16 +105,17 @@ def upgrade() -> None:
             sa.Column("cancel_reason", sa.String(100), nullable=True),
             sa.Column("created_at", sa.DateTime(), nullable=True),
             sa.PrimaryKeyConstraint("id"),
+            sa.Index("ix_order_cancellations_order_uid", "order_uid"),
             schema=SCHEMA,
         )
-
-    if not _index_exists(bind, SCHEMA, "order_cancellations", "ix_order_cancellations_order_uid"):
-        op.create_index(
-            "ix_order_cancellations_order_uid",
-            "order_cancellations",
-            ["order_uid"],
-            schema=SCHEMA,
-        )
+    else:
+        if not _index_exists(bind, SCHEMA, "order_cancellations", "ix_order_cancellations_order_uid"):
+            op.create_index(
+                "ix_order_cancellations_order_uid",
+                "order_cancellations",
+                ["order_uid"],
+                schema=SCHEMA,
+            )
 
     # --- new columns on order_records ---
     for col_name, col_def in [
