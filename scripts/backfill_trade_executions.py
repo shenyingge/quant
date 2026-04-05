@@ -22,7 +22,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.database import OrderRecord, SessionLocal, TradeExecution
 from src.logger_config import logger
-from src.trading.attribution import AttributionService, build_dedupe_key
+from src.trading.attribution import build_dedupe_key
 from src.uid import new_ulid
 
 
