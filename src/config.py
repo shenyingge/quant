@@ -155,6 +155,13 @@ class Settings(BaseSettings):
     t0_market_data_snapshot_interval_seconds: int = Field(
         default=3, env="T0_MARKET_DATA_SNAPSHOT_INTERVAL_SECONDS"
     )
+    t0_max_strategies: int = Field(default=5, env="T0_MAX_STRATEGIES")
+    t0_position_limit_per_strategy: int = Field(
+        default=5000, env="T0_POSITION_LIMIT_PER_STRATEGY"
+    )
+    t0_conflict_resolution_mode: str = Field(
+        default="strict", env="T0_CONFLICT_RESOLUTION_MODE"
+    )
     t0_sync_connect_retry_attempts: int = Field(default=3, env="T0_SYNC_CONNECT_RETRY_ATTEMPTS")
     t0_sync_connect_retry_delay_seconds: int = Field(
         default=5, env="T0_SYNC_CONNECT_RETRY_DELAY_SECONDS"
