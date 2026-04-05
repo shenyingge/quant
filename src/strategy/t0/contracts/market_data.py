@@ -1,30 +1,40 @@
-from dataclasses import asdict, dataclass
-from typing import Dict, Optional, Protocol, runtime_checkable
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Callable, Protocol
 
 
 @dataclass(frozen=True)
 class MarketSnapshot:
-    """Typed market snapshot payload for T+0 signal evaluation."""
-
-    symbol: str
-    trade_date: str
-    bar_time: str
-    last_price: float
-    day_open: float
-    day_high: float
-    day_low: float
-    vwap: float
-    volume: int
-    amount: float
-    previous_close: Optional[float] = None
-
-    def to_dict(self) -> Dict[str, object]:
-        return asdict(self)
+    stock_code: str
+    time: str | None
+    price: float | None
+    high: float | None
+    low: float | None
+    open: float | None
+    amount: float | None
+    volume: float | None
+    pre_close: float | None
+    source: str
 
 
-@runtime_checkable
+MarketDataCallback = Callable[[MarketSnapshot], None]
+
+
 class MarketDataProvider(Protocol):
-    """Contract for adapters that provide latest market snapshots."""
+    def subscribe_tick(self, stock_codes: list[str], callback: MarketDataCallback) -> None:
+        ...
 
-    def get_market_snapshot(self, symbol: str) -> MarketSnapshot:
-        """Return the latest market snapshot for a symbol."""
+    def subscribe_snapshot(
+        self,
+        stock_codes: list[str],
+        interval_seconds: int,
+        callback: MarketDataCallback,
+    ) -> None:
+        ...
+
+    def get_latest_snapshot(self, stock_code: str) -> MarketSnapshot | None:
+        ...
+
+    def get_minute_bars(self, stock_code: str, count: int) -> list[dict]:
+        ...
