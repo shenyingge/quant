@@ -150,7 +150,7 @@ class Settings(BaseSettings):
     t0_stamp_duty_rate: float = Field(default=0.0005, env="T0_STAMP_DUTY_RATE")
     t0_poll_interval_seconds: int = Field(default=60, env="T0_POLL_INTERVAL_SECONDS")
     t0_market_data_provider_enabled: bool = Field(
-        default=False, env="T0_MARKET_DATA_PROVIDER_ENABLED"
+        default=True, env="T0_MARKET_DATA_PROVIDER_ENABLED"
     )
     t0_market_data_snapshot_interval_seconds: int = Field(
         default=3, env="T0_MARKET_DATA_SNAPSHOT_INTERVAL_SECONDS"
