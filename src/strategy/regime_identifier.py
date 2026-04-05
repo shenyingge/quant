@@ -5,7 +5,7 @@ from typing import Optional
 
 import pandas as pd
 
-from src.database import SessionLocal, StrategyRegimeState
+from src.infrastructure.db import SessionLocal, StrategyRegimeState
 from src.logger_config import logger
 from src.strategy.core.regime_classifier import RegimeClassifier
 

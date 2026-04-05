@@ -16,9 +16,9 @@ import psutil
 from src.config import settings
 from src.infrastructure.scheduling.minute_history import get_minute_daily_ingest_schedule_time
 from src.logger_config import configured_logger as logger
-from src.notifications import FeishuNotifier
+from src.infrastructure.notifications import FeishuNotifier
 from src.process_utils import find_matching_processes
-from src.trading_day_checker import is_trading_day
+from src.trading.trading_day_checker import is_trading_day
 
 
 @dataclass(frozen=True)

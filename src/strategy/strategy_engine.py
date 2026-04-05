@@ -10,7 +10,7 @@ import redis
 from src.config import settings
 from src.logger_config import logger
 from src.market_data.ingestion.qmt_snapshot_provider import QMTSnapshotProvider
-from src.notifications import FeishuNotifier
+from src.infrastructure.notifications import FeishuNotifier
 from src.strategy.core.models import MarketSnapshot, PositionSnapshot, SignalCard, StrategyDecision
 from src.strategy.data_fetcher import DataFetcher
 from src.strategy.feature_calculator import FeatureCalculator

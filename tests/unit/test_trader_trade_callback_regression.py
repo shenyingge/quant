@@ -50,15 +50,15 @@ def test_on_stock_trade_calls_attribution_service(monkeypatch):
     mock_trader.stats = {}
     mock_trader.notifier = MagicMock()
 
-    with patch("src.trader.AttributionService", return_value=mock_service_instance):
-        with patch("src.trader.SessionLocal") as mock_session_cls:
+    with patch("src.trading.execution.qmt_trader.AttributionService", return_value=mock_service_instance):
+        with patch("src.trading.execution.qmt_trader.SessionLocal") as mock_session_cls:
             mock_db = MagicMock()
             mock_session_cls.return_value = mock_db
             mock_db.__enter__ = lambda s: s
             mock_db.__exit__ = MagicMock(return_value=False)
 
-            with patch("src.trader.sync_account_positions_from_qmt"):
-                from src.trader import QMTCallback, TradingFeeSchedule
+            with patch("src.trading.execution.qmt_trader.sync_account_positions_from_qmt"):
+                from src.trading.execution.qmt_trader import QMTCallback, TradingFeeSchedule
 
                 with patch.object(TradingFeeSchedule, "from_settings", return_value=MagicMock()):
                     callback = QMTCallback.__new__(QMTCallback)
@@ -128,15 +128,15 @@ def test_on_stock_trade_attribution_failure_does_not_crash_callback(monkeypatch)
     mock_trader.stats = {}
     mock_trader.notifier = MagicMock()
 
-    with patch("src.trader.AttributionService", return_value=mock_service_instance):
-        with patch("src.trader.SessionLocal") as mock_session_cls:
+    with patch("src.trading.execution.qmt_trader.AttributionService", return_value=mock_service_instance):
+        with patch("src.trading.execution.qmt_trader.SessionLocal") as mock_session_cls:
             mock_db = MagicMock()
             mock_session_cls.return_value = mock_db
             mock_db.__enter__ = lambda s: s
             mock_db.__exit__ = MagicMock(return_value=False)
 
-            with patch("src.trader.sync_account_positions_from_qmt"):
-                from src.trader import QMTCallback, TradingFeeSchedule
+            with patch("src.trading.execution.qmt_trader.sync_account_positions_from_qmt"):
+                from src.trading.execution.qmt_trader import QMTCallback, TradingFeeSchedule
 
                 with patch.object(TradingFeeSchedule, "from_settings", return_value=MagicMock()):
                     callback = QMTCallback.__new__(QMTCallback)

@@ -34,9 +34,10 @@ quant/
 ├── src/                   # 核心源代码
 │   ├── config.py          # 配置管理（Pydantic Settings）
 │   ├── logger_config.py   # 统一日志配置
-│   ├── trading_service.py # 核心交易服务编排器
+│   ├── process_utils.py   # 进程与子进程工具
 │   ├── watchdog_service.py # Watchdog 进程管理
 │   ├── cms_server.py      # CMS HTTP 管理接口
+│   ├── uid.py             # 统一ID生成工具
 │   ├── infrastructure/    # 基础设施层
 │   │   ├── db/            # SQLAlchemy 模型与会话
 │   │   ├── notifications/ # 飞书通知实现
@@ -54,7 +55,6 @@ quant/
 │   ├── broker/            # Broker 抽象层
 │   ├── data_manager/      # 市场数据下载/标准化/校验
 │   ├── market_data/       # 高频实时行情摄入
-│   └── (backward-compat wrappers: database.py, notifications.py, trader.py ...)
 ├── scripts/               # 脚本文件
 │   ├── README.md          # 脚本使用说明
 │   ├── register_watchdog_service_task.ps1 # 注册单入口 watchdog 开机任务
@@ -68,7 +68,10 @@ quant/
 │   └── archive/          # 滚动压缩归档日志
 ├── backups/               # 数据备份目录
 ├── tests/                 # 测试文件
-│   └── test_*.py          # 各种测试脚本
+│   ├── unit/              # 单元测试
+│   ├── integration/       # 集成测试
+│   ├── live/              # 依赖外部环境的测试
+│   └── fixtures/          # 共享测试数据与桩
 └── xtquant/               # QMT官方SDK（不要修改）
 ```
 
@@ -372,7 +375,7 @@ uv run python main.py t0-backtest --config ./configs/t0_backtest_601138.json
 uv run pytest
 
 # 运行特定测试文件
-uv run pytest tests/test_redis_integration.py
+uv run pytest tests/live/test_redis_integration.py
 
 # 运行并生成覆盖率报告（目标：核心链路 ≥80%）
 uv run pytest --cov=src --cov-report=term-missing

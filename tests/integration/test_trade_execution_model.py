@@ -1,7 +1,7 @@
 # tests/integration/test_trade_execution_model.py
 import pytest
 from datetime import datetime
-from src.database import TradeExecution, OrderCancellation
+from src.infrastructure.db import TradeExecution, OrderCancellation
 
 
 @pytest.mark.integration

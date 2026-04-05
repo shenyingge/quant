@@ -11,7 +11,7 @@ import redis
 from sqlalchemy.orm import Session
 
 from src.config import settings
-from src.database import (
+from src.infrastructure.db import (
     AccountPosition,
     OrderRecord,
     SessionLocal,

@@ -7,9 +7,9 @@ from datetime import date, datetime, time
 from typing import Any, Dict, Iterable, List, Optional
 
 from src.config import settings
-from src.database import AccountPosition, OrderRecord, SessionLocal
+from src.infrastructure.db import AccountPosition, OrderRecord, SessionLocal
 from src.logger_config import configured_logger as logger
-from src.notifications import FeishuNotifier
+from src.infrastructure.notifications import FeishuNotifier
 from src.strategy.position_syncer import PositionSyncer
 
 

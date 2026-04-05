@@ -7,24 +7,24 @@ from typing import Any, Dict, Optional
 from schedule import Scheduler
 from sqlalchemy.orm import Session
 
-from src.account_position_sync import sync_account_positions_from_qmt
-from src.backup_service import DatabaseBackupService
+from src.trading.account_position_sync import sync_account_positions_from_qmt
+from src.infrastructure.backup_service import DatabaseBackupService
 from src.config import settings
-from src.connection_manager import ConnectionManager, MultiConnectionManager
-from src.daily_pnl_calculator import calculate_daily_summary
-from src.database import OrderRecord, SessionLocal, TradingSignal, create_tables
+from src.infrastructure.connection_manager import ConnectionManager, MultiConnectionManager
+from src.trading.daily_pnl_calculator import calculate_daily_summary
+from src.infrastructure.db import OrderRecord, SessionLocal, TradingSignal, create_tables
 
 # 使用统一的日志配置
 from src.logger_config import configured_logger as logger
-from src.notifications import FeishuNotifier
-from src.qmt_constants import OrderStatus, get_status_name, is_filled_status, is_finished_status
-from src.quote_stream_service import QuoteStreamService
-from src.redis_listener import RedisSignalListener
-from src.stock_info import get_stock_display_name
+from src.infrastructure.notifications import FeishuNotifier
+from src.trading.qmt_constants import OrderStatus, get_status_name, is_filled_status, is_finished_status
+from src.market_data.quote_stream_service import QuoteStreamService
+from src.infrastructure.redis import RedisSignalListener
+from src.data_manager.stock_info import get_stock_display_name
 from src.strategy.position_syncer import PositionSyncer
-from src.trader import QMTTrader
-from src.trading_calendar_manager import initialize_trading_calendar, trading_calendar_manager
-from src.trading_costs import (
+from src.trading.execution.qmt_trader import QMTTrader
+from src.trading.trading_calendar_manager import initialize_trading_calendar, trading_calendar_manager
+from src.trading.trading_costs import (
     TradingFeeSchedule,
     append_trade_breakdown_leg,
     apply_trade_cost_fields,
@@ -600,7 +600,7 @@ class TradingEngine:
                             next_year = datetime.now().year + 1
                             # 检查是否已有下一年数据
                             db = SessionLocal()
-                            from src.database import TradingCalendar
+                            from src.infrastructure.db import TradingCalendar
 
                             count = (
                                 db.query(TradingCalendar)
@@ -811,7 +811,7 @@ class TradingEngine:
         """执行每日数据导出"""
         try:
             logger.info("开始执行每日数据导出...")
-            from src.daily_exporter import export_daily_data
+            from src.data_manager.daily_exporter import export_daily_data
 
             success = export_daily_data()
             if success:

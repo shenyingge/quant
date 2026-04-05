@@ -2,6 +2,7 @@
 
 from .models import (
     Base,
+    TRADING_SCHEMA,
     OrderRecord,
     TradeExecution,
     OrderCancellation,
@@ -14,10 +15,18 @@ from .models import (
     StrategyPositionState,
     StrategyEventOutbox,
 )
-from .session import create_tables, get_database_details, get_db_session, get_db, SessionLocal
+from .session import (
+    SessionLocal,
+    create_tables,
+    engine,
+    get_database_details,
+    get_db,
+    get_db_session,
+)
 
 __all__ = [
     "Base",
+    "TRADING_SCHEMA",
     "OrderRecord",
     "TradeExecution",
     "OrderCancellation",
@@ -29,6 +38,7 @@ __all__ = [
     "AccountPosition",
     "StrategyPositionState",
     "StrategyEventOutbox",
+    "engine",
     "create_tables",
     "get_database_details",
     "get_db_session",

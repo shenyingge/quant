@@ -6,7 +6,7 @@ from typing import List, Optional
 from src.config import settings
 from src.logger_config import configure_process_logger
 from src.logger_config import configured_logger as logger
-from src.trading_day_checker import is_trading_day
+from src.trading.trading_day_checker import is_trading_day
 
 STRATEGY_ENGINE_NAME = "策略引擎"
 TRADING_ENGINE_NAME = "交易引擎"
@@ -61,7 +61,7 @@ def _should_skip_non_trading_day(component_name: str) -> bool:
 
 def run_trading_service(args: List[str]) -> int:
     """启动交易引擎（生产环境）"""
-    from src.trading_engine import TradingEngine
+    from src.trading.runtime.engine import TradingEngine
 
     logger.info(f"启动{TRADING_ENGINE_NAME}（控制台模式）...")
 
@@ -113,7 +113,7 @@ def run_trading_service(args: List[str]) -> int:
 def run_trading_service_test(args: List[str]) -> int:
     """测试模式运行交易引擎"""
     import os
-    from src.trading_engine import TradingEngine
+    from src.trading.runtime.engine import TradingEngine
 
     logger.info(f"启动{TRADING_ENGINE_NAME}（测试模式）...")
     logger.warning("测试模式下检测到非交易日，但仍将继续运行")
@@ -163,9 +163,9 @@ def run_trading_service_test(args: List[str]) -> int:
 
 def test_system(args: List[str]) -> int:
     """测试系统连接"""
-    from src.redis_listener import RedisSignalListener
-    from src.database import SessionLocal, create_tables
-    from src.trader import QMTTrader
+    from src.infrastructure.redis import RedisSignalListener
+    from src.infrastructure.db import SessionLocal, create_tables
+    from src.trading.execution.qmt_trader import QMTTrader
 
     logger.info("正在测试系统连接...")
 
@@ -218,7 +218,7 @@ def run_t0_daemon(args: List[str]) -> int:
         return 0
 
     from src.strategy.strategy_engine import StrategyEngine
-    from src.notifications import FeishuNotifier
+    from src.infrastructure.notifications import FeishuNotifier
 
     logger.info(f"启动 {STRATEGY_ENGINE_NAME}")
 
@@ -293,9 +293,9 @@ def sync_t0_position(args: List[str]) -> int:
     if _should_skip_non_trading_day(STRATEGY_ENGINE_NAME):
         return 0
 
-    from src.notifications import FeishuNotifier
+    from src.infrastructure.notifications import FeishuNotifier
     from src.strategy.position_syncer import PositionSyncer
-    from src.trader import QMTTrader
+    from src.trading.execution.qmt_trader import QMTTrader
 
     logger.info(f"同步 {STRATEGY_ENGINE_NAME} 仓位")
 
@@ -366,9 +366,9 @@ def reconcile_t0_state(args: List[str]) -> int:
     if _should_skip_non_trading_day(STRATEGY_ENGINE_NAME):
         return 0
 
-    from src.notifications import FeishuNotifier
+    from src.infrastructure.notifications import FeishuNotifier
     from src.strategy.t0_reconciler import T0Reconciler
-    from src.trader import QMTTrader
+    from src.trading.execution.qmt_trader import QMTTrader
 
     logger.info(f"收盘对账 {STRATEGY_ENGINE_NAME}")
 
@@ -512,7 +512,7 @@ def run_watchdog(args: List[str]) -> int:
 
 def export_minute_history(args: List[str]) -> int:
     """导出分钟历史行情包"""
-    from src.minute_history_exporter import main as export_main
+    from src.market_data.minute_history_exporter import main as export_main
 
     return export_main(args)
 
@@ -530,7 +530,7 @@ def export_minute_daily(args: List[str]) -> int:
 
 def ingest_minute_history(args: List[str]) -> int:
     """将分钟历史行情入库到 Meta DB"""
-    from src.minute_history_ingestor import main as ingest_main
+    from src.market_data.minute_history_ingestor import main as ingest_main
 
     return ingest_main(args)
 

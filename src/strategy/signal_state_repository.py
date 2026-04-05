@@ -3,7 +3,7 @@
 from datetime import date, datetime
 from typing import List
 
-from src.database import SessionLocal, StrategySignalHistory
+from src.infrastructure.db import SessionLocal, StrategySignalHistory
 from src.logger_config import logger
 from src.strategy.core.models import SignalEvent, StrategyDecision
 

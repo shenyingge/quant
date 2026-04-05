@@ -7,7 +7,7 @@ from alembic import context
 from sqlalchemy import pool
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
-from src.meta_db import build_meta_db_trading_metadata, get_meta_db_url
+from src.infrastructure.meta_db import build_meta_db_trading_metadata, get_meta_db_url
 
 config = context.config
 

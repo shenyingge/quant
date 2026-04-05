@@ -67,7 +67,7 @@ from sqlalchemy.orm import sessionmaker
 def _pg_test_url() -> str:
     url = os.environ.get("TEST_DATABASE_URL", "")
     if not url:
-        from src.meta_db import get_meta_db_sync_url
+        from src.infrastructure.meta_db import get_meta_db_sync_url
         url = get_meta_db_sync_url()
     return url
 
@@ -89,7 +89,7 @@ def pg_session(pg_engine):
     """
     import uuid
     from sqlalchemy import MetaData
-    from src.database import Base
+    from src.infrastructure.db import Base
 
     schema = f"test_{uuid.uuid4().hex[:8]}"
 

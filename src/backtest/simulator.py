@@ -10,7 +10,7 @@ from src.strategy.core.models import PortfolioState, SignalEvent
 from src.strategy.core.params import T0StrategyParams
 from src.strategy.core.regime_classifier import RegimeClassifier
 from src.strategy.feature_calculator import FeatureCalculator
-from src.trading_costs import TradingFeeSchedule
+from src.trading.trading_costs import TradingFeeSchedule
 
 
 class T0BacktestSimulator:

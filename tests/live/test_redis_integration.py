@@ -18,8 +18,8 @@ sys.path.insert(0, str(project_root))
 from loguru import logger
 
 from src.config import settings
-from src.redis_client import redis_trade_client
-from src.trader import QMTTrader
+from src.infrastructure.redis.client import redis_trade_client
+from src.trading.execution.qmt_trader import QMTTrader
 
 
 def test_redis_connection():

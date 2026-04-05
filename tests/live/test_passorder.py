@@ -16,7 +16,7 @@ sys.path.insert(0, str(project_root))
 
 from loguru import logger
 
-from src.trader import QMTTrader
+from src.trading.execution.qmt_trader import QMTTrader
 
 
 def test_passorder_functionality():

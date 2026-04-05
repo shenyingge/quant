@@ -12,11 +12,11 @@ from xtquant.xttrader import XtQuantTrader, XtQuantTraderCallback
 from xtquant.xttype import StockAccount
 
 from src.config import settings
-from src.account_position_sync import sync_account_positions_from_qmt
+from src.trading.account_position_sync import sync_account_positions_from_qmt
 from src.trading.attribution import AttributionService
-from src.database import OrderRecord, SessionLocal, TradingSignal, get_db
+from src.infrastructure.db import OrderRecord, SessionLocal, TradingSignal, get_db
 from src.logger_config import configured_logger as logger
-from src.qmt_constants import (
+from src.trading.qmt_constants import (
     AccountStatus,
     OrderStatus,
     get_account_status_name,
@@ -24,9 +24,9 @@ from src.qmt_constants import (
     is_filled_status,
     is_finished_status,
 )
-from src.redis_client import redis_trade_client
-from src.stock_info import get_stock_display_name
-from src.trading_costs import (
+from src.infrastructure.redis.client import redis_trade_client
+from src.data_manager.stock_info import get_stock_display_name
+from src.trading.trading_costs import (
     TradingFeeSchedule,
     append_trade_breakdown_leg,
     apply_trade_cost_fields,
@@ -160,7 +160,7 @@ class QMTCallback(XtQuantTraderCallback):
             try:
                 from datetime import datetime
 
-                from src.database import OrderRecord, SessionLocal
+                from src.infrastructure.db import OrderRecord, SessionLocal
 
                 db = SessionLocal()
                 try:

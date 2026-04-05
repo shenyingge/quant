@@ -4,7 +4,7 @@ Factory helpers for creating test ORM instances without hitting the DB.
 """
 from datetime import datetime
 
-from src.database import OrderRecord
+from src.infrastructure.db import OrderRecord
 
 
 def make_order_record(

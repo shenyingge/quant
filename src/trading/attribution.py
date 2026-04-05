@@ -15,7 +15,7 @@ from typing import Optional
 
 from sqlalchemy.orm import Session
 
-from src.database import OrderRecord, TradeExecution
+from src.infrastructure.db import OrderRecord, TradeExecution
 from src.logger_config import logger
 from src.uid import new_ulid
 
