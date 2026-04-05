@@ -9,6 +9,7 @@ import redis
 
 from src.config import settings
 from src.logger_config import logger
+from src.market_data.ingestion.qmt_snapshot_provider import QMTSnapshotProvider
 from src.notifications import FeishuNotifier
 from src.strategy.core.models import MarketSnapshot, PositionSnapshot, SignalCard, StrategyDecision
 from src.strategy.data_fetcher import DataFetcher
@@ -17,6 +18,20 @@ from src.strategy.position_syncer import PositionSyncer
 from src.strategy.regime_identifier import RegimeIdentifier
 from src.strategy.signal_generator import SignalGenerator
 from src.strategy.signal_state_repository import StrategySignalRepository
+
+try:
+    from xtquant import xtdata
+except ImportError:
+    xtdata = None
+
+
+def build_market_data_provider():
+    if not settings.t0_market_data_provider_enabled:
+        return None
+    if xtdata is None:
+        logger.warning("xtdata unavailable, market snapshot provider disabled")
+        return None
+    return QMTSnapshotProvider(xtdata_client=xtdata)
 
 
 class StrategyEngine:
@@ -27,7 +42,18 @@ class StrategyEngine:
         self.output_dir = Path(settings.t0_output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
-        self.data_fetcher = DataFetcher()
+        self.market_data_provider = build_market_data_provider()
+        self.data_fetcher = DataFetcher(market_data_provider=self.market_data_provider)
+        if self.market_data_provider is not None:
+            interval_seconds = min(
+                3,
+                max(1, int(settings.t0_market_data_snapshot_interval_seconds)),
+            )
+            self.market_data_provider.subscribe_snapshot(
+                stock_codes=[self.stock_code],
+                interval_seconds=interval_seconds,
+                callback=self._on_market_snapshot,
+            )
         self.regime_identifier = RegimeIdentifier()
         self.feature_calculator = FeatureCalculator()
         self.signal_generator = SignalGenerator()
@@ -53,6 +79,9 @@ class StrategyEngine:
             logger.warning(f"Redis 信号发布连接失败: {e}")
             self.redis_client = None
             self.redis_enabled = False
+
+    def _on_market_snapshot(self, snapshot) -> None:
+        return None
 
     def run_once(self) -> dict:
         """运行一次策略
