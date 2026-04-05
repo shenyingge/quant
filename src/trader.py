@@ -13,6 +13,7 @@ from xtquant.xttype import StockAccount
 
 from src.config import settings
 from src.account_position_sync import sync_account_positions_from_qmt
+from src.trading.attribution import AttributionService
 from src.database import OrderRecord, SessionLocal, TradingSignal, get_db
 from src.logger_config import configured_logger as logger
 from src.qmt_constants import (
@@ -347,6 +348,29 @@ class QMTCallback(XtQuantTraderCallback):
 
                     should_notify = not getattr(order_record, "fill_notified", False)
                     notification_payload["order_id"] = order_record.order_id
+
+                    # Attribution: record this fill in trade_executions
+                    try:
+                        attribution_service = AttributionService(session=db)
+                        attribution_service.record_execution(
+                            broker_trade_id=str(getattr(trade, "trade_id", "") or ""),
+                            broker_order_id=str(getattr(trade, "order_id", "") or ""),
+                            submit_request_id=None,
+                            stock_code=str(getattr(trade, "stock_code", "") or ""),
+                            direction=str(getattr(order_record, "direction", "") or ""),
+                            filled_volume=int(traded_volume),
+                            filled_price=float(traded_price),
+                            filled_amount=float(traded_volume) * float(traded_price),
+                            filled_time=datetime.utcnow(),
+                            commission=getattr(order_record, "commission", None),
+                            transfer_fee=getattr(order_record, "transfer_fee", None),
+                            stamp_duty=getattr(order_record, "stamp_duty", None),
+                            total_fee=getattr(order_record, "total_fee", None),
+                            execution_source="qmt_trade_callback",
+                        )
+                    except Exception as exc:
+                        logger.warning("AttributionService.record_execution failed: {}", exc)
+
                     db.commit()
 
                     if position_syncer is not None:
