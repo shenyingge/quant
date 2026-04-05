@@ -4,8 +4,7 @@ Unit tests for AttributionService.
 Uses in-memory SQLite for speed — tests the attribution logic, not the DB driver.
 """
 import pytest
-from datetime import datetime
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from src.trading.attribution import AttributionService, build_dedupe_key
 
@@ -80,3 +79,25 @@ def test_build_dedupe_key_is_deterministic():
     key1 = build_dedupe_key("BT123", "BO456", 100, 10.5)
     key2 = build_dedupe_key("BT123", "BO456", 100, 10.5)
     assert key1 == key2
+
+
+@pytest.mark.unit
+def test_attribution_service_matches_by_submit_request_id_when_broker_order_id_missing():
+    """
+    When broker_order_id is None, resolve_order_uid falls through to
+    submit_request_id and returns the matching order_uid.
+    """
+    mock_session = MagicMock()
+    service = AttributionService(session=mock_session)
+
+    mock_order = MagicMock()
+    mock_order.order_uid = "01ABCDEF0000000000000002"
+
+    mock_session.query.return_value.filter.return_value.first.return_value = mock_order
+
+    result_uid = service.resolve_order_uid(
+        broker_order_id=None,
+        submit_request_id="REQ001",
+    )
+
+    assert result_uid == "01ABCDEF0000000000000002"
