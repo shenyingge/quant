@@ -85,18 +85,14 @@ uv run python migrate_db.py
 
 ### Testing
 ```bash
-# Run all tests
-uv run python tests/run_tests.py
+# Run all CI tests (automatically excludes live_qmt and manual)
+uv run pytest
 
-# Run specific test
-uv run python tests/test_redis_integration.py
-uv run python tests/test_passorder.py
+# Run with coverage report (target: core chain ≥80%)
+uv run pytest --cov=src --cov-report=term-missing
 
-# List available tests
-uv run python tests/run_tests.py --list
-
-# Run tests with pytest (if installed)
-uv run python tests/run_tests.py --pytest
+# Run specific test file
+uv run pytest tests/test_redis_integration.py
 ```
 
 ## Architecture
@@ -105,14 +101,15 @@ uv run python tests/run_tests.py --pytest
 
 1. **main.py**: Entry point that handles commands and initializes the trading service
 2. **src/trading_service.py**: Core service orchestrator that manages Redis listener, trader, and notifications
-3. **src/redis_listener.py**: Listens to Redis channels for trading signals in JSON format
-4. **src/trader.py**: QMT trading interface using xtquant SDK for order execution
-5. **src/database.py**: SQLAlchemy models for signals and orders persistence
-6. **src/notifications.py**: Feishu (飞书) webhook notifications for trading events
-7. **src/backup_service.py**: Automated daily backup of trading data
-8. **src/config.py**: Pydantic settings management from environment variables
-9. **src/daily_pnl_calculator.py**: Daily profit/loss calculation and summary generation
-10. **src/stock_info.py**: Stock information cache and name display management
+3. **src/infrastructure/redis/signal_listener.py**: Listens to Redis channels for trading signals in JSON format (canonical location; `src/redis_listener.py` is a compat wrapper)
+4. **src/trading/execution/qmt_trader.py**: QMT trading interface using xtquant SDK for order execution (canonical location; `src/trader.py` is a compat wrapper)
+5. **src/infrastructure/db/models.py**: SQLAlchemy models for signals and orders persistence (canonical location; `src/database.py` is a compat wrapper)
+6. **src/infrastructure/notifications/feishu.py**: Feishu (飞书) webhook notifications for trading events (canonical location; `src/notifications.py` is a compat wrapper)
+7. **src/trading/runtime/engine.py**: Trading engine runtime (canonical location; `src/trading_engine.py` is a compat wrapper)
+8. **src/backup_service.py**: Automated daily backup of trading data
+9. **src/config.py**: Pydantic settings management from environment variables
+10. **src/daily_pnl_calculator.py**: Daily profit/loss calculation and summary generation
+11. **src/stock_info.py**: Stock information cache and name display management
 
 ### Signal Processing Flow
 

@@ -7,6 +7,7 @@ src.infrastructure.db. This module now re-exports them for backward compatibilit
 # Re-export all models and session utilities from new location
 from src.infrastructure.db.models import (
     Base,
+    TRADING_SCHEMA,
     TradingSignal,
     OrderRecord,
     TradeExecution,
@@ -21,6 +22,7 @@ from src.infrastructure.db.models import (
 )
 from src.infrastructure.db.session import (
     create_tables,
+    engine,
     get_database_details,
     get_db_session,
     get_db,
@@ -29,6 +31,7 @@ from src.infrastructure.db.session import (
 
 __all__ = [
     "Base",
+    "TRADING_SCHEMA",
     "TradingSignal",
     "OrderRecord",
     "TradeExecution",
@@ -41,6 +44,7 @@ __all__ = [
     "StrategyPositionState",
     "StrategyEventOutbox",
     "create_tables",
+    "engine",
     "get_database_details",
     "get_db_session",
     "get_db",

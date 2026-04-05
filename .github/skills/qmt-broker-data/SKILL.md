@@ -1,6 +1,6 @@
 ---
 name: qmt-broker-data
-description: "Understand, extend, or debug the broker abstraction, data manager, market-data normalization, and daily export workflows in this repository. Use when working on src/broker, src/data_manager, src/daily_exporter.py, docs/unified_broker_guide.md, or docs/market_data_format.md."
+description: "Understand, extend, or debug the broker abstraction, data manager, market-data normalization, and daily export workflows in this repository. Use when working on src/broker, src/data_manager, src/market_data, src/daily_exporter.py, docs/unified_broker_guide.md, or docs/market_data_format.md."
 ---
 
 # QMT Broker Data
@@ -11,6 +11,7 @@ Use this skill when the task is about broker-facing contracts or strategy-facing
 
 - `src/broker/`
 - `src/data_manager/`
+- `src/market_data/`          # high-frequency realtime ingestion (tick / snapshot)
 - `src/daily_exporter.py`
 - `docs/unified_broker_guide.md`
 - `docs/market_data_format.md`

@@ -29,24 +29,32 @@
 quant/
 ├── main.py                # 主程序入口
 ├── pyproject.toml         # 项目配置和依赖（使用uv管理）
+├── pytest.ini             # 测试配置（默认排除 live_qmt / manual）
 ├── .env                   # 环境配置文件
 ├── src/                   # 核心源代码
-│   ├── config.py          # 配置管理
-│   ├── database.py        # 数据库模型（SQLAlchemy）
+│   ├── config.py          # 配置管理（Pydantic Settings）
 │   ├── logger_config.py   # 统一日志配置
-│   ├── redis_listener.py  # Redis信号监听器
-│   ├── redis_client.py    # Redis客户端管理
-│   ├── trader.py          # QMT交易执行器
-│   ├── notifications.py   # 飞书通知服务
-│   ├── trading_service.py # 核心交易服务
-│   ├── backup_service.py  # 数据备份服务
-│   ├── stock_info.py      # 股票信息缓存
-│   ├── trading_calendar_manager.py # 交易日历管理
-│   ├── trading_day_checker.py # 交易日检查
-│   ├── daily_exporter.py  # 每日持仓与成交导出
+│   ├── trading_service.py # 核心交易服务编排器
+│   ├── watchdog_service.py # Watchdog 进程管理
+│   ├── cms_server.py      # CMS HTTP 管理接口
+│   ├── infrastructure/    # 基础设施层
+│   │   ├── db/            # SQLAlchemy 模型与会话
+│   │   ├── notifications/ # 飞书通知实现
+│   │   ├── redis/         # Redis 信号监听器
+│   │   └── scheduling/    # 分钟行情定时采集
+│   ├── trading/           # 交易领域层
+│   │   ├── attribution.py # 成交归因与复盘
+│   │   ├── execution/     # QMT 下单执行器
+│   │   └── runtime/       # 交易引擎运行时
+│   ├── strategy/          # T+0 策略层
+│   │   ├── core/          # 纯策略核心（无 QMT/Redis 依赖）
+│   │   ├── adapters/      # 回测适配器
+│   │   └── shared/        # 多策略共享组件
+│   ├── backtest/          # 文件驱动回测（Linux 友好）
+│   ├── broker/            # Broker 抽象层
 │   ├── data_manager/      # 市场数据下载/标准化/校验
-│   ├── strategy/          # T+0 实时适配器与纯策略核心
-│   └── backtest/          # Linux/文件驱动回测组件
+│   ├── market_data/       # 高频实时行情摄入
+│   └── (backward-compat wrappers: database.py, notifications.py, trader.py ...)
 ├── scripts/               # 脚本文件
 │   ├── README.md          # 脚本使用说明
 │   ├── register_watchdog_service_task.ps1 # 注册单入口 watchdog 开机任务
@@ -360,12 +368,17 @@ uv run python main.py t0-backtest --config ./configs/t0_backtest_601138.json
 ### 运行测试
 
 ```bash
-# 运行所有测试
-uv run pytest tests/
+# 运行所有 CI 测试（自动排除 live_qmt / manual）
+uv run pytest
 
-# 运行特定测试
-uv run python tests/test_redis_integration.py
-uv run python tests/test_passorder.py
+# 运行特定测试文件
+uv run pytest tests/test_redis_integration.py
+
+# 运行并生成覆盖率报告（目标：核心链路 ≥80%）
+uv run pytest --cov=src --cov-report=term-missing
+
+# 强制包含所有标记（包括需要 live QMT 的测试，慎用）
+uv run pytest -m ""
 ```
 
 ### 代码结构
