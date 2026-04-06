@@ -4,18 +4,32 @@ import json
 import threading
 import time
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Dict, Optional
 
 import requests
 
 from src.infrastructure.config import settings
 from src.infrastructure.logger_config import configured_logger as logger
 from src.trading.qmt_constants import get_account_status_name, get_status_name
-from src.data_manager.stock_info import get_stock_display_name
-from src.strategy.core.models import SignalCard
+
+if TYPE_CHECKING:
+    from src.strategy.core.models import SignalCard
 
 STRATEGY_ENGINE_NAME = "策略引擎"
 TRADING_ENGINE_NAME = "交易引擎"
+
+
+def _safe_stock_display_name(stock_code: Optional[str]) -> str:
+    """Resolve stock display name without triggering package import cycles."""
+    if not stock_code:
+        return settings.t0_stock_code
+
+    try:
+        from src.data_manager.stock_info import get_stock_display_name
+
+        return get_stock_display_name(stock_code)
+    except Exception:
+        return stock_code
 
 
 class FeishuNotifier:
@@ -164,7 +178,7 @@ class FeishuNotifier:
 
     def notify_t0_signal(self, signal_card: Any, stock_code: Optional[str] = None) -> bool:
         """Send T+0 strategy signal notifications."""
-        if isinstance(signal_card, SignalCard):
+        if hasattr(signal_card, "signal") and hasattr(signal_card, "market"):
             return self._notify_t0_signal_from_card(signal_card, stock_code)
 
         signal = signal_card.get("signal", {})
@@ -178,7 +192,7 @@ class FeishuNotifier:
             return True
 
         stock_code = stock_code or settings.t0_stock_code
-        stock_display = get_stock_display_name(stock_code) if stock_code else settings.t0_stock_code
+        stock_display = _safe_stock_display_name(stock_code)
         market = signal_card.get("market", {})
         position = signal_card.get("position", {})
         scores = signal_card.get("scores", {})
@@ -226,7 +240,7 @@ class FeishuNotifier:
         return self.send_message(message, title)
 
     def _notify_t0_signal_from_card(
-        self, signal_card: SignalCard, stock_code: Optional[str] = None
+        self, signal_card: "SignalCard", stock_code: Optional[str] = None
     ) -> bool:
         action = signal_card.signal.action
 
@@ -237,7 +251,7 @@ class FeishuNotifier:
             return True
 
         stock_code = stock_code or settings.t0_stock_code
-        stock_display = get_stock_display_name(stock_code) if stock_code else settings.t0_stock_code
+        stock_display = _safe_stock_display_name(stock_code)
 
         message = f"股票: {stock_display}\n"
         message += f"时间: {signal_card.as_of_time}\n"
@@ -269,7 +283,7 @@ class FeishuNotifier:
 
     def notify_t0_position_sync(self, stock_code: str, success: bool, detail: str = "") -> bool:
         """Send T+0 position-sync notifications."""
-        stock_display = get_stock_display_name(stock_code) if stock_code else settings.t0_stock_code
+        stock_display = _safe_stock_display_name(stock_code)
         message = f"股票: {stock_display}\n结果: {'成功' if success else '失败'}"
         if detail:
             message += f"\n详情: {detail}"
@@ -289,7 +303,7 @@ class FeishuNotifier:
     def notify_signal_received(self, signal_data: Dict[str, Any]) -> bool:
         """通知收到交易信号"""
         stock_code = signal_data.get("stock_code", "N/A")
-        stock_display = get_stock_display_name(stock_code) if stock_code != "N/A" else "N/A"
+        stock_display = _safe_stock_display_name(stock_code) if stock_code != "N/A" else "N/A"
 
         message = f"收到交易信号:\n"
         message += f"• 股票信息: {stock_display}\n"
