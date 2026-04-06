@@ -11,7 +11,7 @@ from src.strategy.core.engine import T0StrategyEngine
 from src.strategy.core.models import FeatureSnapshot, PortfolioState, SignalEvent, StrategyDecision
 from src.strategy.core.params import T0StrategyParams
 from src.strategy.core.regime_classifier import RegimeClassifier
-from src.strategy.feature_calculator import FeatureCalculator
+from src.strategy.strategies.t0.feature_calculator import FeatureCalculator
 
 
 class T0StrategyKernel:

@@ -6,10 +6,10 @@ from typing import Dict, Optional
 from src.infrastructure.config import settings
 from src.infrastructure.logger_config import logger
 from src.strategy.core.params import T0StrategyParams
-from src.strategy.data_fetcher import DataFetcher
-from src.strategy.feature_calculator import FeatureCalculator
-from src.strategy.position_syncer import PositionSyncer
-from src.strategy.regime_identifier import RegimeIdentifier
+from src.strategy.strategies.t0.data_fetcher import DataFetcher
+from src.strategy.strategies.t0.feature_calculator import FeatureCalculator
+from src.strategy.strategies.t0.position_syncer import PositionSyncer
+from src.strategy.strategies.t0.regime_identifier import RegimeIdentifier
 
 
 class StrategyStatusService:

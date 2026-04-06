@@ -6,7 +6,7 @@ import pandas as pd
 
 from src.backtest.simulator import T0BacktestSimulator
 from src.strategy.core.models import PortfolioState
-from src.strategy.feature_calculator import FeatureCalculator
+from src.strategy.strategies.t0.feature_calculator import FeatureCalculator
 
 
 def test_feature_calculator_returns_snapshot_object():

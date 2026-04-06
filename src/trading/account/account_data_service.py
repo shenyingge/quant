@@ -7,9 +7,13 @@ from typing import Any, Dict, Iterator, List, Optional, Tuple
 from sqlalchemy import desc
 
 from src.infrastructure.config import settings
-from src.trading.daily_pnl_calculator import calculate_daily_summary
+from src.trading.analytics.daily_pnl_calculator import calculate_daily_summary
 from src.infrastructure.db import AccountPosition, OrderRecord, SessionLocal, TradingSignal
-from src.trading.trading_costs import TradingFeeSchedule, analyze_filled_trades, load_trade_breakdown
+from src.trading.costs.trading_costs import (
+    TradingFeeSchedule,
+    analyze_filled_trades,
+    load_trade_breakdown,
+)
 
 
 class AccountDataService:

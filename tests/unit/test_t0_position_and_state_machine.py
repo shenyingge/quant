@@ -4,8 +4,8 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from src.strategy.core.models import SignalEvent
-from src.strategy.position_syncer import PositionSyncer
-from src.strategy.signal_generator import SignalGenerator
+from src.strategy.strategies.t0.position_syncer import PositionSyncer
+from src.strategy.strategies.t0.signal_generator import SignalGenerator
 
 
 class _MorningDateTime(datetime):
@@ -186,7 +186,7 @@ def test_reverse_t_buy_is_blocked_when_tactical_buy_capacity_is_zero():
         "t0_buy_capacity": 0,
     }
 
-    with patch("src.strategy.signal_generator.datetime", _MorningDateTime):
+    with patch("src.strategy.strategies.t0.signal_generator.datetime", _MorningDateTime):
         signal = generator.generate_signal(
             "transition", features, position, date(2026, 3, 26), signal_history=[]
         )
@@ -219,7 +219,7 @@ def test_reverse_t_buy_can_follow_with_reverse_t_sell_same_day():
     }
     history = [SignalEvent(action="reverse_t_buy", branch="reverse_t", price=50.0, volume=900)]
 
-    with patch("src.strategy.signal_generator.datetime", _AfternoonDateTime):
+    with patch("src.strategy.strategies.t0.signal_generator.datetime", _AfternoonDateTime):
         signal = generator.generate_signal(
             "transition", features, position, date(2026, 3, 26), signal_history=history
         )

@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 
-from src.trading.order_record_costs import backfill_order_record_costs
-from src.trading.trading_costs import (
+from src.trading.costs.order_record_costs import backfill_order_record_costs
+from src.trading.costs.trading_costs import (
     TradingFeeSchedule,
     apply_trade_cost_fields,
     build_trade_cost_fields,
@@ -206,9 +206,9 @@ def test_backfill_order_record_costs_updates_missing_fields(monkeypatch):
     )
     session = _FakeBackfillSession([row])
 
-    monkeypatch.setattr("src.trading.order_record_costs.SessionLocal", lambda: session)
+    monkeypatch.setattr("src.trading.costs.order_record_costs.SessionLocal", lambda: session)
     monkeypatch.setattr(
-        "src.trading.order_record_costs.ensure_order_record_cost_columns", lambda *args, **kwargs: []
+        "src.trading.costs.order_record_costs.ensure_order_record_cost_columns", lambda *args, **kwargs: []
     )
 
     result = backfill_order_record_costs(batch_size=100, dry_run=False, recalculate=False)
@@ -246,12 +246,12 @@ def test_backfill_order_record_costs_hydrates_trade_breakdown_from_error_message
     )
     session = _FakeBackfillSession([row])
 
-    monkeypatch.setattr("src.trading.order_record_costs.SessionLocal", lambda: session)
+    monkeypatch.setattr("src.trading.costs.order_record_costs.SessionLocal", lambda: session)
     monkeypatch.setattr(
-        "src.trading.order_record_costs.ensure_order_record_cost_columns", lambda *args, **kwargs: []
+        "src.trading.costs.order_record_costs.ensure_order_record_cost_columns", lambda *args, **kwargs: []
     )
     monkeypatch.setattr(
-        "src.trading.order_record_costs.infer_trade_breakdown_from_logs",
+        "src.trading.costs.order_record_costs.infer_trade_breakdown_from_logs",
         lambda **kwargs: [],
     )
 

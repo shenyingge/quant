@@ -42,7 +42,7 @@ def test_with_mock_data():
 def test_regime_identification(generator):
     """测试regime识别"""
     try:
-        from src.strategy.regime_identifier import RegimeIdentifier
+        from src.strategy.strategies.t0.regime_identifier import RegimeIdentifier
 
         # 生成日线数据
         daily_data = generator.generate_daily_data(days=100, base_price=12.0)
@@ -64,7 +64,7 @@ def test_regime_identification(generator):
 def test_feature_calculation(generator):
     """测试特征计算"""
     try:
-        from src.strategy.feature_calculator import FeatureCalculator
+        from src.strategy.strategies.t0.feature_calculator import FeatureCalculator
 
         # 生成分钟数据
         minute_data = generator.generate_minute_data("normal", base_price=12.0)
@@ -94,8 +94,8 @@ def test_feature_calculation(generator):
 def test_signal_generation(generator, scenario):
     """测试信号生成"""
     try:
-        from src.strategy.feature_calculator import FeatureCalculator
-        from src.strategy.signal_generator import SignalGenerator
+        from src.strategy.strategies.t0.feature_calculator import FeatureCalculator
+        from src.strategy.strategies.t0.signal_generator import SignalGenerator
 
         # 生成对应场景的分钟数据
         minute_data = generator.generate_minute_data(scenario, base_price=12.0)

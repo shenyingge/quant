@@ -1,6 +1,6 @@
 from pathlib import Path
 
-import src.market_data.minute_history_exporter as minute_history_exporter
+import src.market_data.ingestion.minute_history_exporter as minute_history_exporter
 import src.infrastructure.remote_sync as remote_sync
 from src.data_manager.daily_exporter import DailyExporter
 from src.infrastructure.remote_sync import join_remote_path, normalize_identity_file_path

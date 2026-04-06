@@ -10,7 +10,7 @@ from src.infrastructure.config import settings
 from src.infrastructure.db import AccountPosition, OrderRecord, SessionLocal
 from src.infrastructure.logger_config import configured_logger as logger
 from src.infrastructure.notifications import FeishuNotifier
-from src.strategy.position_syncer import PositionSyncer
+from src.strategy.strategies.t0.position_syncer import PositionSyncer
 
 
 @dataclass

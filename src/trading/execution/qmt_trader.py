@@ -12,8 +12,8 @@ from xtquant.xttrader import XtQuantTrader, XtQuantTraderCallback
 from xtquant.xttype import StockAccount
 
 from src.infrastructure.config import settings
-from src.trading.account_position_sync import sync_account_positions_from_qmt
-from src.trading.attribution import AttributionService
+from src.trading.account.account_position_sync import sync_account_positions_from_qmt
+from src.trading.analytics.attribution import AttributionService
 from src.infrastructure.db import OrderRecord, SessionLocal, TradingSignal, get_db
 from src.infrastructure.logger_config import configured_logger as logger
 from src.trading.qmt_constants import (
@@ -26,7 +26,7 @@ from src.trading.qmt_constants import (
 )
 from src.infrastructure.redis.client import redis_trade_client
 from src.data_manager.stock_info import get_stock_display_name
-from src.trading.trading_costs import (
+from src.trading.costs.trading_costs import (
     TradingFeeSchedule,
     append_trade_breakdown_leg,
     apply_trade_cost_fields,
@@ -298,7 +298,7 @@ class QMTCallback(XtQuantTraderCallback):
             position_syncer = None
             if stock_code == settings.t0_stock_code:
                 try:
-                    from src.strategy.position_syncer import PositionSyncer
+                    from src.strategy.strategies.t0.position_syncer import PositionSyncer
 
                     position_syncer = PositionSyncer()
                 except Exception as position_sync_error:

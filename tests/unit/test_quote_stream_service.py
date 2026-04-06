@@ -1,6 +1,6 @@
 import json
 
-import src.market_data.quote_stream_service as quote_stream_service
+import src.market_data.streaming.quote_stream_service as quote_stream_service
 
 
 class FakePubSub:

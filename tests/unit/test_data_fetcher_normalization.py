@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.strategy.data_fetcher import DataFetcher
+from src.strategy.strategies.t0.data_fetcher import DataFetcher
 
 
 def _build_minute_df(index: pd.DatetimeIndex) -> pd.DataFrame:
@@ -189,8 +189,8 @@ def test_validate_minute_data_accepts_sparse_current_day_before_signal_window():
     df = _build_minute_df(pd.date_range("2026-03-27 09:30:00", periods=5, freq="min"))
 
     with (
-        patch("src.strategy.data_fetcher.date", FixedDate),
-        patch("src.strategy.data_fetcher.datetime", FixedDateTime),
+        patch("src.strategy.strategies.t0.data_fetcher.date", FixedDate),
+        patch("src.strategy.strategies.t0.data_fetcher.datetime", FixedDateTime),
     ):
         valid, message = fetcher._validate_minute_data(df, FixedDate.today())
 
@@ -214,8 +214,8 @@ def test_validate_minute_data_accepts_current_day_rows_after_first_signal_window
     df = _build_minute_df(pd.date_range("2026-03-27 09:30:00", periods=21, freq="min"))
 
     with (
-        patch("src.strategy.data_fetcher.date", FixedDate),
-        patch("src.strategy.data_fetcher.datetime", FixedDateTime),
+        patch("src.strategy.strategies.t0.data_fetcher.date", FixedDate),
+        patch("src.strategy.strategies.t0.data_fetcher.datetime", FixedDateTime),
     ):
         valid, message = fetcher._validate_minute_data(df, FixedDate.today())
 
@@ -323,8 +323,8 @@ def test_validate_minute_data_uses_subminute_row_requirement():
     df = _build_minute_df(pd.date_range("2026-03-27 09:30:00", periods=60, freq="15s"))
 
     with (
-        patch("src.strategy.data_fetcher.date", FixedDate),
-        patch("src.strategy.data_fetcher.datetime", FixedDateTime),
+        patch("src.strategy.strategies.t0.data_fetcher.date", FixedDate),
+        patch("src.strategy.strategies.t0.data_fetcher.datetime", FixedDateTime),
     ):
         valid, message = fetcher._validate_minute_data(df, FixedDate.today())
 
@@ -357,8 +357,8 @@ def test_validate_minute_data_supports_higher_frequency_row_requirement(
     df = _build_minute_df(pd.date_range("2026-03-27 09:30:00", periods=rows, freq=intraday_period))
 
     with (
-        patch("src.strategy.data_fetcher.date", FixedDate),
-        patch("src.strategy.data_fetcher.datetime", FixedDateTime),
+        patch("src.strategy.strategies.t0.data_fetcher.date", FixedDate),
+        patch("src.strategy.strategies.t0.data_fetcher.datetime", FixedDateTime),
     ):
         valid, message = fetcher._validate_minute_data(df, FixedDate.today())
 

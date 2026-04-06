@@ -5,7 +5,7 @@ import time
 from collections.abc import Callable, Sequence
 
 from src.infrastructure.logger_config import configured_logger as logger
-from src.trading.trading_day_checker import is_trading_day
+from src.trading.calendar.trading_day_checker import is_trading_day
 
 from src.cli.shared import TRADING_ENGINE_NAME, parse_retry_params, resolve_qmt_session_id
 

@@ -18,7 +18,7 @@ from src.infrastructure.scheduling.minute_history import get_minute_daily_ingest
 from src.infrastructure.logger_config import configured_logger as logger
 from src.infrastructure.notifications import FeishuNotifier
 from src.infrastructure.process_utils import find_matching_processes
-from src.trading.trading_day_checker import is_trading_day
+from src.trading.calendar.trading_day_checker import is_trading_day
 
 
 @dataclass(frozen=True)

@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from src.strategy.data_fetcher import DataFetcher
+from src.strategy.strategies.t0.data_fetcher import DataFetcher
 from src.strategy.t0.contracts.market_data import MarketSnapshot
 
 
@@ -113,7 +113,7 @@ def test_provider_none_result_falls_back_to_xtdata():
     }
     fake_xtdata.get_full_tick.__module__ = "xtquant.xtdata"
 
-    with patch("src.strategy.data_fetcher.xtdata", fake_xtdata):
+    with patch("src.strategy.strategies.t0.data_fetcher.xtdata", fake_xtdata):
         result = fetcher.fetch_realtime_snapshot("601138.SH")
 
     assert result is not None
@@ -139,7 +139,7 @@ def test_no_provider_uses_xtdata_path():
         }
     }
 
-    with patch("src.strategy.data_fetcher.xtdata", fake_xtdata):
+    with patch("src.strategy.strategies.t0.data_fetcher.xtdata", fake_xtdata):
         result = fetcher.fetch_realtime_snapshot("601138.SH")
 
     assert result is not None

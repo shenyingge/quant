@@ -3,8 +3,8 @@ from datetime import datetime
 import pandas as pd
 
 from src.strategy.core.models import FeatureSnapshot, PortfolioState
-from src.strategy.feature_calculator import FeatureCalculator
-from src.strategy.strategy_engine import StrategyEngine
+from src.strategy.strategies.t0.feature_calculator import FeatureCalculator
+from src.strategy.strategies.t0.strategy_engine import StrategyEngine
 
 
 def test_feature_calculator_includes_latest_bar_time():

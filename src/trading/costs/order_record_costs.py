@@ -8,7 +8,7 @@ from sqlalchemy import inspect, or_, text
 from src.infrastructure.config import settings
 from src.infrastructure.db import OrderRecord, SessionLocal, TRADING_SCHEMA, engine
 from src.infrastructure.logger_config import logger
-from src.trading.trading_costs import (
+from src.trading.costs.trading_costs import (
     TradingFeeSchedule,
     apply_trade_cost_fields,
     hydrate_trade_breakdown,

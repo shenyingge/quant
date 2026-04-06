@@ -7,7 +7,7 @@ import pytest
 
 import main as main_module
 
-import src.trading.trading_day_checker as trading_day_checker
+import src.trading.calendar.trading_day_checker as trading_day_checker
 
 
 @pytest.fixture(autouse=True)
@@ -146,7 +146,7 @@ def test_run_t0_strategy_skips_when_not_trading_day(monkeypatch):
 
     monkeypatch.setitem(
         sys.modules,
-        "src.strategy.strategy_engine",
+        "src.strategy.strategies.t0.strategy_engine",
         SimpleNamespace(StrategyEngine=FakeStrategyEngine),
     )
 

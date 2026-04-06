@@ -43,7 +43,7 @@ from src.cli.trading import (
 from src.infrastructure.config import settings
 from src.infrastructure.logger_config import configure_process_logger
 from src.infrastructure.logger_config import configured_logger as logger
-from src.trading.trading_day_checker import is_trading_day
+from src.trading.calendar.trading_day_checker import is_trading_day
 
 
 def _resolve_qmt_session_id(mode: str) -> int:

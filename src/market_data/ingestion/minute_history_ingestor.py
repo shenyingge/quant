@@ -12,14 +12,18 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from src.infrastructure.meta_db import get_meta_db_sync_url
 from src.infrastructure.logger_config import configured_logger as logger
-from src.market_data.minute_history_exporter import (
+from src.market_data.ingestion.minute_history_exporter import (
     StockRecord,
     fetch_stock_records,
     normalize_result,
     normalize_trade_date,
     resolve_date_range,
 )
-from src.market_data.minute_history_models import MINUTE_BAR_SCHEMA, MinuteBarBase, StockMinuteBar
+from src.market_data.ingestion.minute_history_models import (
+    MINUTE_BAR_SCHEMA,
+    MinuteBarBase,
+    StockMinuteBar,
+)
 
 
 def default_bootstrap_start_date() -> str:

@@ -11,7 +11,7 @@ import pandas as pd
 
 from src.infrastructure.config import settings
 from src.infrastructure.logger_config import logger
-from src.strategy.tick_cache import RedisTickCache
+from src.strategy.strategies.t0.tick_cache import RedisTickCache
 
 try:
     from xtquant import xtdata

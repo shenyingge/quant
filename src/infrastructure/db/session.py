@@ -15,7 +15,7 @@ def create_tables():
     with engine.begin() as connection:
         connection.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{TRADING_SCHEMA}"'))
         Base.metadata.create_all(bind=connection)
-        from src.trading.order_record_costs import ensure_order_record_cost_columns
+        from src.trading.costs.order_record_costs import ensure_order_record_cost_columns
 
         ensure_order_record_cost_columns(connection)
 

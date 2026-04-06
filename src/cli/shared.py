@@ -4,7 +4,7 @@ from collections.abc import Callable, Sequence
 
 from src.infrastructure.config import settings
 from src.infrastructure.logger_config import configured_logger as logger
-from src.trading.trading_day_checker import is_trading_day
+from src.trading.calendar.trading_day_checker import is_trading_day
 
 STRATEGY_ENGINE_NAME = "策略引擎"
 TRADING_ENGINE_NAME = "交易引擎"

@@ -15,7 +15,7 @@ from src.infrastructure.config import settings
 from src.infrastructure.db import OrderRecord, SessionLocal
 from src.infrastructure.logger_config import configured_logger as logger
 from src.data_manager.stock_info import get_stock_display_name
-from src.trading.trading_costs import TradingFeeSchedule, analyze_filled_trades
+from src.trading.costs.trading_costs import TradingFeeSchedule, analyze_filled_trades
 
 
 class DailyPnLCalculator:

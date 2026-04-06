@@ -2,7 +2,7 @@ from datetime import datetime
 
 import pandas as pd
 
-from src.market_data.minute_history_ingestor import MinuteHistoryIngestor
+from src.market_data.ingestion.minute_history_ingestor import MinuteHistoryIngestor
 
 
 def test_build_rows_from_dataframe_generates_expected_fields():

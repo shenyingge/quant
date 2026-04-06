@@ -7,7 +7,7 @@ def test_notifications_import_does_not_trigger_strategy_cycle():
         "src.infrastructure.notifications",
         "src.infrastructure.notifications.feishu",
         "src.strategy",
-        "src.strategy.strategy_engine",
+        "src.strategy.strategies.t0.strategy_engine",
     ]:
         sys.modules.pop(module_name, None)
 

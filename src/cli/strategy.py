@@ -29,7 +29,7 @@ def run_t0_daemon(
         return 0
 
     from src.infrastructure.notifications import FeishuNotifier
-    from src.strategy.strategy_engine import StrategyEngine
+    from src.strategy.strategies.t0.strategy_engine import StrategyEngine
 
     logger_obj.info("启动 {}", STRATEGY_ENGINE_NAME)
 
@@ -88,7 +88,7 @@ def run_t0_strategy(
     if should_skip_non_trading_day_fn(STRATEGY_ENGINE_NAME):
         return 0
 
-    from src.strategy.strategy_engine import StrategyEngine
+    from src.strategy.strategies.t0.strategy_engine import StrategyEngine
 
     logger_obj.info("运行 {} 一次", STRATEGY_ENGINE_NAME)
 
@@ -116,7 +116,7 @@ def sync_t0_position(
         return 0
 
     from src.infrastructure.notifications import FeishuNotifier
-    from src.strategy.position_syncer import PositionSyncer
+    from src.strategy.strategies.t0.position_syncer import PositionSyncer
     from src.trading.execution.qmt_trader import QMTTrader
 
     del args
@@ -210,7 +210,7 @@ def reconcile_t0_state(
         return 0
 
     from src.infrastructure.notifications import FeishuNotifier
-    from src.strategy.t0_reconciler import T0Reconciler
+    from src.strategy.strategies.t0.t0_reconciler import T0Reconciler
     from src.trading.execution.qmt_trader import QMTTrader
 
     del args
@@ -295,7 +295,7 @@ def run_t0_backtest(args: Sequence[str], *, logger_obj=logger) -> int:
 
 def run_t0_diagnose(args: Sequence[str], *, logger_obj=logger) -> int:
     """运行 T+0 策略诊断。"""
-    from src.strategy.strategy_diagnostics import StrategyDiagnostics
+    from src.strategy.strategies.t0.strategy_diagnostics import StrategyDiagnostics
 
     del args
 

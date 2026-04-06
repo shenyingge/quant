@@ -2,7 +2,7 @@ from contextlib import contextmanager
 from datetime import datetime
 from types import SimpleNamespace
 
-from src.trading.account_data_service import AccountDataService
+from src.trading.account.account_data_service import AccountDataService
 
 
 class FakeTradeQuery:

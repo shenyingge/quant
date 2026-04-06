@@ -1,6 +1,6 @@
 import main
 import src.infrastructure.notifications as notifications_module
-import src.strategy.position_syncer as position_syncer
+import src.strategy.strategies.t0.position_syncer as position_syncer
 import src.trading.execution.qmt_trader as qmt_trader
 
 from src.infrastructure.config import settings

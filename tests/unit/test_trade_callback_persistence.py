@@ -91,7 +91,7 @@ def test_trade_callback_creates_standalone_order_record(monkeypatch):
 
     monkeypatch.setattr("src.trading.execution.qmt_trader.SessionLocal", lambda: session)
     monkeypatch.setattr("src.trading.execution.qmt_trader.get_stock_display_name", lambda stock_code: stock_code)
-    monkeypatch.setattr("src.strategy.position_syncer.PositionSyncer", lambda: position_syncer)
+    monkeypatch.setattr("src.strategy.strategies.t0.position_syncer.PositionSyncer", lambda: position_syncer)
     monkeypatch.setattr(
         QMTCallback,
         "_load_order_record_for_trade",
@@ -152,7 +152,7 @@ def test_trade_callback_updates_existing_record_when_match_is_resolved(monkeypat
 
     monkeypatch.setattr("src.trading.execution.qmt_trader.SessionLocal", lambda: session)
     monkeypatch.setattr("src.trading.execution.qmt_trader.get_stock_display_name", lambda stock_code: stock_code)
-    monkeypatch.setattr("src.strategy.position_syncer.PositionSyncer", lambda: position_syncer)
+    monkeypatch.setattr("src.strategy.strategies.t0.position_syncer.PositionSyncer", lambda: position_syncer)
     monkeypatch.setattr(
         QMTCallback,
         "_load_order_record_for_trade",
@@ -195,7 +195,7 @@ def test_trade_callback_uses_xtquant_traded_id_when_trade_id_is_missing(monkeypa
 
     monkeypatch.setattr("src.trading.execution.qmt_trader.SessionLocal", lambda: session)
     monkeypatch.setattr("src.trading.execution.qmt_trader.get_stock_display_name", lambda stock_code: stock_code)
-    monkeypatch.setattr("src.strategy.position_syncer.PositionSyncer", lambda: position_syncer)
+    monkeypatch.setattr("src.strategy.strategies.t0.position_syncer.PositionSyncer", lambda: position_syncer)
     monkeypatch.setattr(
         QMTCallback,
         "_load_order_record_for_trade",
@@ -236,7 +236,7 @@ def test_trade_callback_keeps_distinct_partial_fills_with_different_traded_id(mo
 
     monkeypatch.setattr("src.trading.execution.qmt_trader.SessionLocal", lambda: session)
     monkeypatch.setattr("src.trading.execution.qmt_trader.get_stock_display_name", lambda stock_code: stock_code)
-    monkeypatch.setattr("src.strategy.position_syncer.PositionSyncer", lambda: position_syncer)
+    monkeypatch.setattr("src.strategy.strategies.t0.position_syncer.PositionSyncer", lambda: position_syncer)
     monkeypatch.setattr(
         QMTCallback,
         "_load_order_record_for_trade",
@@ -299,7 +299,7 @@ def test_trade_callback_accumulates_trade_breakdown_on_existing_order_record(mon
 
     monkeypatch.setattr("src.trading.execution.qmt_trader.SessionLocal", lambda: session)
     monkeypatch.setattr("src.trading.execution.qmt_trader.get_stock_display_name", lambda stock_code: stock_code)
-    monkeypatch.setattr("src.strategy.position_syncer.PositionSyncer", lambda: position_syncer)
+    monkeypatch.setattr("src.strategy.strategies.t0.position_syncer.PositionSyncer", lambda: position_syncer)
     monkeypatch.setattr(
         QMTCallback,
         "_load_order_record_for_trade",

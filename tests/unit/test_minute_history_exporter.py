@@ -3,7 +3,7 @@ from datetime import date as real_date
 
 import main as main_module
 
-import src.market_data.minute_history_exporter as minute_history_exporter
+import src.market_data.ingestion.minute_history_exporter as minute_history_exporter
 
 
 class FixedDate:

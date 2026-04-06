@@ -15,7 +15,7 @@ def test_data_fetcher():
     logger.info("=" * 50)
     logger.info("测试1: 数据获取模块")
     try:
-        from src.strategy.data_fetcher import DataFetcher
+        from src.strategy.strategies.t0.data_fetcher import DataFetcher
 
         fetcher = DataFetcher()
 
@@ -45,8 +45,8 @@ def test_regime_identifier():
     logger.info("=" * 50)
     logger.info("测试2: Regime识别模块")
     try:
-        from src.strategy.data_fetcher import DataFetcher
-        from src.strategy.regime_identifier import RegimeIdentifier
+        from src.strategy.strategies.t0.data_fetcher import DataFetcher
+        from src.strategy.strategies.t0.regime_identifier import RegimeIdentifier
 
         fetcher = DataFetcher()
         identifier = RegimeIdentifier()
@@ -69,8 +69,8 @@ def test_feature_calculator():
     logger.info("=" * 50)
     logger.info("测试3: 特征计算模块")
     try:
-        from src.strategy.data_fetcher import DataFetcher
-        from src.strategy.feature_calculator import FeatureCalculator
+        from src.strategy.strategies.t0.data_fetcher import DataFetcher
+        from src.strategy.strategies.t0.feature_calculator import FeatureCalculator
 
         fetcher = DataFetcher()
         calculator = FeatureCalculator()
@@ -100,7 +100,7 @@ def test_orchestrator():
     logger.info("=" * 50)
     logger.info("测试4: 完整策略流程")
     try:
-        from src.strategy.strategy_engine import StrategyEngine
+        from src.strategy.strategies.t0.strategy_engine import StrategyEngine
 
         strategy_engine = StrategyEngine()
         signal_card = strategy_engine.run_once()

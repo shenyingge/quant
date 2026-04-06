@@ -3,7 +3,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-import src.strategy.strategy_engine as strategy_engine_module
+import src.strategy.strategies.t0.strategy_engine as strategy_engine_module
 
 
 class _FakeRedisClient:

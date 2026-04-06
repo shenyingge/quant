@@ -4,12 +4,12 @@ from collections.abc import Callable, Sequence
 from datetime import date
 
 from src.infrastructure.logger_config import configured_logger as logger
-from src.trading.trading_day_checker import is_trading_day
+from src.trading.calendar.trading_day_checker import is_trading_day
 
 
 def export_minute_history(args: Sequence[str]) -> int:
     """Export minute-history bundle."""
-    from src.market_data.minute_history_exporter import main as export_main
+    from src.market_data.ingestion.minute_history_exporter import main as export_main
 
     return export_main(list(args))
 
@@ -34,7 +34,7 @@ def export_minute_daily(
 
 def ingest_minute_history(args: Sequence[str]) -> int:
     """Ingest minute-history bundle into Meta DB."""
-    from src.market_data.minute_history_ingestor import main as ingest_main
+    from src.market_data.ingestion.minute_history_ingestor import main as ingest_main
 
     return ingest_main(list(args))
 

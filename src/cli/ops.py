@@ -25,7 +25,7 @@ def sync_account_positions(
     logger_obj=logger,
 ) -> int:
     """Refresh account positions snapshot from QMT into Meta DB."""
-    from src.trading.account_position_sync import sync_account_positions_via_qmt
+    from src.trading.account.account_position_sync import sync_account_positions_via_qmt
 
     source = "manual_cli"
     for arg in args:

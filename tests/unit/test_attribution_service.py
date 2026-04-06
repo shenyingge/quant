@@ -6,7 +6,7 @@ Uses in-memory SQLite for speed — tests the attribution logic, not the DB driv
 import pytest
 from unittest.mock import MagicMock
 
-from src.trading.attribution import AttributionService, build_dedupe_key
+from src.trading.analytics.attribution import AttributionService, build_dedupe_key
 
 
 @pytest.mark.unit
