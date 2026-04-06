@@ -17,7 +17,7 @@
 
 ## 系统要求
 
-- Python 3.11+
+- Python 3.12.3
 - Windows 10/11 或 Windows Server 2016+
 - QMT客户端（国金证券版本）
 - Redis服务器

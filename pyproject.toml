@@ -3,7 +3,7 @@ name = "quant"
 version = "0.1.0"
 description = "QMT Automated Trading Service with Redis Signal Processing"
 readme = "README.md"
-requires-python = ">=3.9.8"
+requires-python = ">=3.12.3,<3.13"
 dependencies = [
     "alembic>=1.14.0",
     "asyncpg>=0.30.0",
@@ -42,7 +42,7 @@ dev = [
 
 [tool.black]
 line-length = 100
-target-version = ['py39', 'py310', 'py311', 'py312']
+target-version = ['py312']
 include = '\.pyi?$'
 extend-exclude = '''
 # A regex preceded by ^/ will apply only to files and directories
