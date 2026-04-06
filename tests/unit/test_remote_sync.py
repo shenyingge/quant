@@ -94,7 +94,7 @@ def test_sync_file_via_rsync_runs_ssh_mkdir_then_rsync(monkeypatch, tmp_path):
         file=local_file,
         remote_subdir="minute_history",
         remote_base="~/data/trade",
-        alias_or_host="10.10.1.12",
+        alias_or_host="example.com",
         username="shen",
         port=2222,
         identity_file="/c/Users/shen/.ssh/id_ed25519",
@@ -104,7 +104,7 @@ def test_sync_file_via_rsync_runs_ssh_mkdir_then_rsync(monkeypatch, tmp_path):
     assert uploaded_path == "~/data/trade/minute_history/sample.zip"
     assert len(commands) == 2
     assert commands[0]["command"][:4] == ["ssh", "-o", "BatchMode=yes", "-o"]
-    assert commands[0]["command"][-2] == "10.10.1.12"
+    assert commands[0]["command"][-2] == "example.com"
     assert "mkdir -p" in commands[0]["command"][-1]
 
     rsync_command = commands[1]["command"]
@@ -112,4 +112,4 @@ def test_sync_file_via_rsync_runs_ssh_mkdir_then_rsync(monkeypatch, tmp_path):
     assert "--timeout=20" in rsync_command
     assert "--contimeout=20" not in rsync_command
     assert "-e" in rsync_command
-    assert rsync_command[-1] == "10.10.1.12:~/data/trade/minute_history/"
+    assert rsync_command[-1] == "example.com:~/data/trade/minute_history/"

@@ -284,11 +284,11 @@ def test_bootstrap_account_positions_snapshot_if_needed_skips_when_trading_engin
 
 def test_resolve_cms_server_host_uses_tailscale_cli(monkeypatch):
     def fake_run(command, capture_output, check, text, timeout):
-        return subprocess.CompletedProcess(command, 0, stdout="100.92.140.63\n", stderr="")
+        return subprocess.CompletedProcess(command, 0, stdout="203.0.113.63\n", stderr="")
 
     monkeypatch.setattr(cms_server.subprocess, "run", fake_run)
 
-    assert cms_server.resolve_cms_server_host("tailscale") == "100.92.140.63"
+    assert cms_server.resolve_cms_server_host("tailscale") == "203.0.113.63"
 
 
 def test_resolve_cms_server_host_uses_ipconfig_fallback(monkeypatch):
@@ -301,7 +301,7 @@ def test_resolve_cms_server_host_uses_ipconfig_fallback(monkeypatch):
             stdout=(
                 "Windows IP Configuration\n\n"
                 "Unknown adapter Tailscale:\n\n"
-                "   IPv4 Address. . . . . . . . . . . : 100.92.140.63\n"
+                "   IPv4 Address. . . . . . . . . . . : 203.0.113.63\n"
             ),
             stderr="",
         ),
@@ -316,7 +316,7 @@ def test_resolve_cms_server_host_uses_ipconfig_fallback(monkeypatch):
     monkeypatch.setattr(cms_server, "os", type("FakeOS", (), {"name": "nt"})())
     monkeypatch.setattr(cms_server.subprocess, "run", fake_run)
 
-    assert cms_server.resolve_cms_server_host("tailscale") == "100.92.140.63"
+    assert cms_server.resolve_cms_server_host("tailscale") == "203.0.113.63"
 
 
 def test_websocket_client_send_message_supports_extended_frame_length():

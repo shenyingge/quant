@@ -5,7 +5,7 @@ import src.infrastructure.db.meta_db as meta_db
 
 def test_get_meta_db_url_uses_configured_connection(monkeypatch):
     monkeypatch.setattr(meta_db.settings, "meta_db_type", "postgresql+asyncpg")
-    monkeypatch.setattr(meta_db.settings, "meta_db_host", "10.10.1.6")
+    monkeypatch.setattr(meta_db.settings, "meta_db_host", "localhost")
     monkeypatch.setattr(meta_db.settings, "meta_db_port", 15432)
     monkeypatch.setattr(meta_db.settings, "meta_db_name", "qsync")
     monkeypatch.setattr(meta_db.settings, "meta_db_user", "qsync")
@@ -14,7 +14,7 @@ def test_get_meta_db_url_uses_configured_connection(monkeypatch):
     url = make_url(meta_db.get_meta_db_url())
 
     assert url.drivername == "postgresql+asyncpg"
-    assert url.host == "10.10.1.6"
+    assert url.host == "localhost"
     assert url.port == 15432
     assert url.database == "qsync"
     assert url.username == "qsync"

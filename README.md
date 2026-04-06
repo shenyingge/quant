@@ -95,7 +95,7 @@ uv sync
 
 ```env
 # Redis配置
-REDIS_HOST=10.0.12.2
+REDIS_HOST=localhost
 REDIS_PORT=30102
 REDIS_SIGNAL_CHANNEL=trading_signals
 
