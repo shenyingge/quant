@@ -75,3 +75,4 @@
 - python 文件内的import 部分要放在顶部并且进行排序，而不是分散在文件的不同位置。所有的 import 语句应该集中在文件的开头，并按照标准库、第三方库、项目内部模块的顺序进行排序。
 - 使用项目路径而不是相对路径引入。比如应该使用 `from src.trading.execution.qmt_trader import QMTTrader` 而不是 `from ..execution.qmt_trader import QMTTrader`。
 - 代码的分布需要规则有序，不能随便放在某一层的根目录。如果文件夹下面有子文件夹，那么当前路径下的 Python 文件绝大多数都应该被归类到不同的子文件夹，而不是有的在子文件夹中，有的不在，这种情况会导致结构混乱和职责不清。每个文件夹下的 Python 文件应该有明确的功能定位，并且按照功能进行分类放置，保持整个项目结构的清晰和一致性。
+- 具体策略实现代码必须与 xtquant 解耦：`src/strategy/core/` 和 `src/strategy/strategies/t0/` 内禁止直接 `import xtquant` / `from xtquant ...`。如需使用 xtquant，只允许在策略引擎层通过动态加载方式调度，并保持回测与实盘双兼容。

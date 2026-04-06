@@ -11,13 +11,8 @@ import pandas as pd
 
 from src.infrastructure.config import settings
 from src.infrastructure.logger_config import logger
+from src.market_data.ingestion.market_data_gateway import NullMarketDataGateway
 from src.strategy.strategies.t0.tick_cache import RedisTickCache
-
-try:
-    from xtquant import xtdata
-except ImportError:
-    logger.warning("xtquant未安装，数据获取功能将不可用")
-    xtdata = None
 
 
 class DataFetcher:
@@ -25,7 +20,13 @@ class DataFetcher:
 
     _PERIOD_RE = re.compile(r"^(?P<value>\d+)(?P<unit>[sm])$", re.IGNORECASE)
 
-    def __init__(self, cache_dir: str = "./cache", intraday_period: Optional[str] = None, market_data_provider=None):
+    def __init__(
+        self,
+        cache_dir: str = "./cache",
+        intraday_period: Optional[str] = None,
+        market_data_provider=None,
+        market_data_gateway=None,
+    ):
         self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self._daily_cache = {}
@@ -33,6 +34,7 @@ class DataFetcher:
         self._snapshot_cache_time = None
         self.tick_cache = RedisTickCache()
         self.market_data_provider = market_data_provider
+        self.market_data_gateway = market_data_gateway or NullMarketDataGateway()
         raw_period = intraday_period or getattr(settings, "t0_intraday_bar_period", "1m")
         self.intraday_period = self._normalize_intraday_period(raw_period)
         self.intraday_period_seconds = self._period_to_seconds(self.intraday_period)
@@ -41,7 +43,7 @@ class DataFetcher:
         self, stock_code: str, trade_date: date, retry: int = 3, realtime: bool = False
     ) -> Optional[pd.DataFrame]:
         """Fetches the configured intraday bars for one trade date."""
-        if xtdata is None:
+        if self.market_data_gateway is None:
             logger.error("xtdata未安装")
             return None
 
@@ -112,7 +114,7 @@ class DataFetcher:
         self, stock_code: str, trade_date: date
     ) -> Optional[pd.DataFrame]:
         """Reads 1m bars from xtdata recent window and filters to one trade date."""
-        data = xtdata.get_market_data(
+        data = self.market_data_gateway.fetch_market_data(
             stock_list=[stock_code],
             period="1m",
             count=self._estimate_recent_minute_count(),
@@ -135,7 +137,7 @@ class DataFetcher:
         if cached_df is not None and not cached_df.empty:
             last_tick_time = cached_df.index.max()
             try:
-                data = xtdata.get_market_data(
+                data = self.market_data_gateway.fetch_market_data(
                     stock_list=[stock_code],
                     period="tick",
                     count=500,
@@ -161,8 +163,9 @@ class DataFetcher:
                 combined_df = pd.concat([cached_df, new_ticks]).drop_duplicates()
                 combined_df = combined_df.sort_index()
                 combined_df = self._append_snapshot_tick(combined_df, stock_code, trade_date)
-                self.tick_cache.save_ticks(stock_code, trade_date, combined_df)
-                logger.info(f"增量tick更新: 新增{len(new_ticks)}条, 总计{len(combined_df)}条")
+                if combined_df is not None and not combined_df.empty:
+                    self.tick_cache.save_ticks(stock_code, trade_date, combined_df)
+                    logger.info(f"增量tick更新: 新增{len(new_ticks)}条, 总计{len(combined_df)}条")
                 return combined_df
 
             refreshed_df = self._append_snapshot_tick(cached_df, stock_code, trade_date)
@@ -171,7 +174,7 @@ class DataFetcher:
             return refreshed_df
 
         try:
-            data = xtdata.get_market_data(
+            data = self.market_data_gateway.fetch_market_data(
                 stock_list=[stock_code],
                 period="tick",
                 count=self._estimate_recent_tick_count(),
@@ -221,13 +224,13 @@ class DataFetcher:
                 logger.debug(f"使用内存缓存: {cache_key}")
                 return cached_data
 
-        if xtdata is None:
+        if self.market_data_gateway is None:
             logger.error("xtdata未安装")
             return None
 
         for attempt in range(retry):
             try:
-                data = xtdata.get_market_data(
+                data = self.market_data_gateway.fetch_market_data(
                     stock_list=[stock_code],
                     period="1d",
                     count=days,
@@ -287,11 +290,11 @@ class DataFetcher:
             if elapsed < settings.t0_poll_interval_seconds:
                 return self._snapshot_cache
 
-        if xtdata is None or not hasattr(xtdata, "get_full_tick"):
+        if self.market_data_gateway is None:
             return None
 
         try:
-            snapshot_data = xtdata.get_full_tick([stock_code])
+            snapshot_data = self.market_data_gateway.fetch_full_tick([stock_code])
             if not isinstance(snapshot_data, dict):
                 return None
 
@@ -328,15 +331,20 @@ class DataFetcher:
         self, stock_code: str, days: int
     ) -> Optional[pd.DataFrame]:
         """Reads daily data from local QMT cache as fallback."""
-        if xtdata is None:
+        if self.market_data_gateway is None:
             return None
 
         try:
             end_date = date.today().strftime("%Y%m%d")
             start_date = (date.today() - pd.Timedelta(days=max(days * 2, 120))).strftime("%Y%m%d")
 
-            xtdata.download_history_data(stock_code, "1d", start_date, end_date)
-            data = xtdata.get_local_data(
+            self.market_data_gateway.download_history_data(
+                stock_code,
+                "1d",
+                start_date,
+                end_date,
+            )
+            data = self.market_data_gateway.fetch_local_data(
                 stock_list=[stock_code],
                 period="1d",
                 start_time=start_date,
@@ -354,7 +362,7 @@ class DataFetcher:
         self, stock_code: str, trade_date: date
     ) -> Optional[pd.DataFrame]:
         """Reads configured intraday bars from local QMT cache."""
-        if xtdata is None:
+        if self.market_data_gateway is None:
             return None
 
         if self._uses_tick_source():
@@ -371,8 +379,13 @@ class DataFetcher:
         trade_date_str = trade_date.strftime("%Y%m%d")
 
         try:
-            xtdata.download_history_data(stock_code, "1m", trade_date_str, trade_date_str)
-            data = xtdata.get_local_data(
+            self.market_data_gateway.download_history_data(
+                stock_code,
+                "1m",
+                trade_date_str,
+                trade_date_str,
+            )
+            data = self.market_data_gateway.fetch_local_data(
                 stock_list=[stock_code],
                 period="1m",
                 start_time=trade_date_str,
@@ -392,8 +405,13 @@ class DataFetcher:
         trade_date_str = trade_date.strftime("%Y%m%d")
 
         try:
-            xtdata.download_history_data(stock_code, "tick", trade_date_str, trade_date_str)
-            data = xtdata.get_local_data(
+            self.market_data_gateway.download_history_data(
+                stock_code,
+                "tick",
+                trade_date_str,
+                trade_date_str,
+            )
+            data = self.market_data_gateway.fetch_local_data(
                 stock_list=[stock_code],
                 period="tick",
                 start_time=trade_date_str,

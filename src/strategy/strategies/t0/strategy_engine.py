@@ -1,5 +1,6 @@
 """Strategy engine for coordinating T+0 runtime evaluation."""
 
+import importlib
 import json
 import time
 from datetime import date, datetime
@@ -9,6 +10,10 @@ import redis
 
 from src.infrastructure.config import settings
 from src.infrastructure.logger_config import logger
+from src.market_data.ingestion.market_data_gateway import (
+    NullMarketDataGateway,
+    XTQuantMarketDataGateway,
+)
 from src.market_data.ingestion.qmt_snapshot_provider import QMTSnapshotProvider
 from src.infrastructure.notifications import FeishuNotifier
 from src.strategy.core.models import MarketSnapshot, PositionSnapshot, SignalCard, StrategyDecision
@@ -19,19 +24,37 @@ from src.strategy.strategies.t0.regime_identifier import RegimeIdentifier
 from src.strategy.strategies.t0.signal_generator import SignalGenerator
 from src.strategy.strategies.t0.signal_state_repository import StrategySignalRepository
 
-try:
-    from xtquant import xtdata
-except ImportError:
-    xtdata = None
+
+def load_xtdata_client():
+    """Dynamically load xtquant.xtdata for live runtime only."""
+    try:
+        xt_module = importlib.import_module("xtquant")
+        return getattr(xt_module, "xtdata", None)
+    except Exception:
+        return None
 
 
-def build_market_data_provider():
+def build_market_data_provider(xtdata_client=None):
     if not settings.t0_market_data_provider_enabled:
         return None
-    if xtdata is None:
+    xtdata_client = xtdata_client or load_xtdata_client()
+    if xtdata_client is None:
         logger.warning("xtdata unavailable, market snapshot provider disabled")
         return None
-    return QMTSnapshotProvider(xtdata_client=xtdata)
+    return QMTSnapshotProvider(xtdata_client=xtdata_client)
+
+
+def build_xtdata_client():
+    xtdata_client = load_xtdata_client()
+    if xtdata_client is None:
+        logger.warning("xtdata unavailable, data fetcher will run without QMT source")
+    return xtdata_client
+
+
+def build_market_data_gateway(xtdata_client=None):
+    if xtdata_client is None:
+        return NullMarketDataGateway()
+    return XTQuantMarketDataGateway(xtdata_client=xtdata_client)
 
 
 class StrategyEngine:
@@ -42,8 +65,13 @@ class StrategyEngine:
         self.output_dir = Path(settings.t0_output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
-        self.market_data_provider = build_market_data_provider()
-        self.data_fetcher = DataFetcher(market_data_provider=self.market_data_provider)
+        self.xtdata_client = build_xtdata_client()
+        self.market_data_provider = build_market_data_provider(self.xtdata_client)
+        self.market_data_gateway = build_market_data_gateway(self.xtdata_client)
+        self.data_fetcher = DataFetcher(
+            market_data_provider=self.market_data_provider,
+            market_data_gateway=self.market_data_gateway,
+        )
         if self.market_data_provider is not None:
             interval_seconds = min(
                 3,
