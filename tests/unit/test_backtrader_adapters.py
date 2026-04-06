@@ -3,7 +3,7 @@
 import backtrader as bt
 
 from src.strategy.adapters.backtrader_adapter import BacktraderStrategyWrapper
-from src.strategy.t0.contracts.strategy import BarData, StrategyBase, StrategyParams
+from src.strategy.strategies.t0.contracts.strategy import BarData, StrategyBase, StrategyParams
 
 
 class SimpleT0Strategy(StrategyBase):

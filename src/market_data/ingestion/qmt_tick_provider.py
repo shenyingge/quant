@@ -5,7 +5,7 @@ from collections.abc import Callable
 from typing import Any
 
 from src.infrastructure.logger_config import logger
-from src.strategy.t0.contracts.market_data import MarketDataCallback, MarketSnapshot
+from src.strategy.strategies.t0.contracts.market_data import MarketDataCallback, MarketSnapshot
 
 
 class QMTTickProvider:

@@ -1,7 +1,11 @@
 """Tests for StrategyManager."""
 
 from src.strategy.shared.strategy_manager import StrategyManager
-from src.strategy.t0.contracts.strategy import BarData, StrategyBase, StrategyParams
+from src.strategy.strategies.t0.contracts.strategy import (
+    BarData,
+    StrategyBase,
+    StrategyParams,
+)
 
 
 class DummyStrategy(StrategyBase):

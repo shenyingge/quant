@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from src.strategy.strategies.t0.data_fetcher import DataFetcher
-from src.strategy.t0.contracts.market_data import MarketSnapshot
+from src.strategy.strategies.t0.contracts.market_data import MarketSnapshot
 
 
 # ---------------------------------------------------------------------------
