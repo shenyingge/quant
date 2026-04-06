@@ -5,7 +5,7 @@
 import json
 import time
 
-from src.config import settings
+from src.infrastructure.config import settings
 from src.trading.execution.qmt_trader import QMTTrader
 
 

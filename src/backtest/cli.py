@@ -11,8 +11,8 @@ from typing import Any, Optional
 from .data_loader import BacktestDataLoader
 from .metrics import build_open_legs, build_roundtrips, summarize_backtest
 from .simulator import T0BacktestSimulator
-from src.config import settings
-from src.logger_config import configured_logger as logger
+from src.infrastructure.config import settings
+from src.infrastructure.logger_config import configured_logger as logger
 from src.strategy.core.models import PortfolioState
 from src.strategy.core.params import T0StrategyParams
 

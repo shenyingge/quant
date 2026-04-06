@@ -19,7 +19,7 @@ from typing import Iterable, List, Optional, Tuple
 
 from xtquant import xtdata
 
-from src.config import settings
+from src.infrastructure.config import settings
 from src.data_manager.storage import MarketDataStorage
 from src.infrastructure.meta_db import validate_meta_db_config
 from src.infrastructure.remote_sync import sync_file_via_rsync, sync_tree_via_rsync

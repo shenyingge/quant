@@ -12,7 +12,7 @@ import time
 from pathlib import Path
 from typing import Iterable, List, Optional, Union
 
-from src.config import settings
+from src.infrastructure.config import settings
 
 PathLike = Union[str, Path]
 DEFAULT_RSYNC_RETRIES = 3

@@ -9,8 +9,8 @@ from typing import Any, Dict, Optional
 import redis
 from schedule import Scheduler
 
-from src.config import settings
-from src.logger_config import configured_logger as logger
+from src.infrastructure.config import settings
+from src.infrastructure.logger_config import configured_logger as logger
 
 
 class RedisTradeRecordsClient:

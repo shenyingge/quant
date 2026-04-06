@@ -1,4 +1,4 @@
-from src.config import settings
+from src.infrastructure.config import settings
 from src.infrastructure.notifications import FeishuNotifier
 
 

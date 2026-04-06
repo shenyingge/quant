@@ -10,7 +10,7 @@ from typing import Optional
 import redis
 from sqlalchemy.orm import Session
 
-from src.config import settings
+from src.infrastructure.config import settings
 from src.infrastructure.db import (
     AccountPosition,
     OrderRecord,
@@ -19,7 +19,7 @@ from src.infrastructure.db import (
     StrategyPositionState,
     create_tables,
 )
-from src.logger_config import logger
+from src.infrastructure.logger_config import logger
 from src.strategy.core.models import PortfolioState
 
 

@@ -9,8 +9,8 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 
-from src.config import settings
-from src.logger_config import logger
+from src.infrastructure.config import settings
+from src.infrastructure.logger_config import logger
 from src.strategy.tick_cache import RedisTickCache
 
 try:

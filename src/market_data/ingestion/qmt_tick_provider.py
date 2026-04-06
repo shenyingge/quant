@@ -4,7 +4,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from src.logger_config import logger
+from src.infrastructure.logger_config import logger
 from src.strategy.t0.contracts.market_data import MarketDataCallback, MarketSnapshot
 
 

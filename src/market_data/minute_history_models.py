@@ -5,7 +5,7 @@ from datetime import datetime
 from sqlalchemy import Column, Date, DateTime, Float, Index, Integer, MetaData, String, UniqueConstraint
 from sqlalchemy.orm import declarative_base
 
-from src.config import settings
+from src.infrastructure.config import settings
 
 MINUTE_BAR_SCHEMA = (settings.meta_db_schema or "").strip() or "gold"
 

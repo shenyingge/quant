@@ -13,7 +13,7 @@ sys.path.insert(0, str(project_root))
 
 from loguru import logger
 
-from src.config import settings
+from src.infrastructure.config import settings
 from src.trading.execution.qmt_trader import QMTTrader
 
 

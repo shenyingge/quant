@@ -8,7 +8,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import requests
-from src.cms_server import start_cms_server, stop_cms_server
+from src.infrastructure.runtime.cms_server import start_cms_server, stop_cms_server
 
 
 def test_http_endpoints():

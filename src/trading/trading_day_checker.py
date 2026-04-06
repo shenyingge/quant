@@ -4,8 +4,8 @@ from datetime import date, datetime
 import threading
 from typing import Optional
 
-from src.config import settings
-from src.logger_config import configured_logger as logger
+from src.infrastructure.config import settings
+from src.infrastructure.logger_config import configured_logger as logger
 
 
 _trading_day_cache_lock = threading.Lock()

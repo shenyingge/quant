@@ -10,7 +10,7 @@ from typing import Dict, Optional
 from sqlalchemy.orm import Session
 
 from src.infrastructure.db import SessionLocal, StockInfo
-from src.logger_config import configured_logger as logger
+from src.infrastructure.logger_config import configured_logger as logger
 
 
 class StockInfoCache:

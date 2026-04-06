@@ -16,7 +16,7 @@ from schedule import Scheduler
 from sqlalchemy import func, or_
 
 from src.infrastructure.db import OrderRecord, SessionLocal, TradingSignal
-from src.logger_config import configured_logger as logger
+from src.infrastructure.logger_config import configured_logger as logger
 from src.infrastructure.remote_sync import sync_file_via_rsync
 
 

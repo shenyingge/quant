@@ -1,6 +1,6 @@
 """Test Phase 4 configuration settings."""
 
-from src.config import settings
+from src.infrastructure.config import settings
 
 
 def test_config_has_t0_max_strategies():

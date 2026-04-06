@@ -18,7 +18,7 @@ This project now uses Meta DB as the only persistent store for runtime business 
   - updated when a strategy signal is accepted by the trading engine
 - Positions
   - stored in `trading.account_positions`
-  - refreshed only on trading-engine startup and after filled-trade callbacks
+  - refreshed on trading-engine startup, after filled-trade callbacks, and by a one-time CMS startup bootstrap when no snapshot exists yet
 - Trading calendar and stock info
   - stored in Meta DB through the normal service helpers
 
@@ -50,6 +50,8 @@ This project now uses Meta DB as the only persistent store for runtime business 
 
 - Startup
   - after the trading engine connects to QMT, it syncs the full broker position snapshot into Meta DB
+- CMS startup bootstrap
+  - if the CMS starts and Meta DB still has no position snapshot, it performs one read-only QMT refresh before serving account APIs
 - Filled trades
   - after a trade callback, the runtime refreshes the broker position snapshot into Meta DB again
 - No quote-driven writes

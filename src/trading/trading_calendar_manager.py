@@ -8,7 +8,7 @@ import pandas as pd
 from sqlalchemy.orm import Session
 
 from src.infrastructure.db import SessionLocal, TradingCalendar, create_tables
-from src.logger_config import configured_logger as logger
+from src.infrastructure.logger_config import configured_logger as logger
 
 
 class TradingCalendarManager:

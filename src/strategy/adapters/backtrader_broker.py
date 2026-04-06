@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import backtrader as bt
 
-from src.logger_config import logger
+from src.infrastructure.logger_config import logger
 
 
 class QMTBrokerInterface(bt.brokers.BackBroker):

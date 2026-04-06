@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from src.logger_config import logger
+from src.infrastructure.logger_config import logger
 
 
 @dataclass

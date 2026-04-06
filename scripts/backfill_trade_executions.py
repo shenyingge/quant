@@ -21,9 +21,9 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.infrastructure.db import OrderRecord, SessionLocal, TradeExecution
-from src.logger_config import logger
+from src.infrastructure.logger_config import logger
 from src.trading.attribution import build_dedupe_key
-from src.uid import new_ulid
+from src.infrastructure.uid import new_ulid
 
 
 def parse_trade_breakdown(raw: Optional[str]) -> List[dict[str, Any]]:

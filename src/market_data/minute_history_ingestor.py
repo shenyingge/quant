@@ -11,7 +11,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from src.infrastructure.meta_db import get_meta_db_sync_url
-from src.logger_config import configured_logger as logger
+from src.infrastructure.logger_config import configured_logger as logger
 from src.market_data.minute_history_exporter import (
     StockRecord,
     fetch_stock_records,

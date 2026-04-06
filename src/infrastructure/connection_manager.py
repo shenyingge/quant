@@ -7,8 +7,8 @@ import time
 from enum import Enum
 from typing import Any, Callable, Optional
 
-from src.config import settings
-from src.logger_config import configured_logger as logger
+from src.infrastructure.config import settings
+from src.infrastructure.logger_config import configured_logger as logger
 
 
 class ConnectionState(Enum):

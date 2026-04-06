@@ -3,7 +3,7 @@ import src.infrastructure.notifications as notifications_module
 import src.strategy.position_syncer as position_syncer
 import src.trading.execution.qmt_trader as qmt_trader
 
-from src.config import settings
+from src.infrastructure.config import settings
 
 
 def test_sync_t0_position_retries_connect_until_success(monkeypatch):

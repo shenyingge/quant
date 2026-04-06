@@ -2,7 +2,7 @@ from datetime import datetime, time
 
 import pandas as pd
 
-from src.config import settings
+from src.infrastructure.config import settings
 from src.strategy.core.engine import T0StrategyEngine
 from src.strategy.core.models import SignalEvent
 from src.strategy.core.params import T0StrategyParams

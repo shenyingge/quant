@@ -3,10 +3,18 @@ from datetime import date as real_date
 from types import SimpleNamespace
 
 import pandas as pd
+import pytest
 
 import main as main_module
 
 import src.trading.trading_day_checker as trading_day_checker
+
+
+@pytest.fixture(autouse=True)
+def clear_trading_day_cache():
+    trading_day_checker._trading_day_cache.clear()
+    yield
+    trading_day_checker._trading_day_cache.clear()
 
 
 def test_is_trading_day_returns_true_when_tushare_marks_open(monkeypatch):

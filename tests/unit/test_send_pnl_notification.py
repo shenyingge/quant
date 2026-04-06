@@ -8,7 +8,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from src.logger_config import configured_logger as logger
+from src.infrastructure.logger_config import configured_logger as logger
 from src.infrastructure.notifications import FeishuNotifier
 from src.trading.daily_pnl_calculator import calculate_daily_summary
 

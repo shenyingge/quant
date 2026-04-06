@@ -5,9 +5,9 @@ from typing import Any, Optional
 
 from sqlalchemy import inspect, or_, text
 
-from src.config import settings
+from src.infrastructure.config import settings
 from src.infrastructure.db import OrderRecord, SessionLocal, TRADING_SCHEMA, engine
-from src.logger_config import logger
+from src.infrastructure.logger_config import logger
 from src.trading.trading_costs import (
     TradingFeeSchedule,
     apply_trade_cost_fields,

@@ -6,8 +6,8 @@ from pathlib import Path
 
 import redis
 
-from src.config import settings
-from src.logger_config import logger
+from src.infrastructure.config import settings
+from src.infrastructure.logger_config import logger
 
 
 class SignalViewer:

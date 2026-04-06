@@ -7,7 +7,7 @@ from pathlib import Path
 # 添加项目路径
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from src.logger_config import logger
+from src.infrastructure.logger_config import logger
 
 
 def test_data_fetcher():

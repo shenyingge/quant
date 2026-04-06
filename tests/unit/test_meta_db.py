@@ -1,6 +1,6 @@
 from sqlalchemy.engine import make_url
 
-from src import meta_db
+import src.infrastructure.meta_db as meta_db
 
 
 def test_get_meta_db_url_uses_configured_connection(monkeypatch):
@@ -29,6 +29,8 @@ def test_build_meta_db_trading_metadata_uses_trading_schema(monkeypatch):
     assert set(metadata.tables) == {
         "trading.trading_signals",
         "trading.order_records",
+        "trading.trade_executions",
+        "trading.order_cancellations",
         "trading.trading_calendar",
         "trading.stock_info",
         "trading.strategy_regime_state",

@@ -12,7 +12,7 @@ from pathlib import Path
 # 添加项目根目录到路径
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from src.config import settings
+from src.infrastructure.config import settings
 from src.trading.daily_pnl_calculator import DailyPnLCalculator, calculate_daily_summary
 from src.infrastructure.db import OrderRecord, SessionLocal
 from src.infrastructure.notifications import FeishuNotifier

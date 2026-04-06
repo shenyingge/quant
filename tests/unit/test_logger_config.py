@@ -1,4 +1,4 @@
-from src.logger_config import configure_process_logger, resolve_log_file_path
+from src.infrastructure.logger_config import configure_process_logger, resolve_log_file_path
 
 
 def test_resolve_log_file_path_uses_role_based_default(tmp_path, monkeypatch):

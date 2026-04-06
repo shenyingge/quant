@@ -4,7 +4,7 @@ import subprocess
 import time
 from pathlib import Path
 
-import src.cms_server as cms_server
+import src.infrastructure.runtime.cms_server as cms_server
 
 
 def make_check(name: str, status: str, critical: bool = False):
@@ -38,6 +38,11 @@ def test_health_snapshot_uses_standard_structure(monkeypatch, tmp_path):
     )
     monkeypatch.setattr(
         checker,
+        "_check_watchdog_process",
+        lambda processes: make_check("watchdog_process", "pass"),
+    )
+    monkeypatch.setattr(
+        checker,
         "_check_trading_engine_process",
         lambda processes, trading_day: make_check("trading_engine_process", "pass"),
     )
@@ -54,7 +59,7 @@ def test_health_snapshot_uses_standard_structure(monkeypatch, tmp_path):
     assert snapshot["status"] == "ok"
     assert "checked_at" in snapshot
     assert "summary" in snapshot
-    assert snapshot["summary"]["pass"] >= 6
+    assert snapshot["summary"]["pass"] >= 7
     assert "duration_ms" in snapshot["summary"]
     assert isinstance(snapshot["checks"], list)
     assert snapshot["checks"][0]["status"] in {"pass", "warn", "fail", "skip"}
@@ -156,6 +161,7 @@ def test_background_health_server_serves_snapshot(monkeypatch):
         "build_snapshot",
         lambda self: snapshot,
     )
+    monkeypatch.setattr(cms_server, "_bootstrap_account_positions_snapshot_if_needed", lambda: None)
 
     sock = socket.socket()
     sock.bind(("127.0.0.1", 0))
@@ -208,6 +214,7 @@ def test_background_health_server_is_idempotent(monkeypatch):
         "build_snapshot",
         lambda self: snapshot,
     )
+    monkeypatch.setattr(cms_server, "_bootstrap_account_positions_snapshot_if_needed", lambda: None)
 
     sock = socket.socket()
     sock.bind(("127.0.0.1", 0))
@@ -223,6 +230,56 @@ def test_background_health_server_is_idempotent(monkeypatch):
 
 def test_resolve_cms_server_host_returns_explicit_host():
     assert cms_server.resolve_cms_server_host("127.0.0.1") == "127.0.0.1"
+
+
+def test_bootstrap_account_positions_snapshot_if_needed_refreshes_missing_snapshot(monkeypatch):
+    class FakeAccountDataService:
+        def get_positions_snapshot(self):
+            return {"available": False}
+
+    sync_calls = []
+
+    monkeypatch.setattr(cms_server, "AccountDataService", FakeAccountDataService)
+    monkeypatch.setattr(cms_server, "_list_runtime_processes", lambda: [])
+    monkeypatch.setattr(
+        cms_server,
+        "sync_account_positions_via_qmt",
+        lambda *, source: sync_calls.append(source) or 1,
+    )
+
+    cms_server._bootstrap_account_positions_snapshot_if_needed()
+
+    assert sync_calls == ["cms_startup_bootstrap"]
+
+
+def test_bootstrap_account_positions_snapshot_if_needed_skips_when_trading_engine_running(
+    monkeypatch,
+):
+    class FakeAccountDataService:
+        def get_positions_snapshot(self):
+            return {"available": False}
+
+    sync_calls = []
+    processes = [
+        {
+            "pid": 1001,
+            "parent_pid": 1,
+            "name": "python.exe",
+            "command_line": r"C:\Users\sai\quant\.venv\Scripts\python.exe main.py run",
+        }
+    ]
+
+    monkeypatch.setattr(cms_server, "AccountDataService", FakeAccountDataService)
+    monkeypatch.setattr(cms_server, "_list_runtime_processes", lambda: processes)
+    monkeypatch.setattr(
+        cms_server,
+        "sync_account_positions_via_qmt",
+        lambda *, source: sync_calls.append(source) or 1,
+    )
+
+    cms_server._bootstrap_account_positions_snapshot_if_needed()
+
+    assert sync_calls == []
 
 
 def test_resolve_cms_server_host_uses_tailscale_cli(monkeypatch):

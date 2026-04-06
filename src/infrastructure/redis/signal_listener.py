@@ -7,8 +7,8 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import redis
 
-from src.config import settings
-from src.logger_config import configured_logger as logger
+from src.infrastructure.config import settings
+from src.infrastructure.logger_config import configured_logger as logger
 
 
 class RedisSignalListener:

@@ -1,4 +1,4 @@
-from src.process_utils import find_matching_processes
+from src.infrastructure.process_utils import find_matching_processes
 
 
 def test_find_matching_processes_collapses_windows_launcher_chain():

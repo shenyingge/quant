@@ -11,11 +11,11 @@ from xtquant import xtconstant
 from xtquant.xttrader import XtQuantTrader, XtQuantTraderCallback
 from xtquant.xttype import StockAccount
 
-from src.config import settings
+from src.infrastructure.config import settings
 from src.trading.account_position_sync import sync_account_positions_from_qmt
 from src.trading.attribution import AttributionService
 from src.infrastructure.db import OrderRecord, SessionLocal, TradingSignal, get_db
-from src.logger_config import configured_logger as logger
+from src.infrastructure.logger_config import configured_logger as logger
 from src.trading.qmt_constants import (
     AccountStatus,
     OrderStatus,

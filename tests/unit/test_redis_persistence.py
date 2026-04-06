@@ -11,7 +11,7 @@ from unittest.mock import Mock
 
 import redis
 
-from src.config import Settings
+from src.infrastructure.config import Settings
 from src.infrastructure.redis import RedisSignalListener
 
 

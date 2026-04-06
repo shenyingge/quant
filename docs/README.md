@@ -1,18 +1,30 @@
 # Docs
 
-Active documentation now lives in a small set of stable directories:
+当前规范收敛为三层：
+
+- `AI_CONSTITUTION.md`
+  - 只放核心强约束。
+- `docs/architecture.md`
+  - 只放项目结构、运行模型和数据流规则。
+- `docs/coding-rules.md`
+  - 只放编码规范和文件布局规则。
+
+详细文档继续按职责放在下列目录：
 
 - `docs/architecture/`
-  - Runtime, CMS, watchdog, and account-data architecture notes.
 - `docs/guides/`
-  - Operator and developer guides such as broker, market-data, and export workflows.
 - `docs/strategy/`
-  - Current strategy documentation that still reflects the active implementation.
 - `docs/archive/`
-  - Historical design drafts, old refactor notes, archived planning records, and retired reports.
 
-Rules for keeping this tree clean:
+任务流程不再写成 skills，统一改为按需使用的模板：
 
-- Put current-facing documentation in `architecture`, `guides`, or `strategy`.
-- Move superseded drafts, experiments, and execution logs into `archive`.
-- Do not create new top-level markdown files under `docs/` unless they are this index or a future top-level convention file.
+- `templates/implement.md`
+- `templates/refactor.md`
+- `templates/debug.md`
+- `templates/review.md`
+
+清理规则：
+
+- 不再新增 `.codex/skills` 或 `.agents/skills` 作为项目规则入口。
+- 不再新增 `docs/prompt.md` 这类一次性 prompt 文件。
+- 新文档进入对应目录；过期文档移入 `docs/archive/`。

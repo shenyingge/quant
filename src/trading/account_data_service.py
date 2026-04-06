@@ -6,7 +6,7 @@ from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 from sqlalchemy import desc
 
-from src.config import settings
+from src.infrastructure.config import settings
 from src.trading.daily_pnl_calculator import calculate_daily_summary
 from src.infrastructure.db import AccountPosition, OrderRecord, SessionLocal, TradingSignal
 from src.trading.trading_costs import TradingFeeSchedule, analyze_filled_trades, load_trade_breakdown
@@ -65,6 +65,7 @@ class AccountDataService:
             "fallback_used": False,
             "as_of": None,
             "positions": [],
+            "summary": self._summarize_positions([]),
             "error": "No position data available in Meta DB",
             "position_method": "broker_snapshot",
             "data_mode": "meta_db_snapshot",
@@ -114,6 +115,7 @@ class AccountDataService:
             "fallback_used": False,
             "as_of": latest_timestamp.isoformat() if latest_timestamp else None,
             "positions": positions,
+            "summary": self._summarize_positions(positions),
             "position_method": "broker_snapshot",
             "data_mode": "meta_db_snapshot",
         }
@@ -365,7 +367,7 @@ class AccountDataService:
         summary["kind"] = "strategy_realized_pnl_estimate"
         return summary
 
-    def get_account_overview(self, *, include_positions: bool = False) -> Dict[str, Any]:
+    def get_account_overview(self, *, include_positions: bool = True) -> Dict[str, Any]:
         overview = {
             "policy": self.get_data_policy(),
             "strategy_pnl_summary": self.get_strategy_pnl_summary(),
@@ -398,6 +400,26 @@ class AccountDataService:
             return float(value)
         except (TypeError, ValueError):
             return None
+
+    def _summarize_positions(self, positions: List[Dict[str, Any]]) -> Dict[str, Any]:
+        total_market_value = 0.0
+        has_market_value = False
+
+        for position in positions:
+            market_value = self._to_optional_float(position.get("market_value"))
+            if market_value is None:
+                continue
+            total_market_value += market_value
+            has_market_value = True
+
+        return {
+            "stocks": len(positions),
+            "total_volume": sum(int(position.get("volume") or 0) for position in positions),
+            "available_volume": sum(
+                int(position.get("available_volume") or 0) for position in positions
+            ),
+            "market_value": round(total_market_value, 4) if has_market_value else None,
+        }
 
     def _serialize_trade_row(
         self, trade_row: OrderRecord, normalized_trade: Dict[str, Any]

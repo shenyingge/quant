@@ -6,7 +6,7 @@ from datetime import datetime
 
 import backtrader as bt
 
-from src.logger_config import logger
+from src.infrastructure.logger_config import logger
 from src.strategy.t0.contracts.strategy import BarData, StrategyBase
 
 

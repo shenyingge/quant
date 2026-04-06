@@ -3,8 +3,8 @@
 from datetime import datetime, time
 from typing import Dict, List, Optional
 
+from src.strategy.core.fees import TradingFeeSchedule
 from src.strategy.core.models import BranchState, SignalEvent
-from src.trading.trading_costs import TradingFeeSchedule
 
 
 class T0StrategyEngine:

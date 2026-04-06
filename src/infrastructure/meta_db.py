@@ -5,7 +5,7 @@ from typing import Iterable
 from sqlalchemy import MetaData
 from sqlalchemy.engine import URL
 
-from src.config import settings
+from src.infrastructure.config import settings
 
 TRADING_META_TABLE_NAMES = (
     "trading_signals",

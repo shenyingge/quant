@@ -7,8 +7,8 @@ from typing import Optional
 import pandas as pd
 import redis
 
-from src.config import settings
-from src.logger_config import logger
+from src.infrastructure.config import settings
+from src.infrastructure.logger_config import logger
 
 
 class RedisTickCache:

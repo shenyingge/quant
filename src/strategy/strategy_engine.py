@@ -7,8 +7,8 @@ from pathlib import Path
 
 import redis
 
-from src.config import settings
-from src.logger_config import logger
+from src.infrastructure.config import settings
+from src.infrastructure.logger_config import logger
 from src.market_data.ingestion.qmt_snapshot_provider import QMTSnapshotProvider
 from src.infrastructure.notifications import FeishuNotifier
 from src.strategy.core.models import MarketSnapshot, PositionSnapshot, SignalCard, StrategyDecision

@@ -8,8 +8,8 @@ from typing import Any, Dict, Optional
 
 import requests
 
-from src.config import settings
-from src.logger_config import configured_logger as logger
+from src.infrastructure.config import settings
+from src.infrastructure.logger_config import configured_logger as logger
 from src.trading.qmt_constants import get_account_status_name, get_status_name
 from src.data_manager.stock_info import get_stock_display_name
 from src.strategy.core.models import SignalCard

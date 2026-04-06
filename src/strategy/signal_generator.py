@@ -3,8 +3,8 @@
 from datetime import date, datetime
 from typing import Dict, Iterable, Optional
 
-from src.config import settings
-from src.logger_config import logger
+from src.infrastructure.config import settings
+from src.infrastructure.logger_config import logger
 from src.strategy.core.engine import T0StrategyEngine
 from src.strategy.core.models import FeatureSnapshot, PortfolioState, SignalEvent, StrategyDecision
 from src.strategy.core.params import T0StrategyParams

@@ -8,7 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from tests.test_mock_data_generator import MockDataGenerator
 
-from src.logger_config import logger
+from src.infrastructure.logger_config import logger
 
 
 def test_with_mock_data():
