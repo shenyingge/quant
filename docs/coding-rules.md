@@ -27,7 +27,7 @@
 
 ## 配置
 
-- 配置统一走 `src/config.py` 和环境变量。
+- 配置统一走 `src/infrastructure/config/`（`settings`）和环境变量。
 - 不允许在业务代码里硬编码环境相关值。
 - 新增配置时同步更新 `.env.example`。
 

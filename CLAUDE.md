@@ -106,10 +106,10 @@ uv run pytest tests/test_redis_integration.py
 5. **src/infrastructure/db/models.py**: SQLAlchemy models for signals and orders persistence (canonical location; `src/database.py` is a compat wrapper)
 6. **src/infrastructure/notifications/feishu.py**: Feishu (飞书) webhook notifications for trading events (canonical location; `src/notifications.py` is a compat wrapper)
 7. **src/trading/runtime/engine.py**: Trading engine runtime (canonical location; `src/trading_engine.py` is a compat wrapper)
-8. **src/backup_service.py**: Automated daily backup of trading data
-9. **src/config.py**: Pydantic settings management from environment variables
-10. **src/daily_pnl_calculator.py**: Daily profit/loss calculation and summary generation
-11. **src/stock_info.py**: Stock information cache and name display management
+8. **src/infrastructure/backup/service.py**: Automated daily backup of trading data
+9. **src/infrastructure/config/__init__.py**: Pydantic settings management from environment variables
+10. **src/trading/analytics/daily_pnl_calculator.py**: Daily profit/loss calculation and summary generation
+11. **src/data_manager/stock_info.py**: Stock information cache and name display management
 
 ### Signal Processing Flow
 
