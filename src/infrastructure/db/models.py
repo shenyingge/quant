@@ -16,7 +16,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.ext.declarative import declarative_base
 
-from src.infrastructure.meta_db import get_meta_db_trading_schema
+from src.infrastructure.db.meta_db import get_meta_db_trading_schema
 
 TRADING_SCHEMA = get_meta_db_trading_schema()
 Base = declarative_base(metadata=MetaData(schema=TRADING_SCHEMA))

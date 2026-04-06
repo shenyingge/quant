@@ -30,7 +30,7 @@ from src.trading.account.account_data_service import AccountDataService, parse_p
 from src.infrastructure.config import settings
 from src.infrastructure.db import OrderRecord, TradingSignal, engine as application_db_engine, get_database_details
 from src.infrastructure.logger_config import configured_logger as logger
-from src.infrastructure.process_utils import find_matching_processes
+from src.infrastructure.runtime.process_utils import find_matching_processes
 from src.market_data.streaming.quote_stream_service import normalize_stock_code
 from src.trading.account.account_position_sync import sync_account_positions_via_qmt
 from src.trading.calendar.trading_day_checker import is_trading_day

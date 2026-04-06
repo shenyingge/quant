@@ -7,7 +7,7 @@ from typing import Any
 
 from sqlalchemy import create_engine, inspect, text
 
-from src.infrastructure.meta_db import get_meta_db_sync_url, get_meta_db_trading_schema
+from src.infrastructure.db.meta_db import get_meta_db_sync_url, get_meta_db_trading_schema
 
 SYNC_TABLES = (
     "trading_calendar",

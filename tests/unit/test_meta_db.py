@@ -1,6 +1,6 @@
 from sqlalchemy.engine import make_url
 
-import src.infrastructure.meta_db as meta_db
+import src.infrastructure.db.meta_db as meta_db
 
 
 def test_get_meta_db_url_uses_configured_connection(monkeypatch):

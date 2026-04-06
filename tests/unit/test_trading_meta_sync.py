@@ -4,7 +4,7 @@ from sqlalchemy import create_engine
 from sqlalchemy import MetaData
 
 from src.infrastructure.db import Base
-from src.infrastructure.trading_meta_sync import _read_source_rows, sync_sqlite_to_meta_db
+from src.infrastructure.sync.trading_meta_sync import _read_source_rows, sync_sqlite_to_meta_db
 
 
 def test_read_source_rows_collects_trading_tables(monkeypatch, tmp_path):
@@ -51,7 +51,7 @@ def test_read_source_rows_collects_trading_tables(monkeypatch, tmp_path):
                 ],
             )
 
-        monkeypatch.setattr("src.infrastructure.trading_meta_sync._resolve_source_db_url", lambda: db_url)
+        monkeypatch.setattr("src.infrastructure.sync.trading_meta_sync._resolve_source_db_url", lambda: db_url)
         rows_by_table = _read_source_rows()
     finally:
         engine.dispose()
@@ -71,10 +71,10 @@ def test_sync_sqlite_to_meta_db_returns_sync_summary(monkeypatch):
         "strategy_signal_history": [{"id": 5}],
     }
 
-    monkeypatch.setattr("src.infrastructure.trading_meta_sync._read_source_rows", lambda: source_rows)
+    monkeypatch.setattr("src.infrastructure.sync.trading_meta_sync._read_source_rows", lambda: source_rows)
 
     async def fake_sync(rows_by_table):
-        from src.infrastructure.trading_meta_sync import TradingMetaSyncResult
+        from src.infrastructure.sync.trading_meta_sync import TradingMetaSyncResult
 
         assert rows_by_table == source_rows
         return TradingMetaSyncResult(
@@ -84,7 +84,7 @@ def test_sync_sqlite_to_meta_db_returns_sync_summary(monkeypatch):
             table_row_counts={name: len(rows) for name, rows in rows_by_table.items()},
         )
 
-    monkeypatch.setattr("src.infrastructure.trading_meta_sync._sync_rows_to_meta_db", fake_sync)
+    monkeypatch.setattr("src.infrastructure.sync.trading_meta_sync._sync_rows_to_meta_db", fake_sync)
 
     result = sync_sqlite_to_meta_db()
 

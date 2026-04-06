@@ -8,9 +8,9 @@ from schedule import Scheduler
 from sqlalchemy.orm import Session
 
 from src.trading.account.account_position_sync import sync_account_positions_from_qmt
-from src.infrastructure.backup_service import DatabaseBackupService
+from src.infrastructure.backup.service import DatabaseBackupService
 from src.infrastructure.config import settings
-from src.infrastructure.connection_manager import ConnectionManager, MultiConnectionManager
+from src.infrastructure.connection.manager import ConnectionManager, MultiConnectionManager
 from src.trading.analytics.daily_pnl_calculator import calculate_daily_summary
 from src.infrastructure.db import OrderRecord, SessionLocal, TradingSignal, create_tables
 

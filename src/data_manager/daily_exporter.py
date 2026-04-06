@@ -15,7 +15,7 @@ from xtquant.xttype import StockAccount
 from src.infrastructure.config import settings
 from src.infrastructure.logger_config import configured_logger as logger
 from src.trading.qmt_constants import get_status_name
-from src.infrastructure.remote_sync import sync_files_via_rsync
+from src.infrastructure.sync.remote_sync import sync_files_via_rsync
 
 
 class DailyExporter:

@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 
 from src.infrastructure.db import OrderRecord, TradeExecution
 from src.infrastructure.logger_config import logger
-from src.infrastructure.uid import new_ulid
+from src.infrastructure.common.uid import new_ulid
 
 
 def build_dedupe_key(

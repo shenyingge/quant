@@ -10,7 +10,10 @@ from __future__ import annotations
 import sqlalchemy as sa
 from alembic import op
 
-from src.infrastructure.meta_db import build_meta_db_trading_metadata, get_meta_db_trading_schema
+from src.infrastructure.db.meta_db import (
+    build_meta_db_trading_metadata,
+    get_meta_db_trading_schema,
+)
 
 # revision identifiers, used by Alembic.
 revision = "20260329_181000_f604a8cb"

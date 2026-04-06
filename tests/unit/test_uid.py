@@ -1,6 +1,6 @@
 # tests/unit/test_uid.py
 import pytest
-from src.infrastructure.uid import new_ulid, is_valid_ulid
+from src.infrastructure.common.uid import new_ulid, is_valid_ulid
 
 
 @pytest.mark.unit

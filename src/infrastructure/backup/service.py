@@ -17,7 +17,7 @@ from sqlalchemy import func, or_
 
 from src.infrastructure.db import OrderRecord, SessionLocal, TradingSignal
 from src.infrastructure.logger_config import configured_logger as logger
-from src.infrastructure.remote_sync import sync_file_via_rsync
+from src.infrastructure.sync.remote_sync import sync_file_via_rsync
 
 
 def get_backup_config() -> Dict[str, Any]:

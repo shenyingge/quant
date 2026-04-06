@@ -10,7 +10,7 @@ import pandas as pd
 from sqlalchemy import create_engine, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-from src.infrastructure.meta_db import get_meta_db_sync_url
+from src.infrastructure.db.meta_db import get_meta_db_sync_url
 from src.infrastructure.logger_config import configured_logger as logger
 from src.market_data.ingestion.minute_history_exporter import (
     StockRecord,

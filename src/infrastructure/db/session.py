@@ -4,7 +4,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 
 from src.infrastructure.db.models import Base, TRADING_SCHEMA
-from src.infrastructure.meta_db import get_meta_db_details, get_meta_db_sync_url
+from src.infrastructure.db.meta_db import get_meta_db_details, get_meta_db_sync_url
 
 engine = create_engine(get_meta_db_sync_url(), pool_pre_ping=True)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

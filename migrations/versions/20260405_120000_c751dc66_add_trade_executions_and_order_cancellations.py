@@ -11,7 +11,7 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy import inspect
 
-from src.infrastructure.meta_db import get_meta_db_trading_schema
+from src.infrastructure.db.meta_db import get_meta_db_trading_schema
 
 # revision identifiers, used by Alembic.
 revision = "20260405_120000_c751dc66"

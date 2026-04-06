@@ -67,7 +67,7 @@ from sqlalchemy.orm import sessionmaker
 def _pg_test_url() -> str:
     url = os.environ.get("TEST_DATABASE_URL", "")
     if not url:
-        from src.infrastructure.meta_db import get_meta_db_sync_url
+        from src.infrastructure.db.meta_db import get_meta_db_sync_url
         url = get_meta_db_sync_url()
     return url
 
