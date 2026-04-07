@@ -8,7 +8,13 @@ from sqlalchemy import desc
 
 from src.infrastructure.config import settings
 from src.trading.analytics.daily_pnl_calculator import calculate_daily_summary
-from src.infrastructure.db import AccountPosition, OrderRecord, SessionLocal, TradingSignal
+from src.infrastructure.db import (
+    AccountPosition,
+    OrderRecord,
+    SessionLocal,
+    StrategySignalHistory,
+    TradingSignal,
+)
 from src.trading.costs.trading_costs import (
     TradingFeeSchedule,
     analyze_filled_trades,
@@ -191,6 +197,43 @@ class AccountDataService:
                 }
                 for s in signals
             ],
+        }
+
+    def get_latest_signal_card_snapshot(self) -> Dict[str, Any]:
+        with self._open_db_session() as session:
+            latest_signal = (
+                session.query(StrategySignalHistory)
+                .filter(StrategySignalHistory.stock_code == settings.t0_stock_code)
+                .order_by(
+                    desc(StrategySignalHistory.signal_time),
+                    desc(StrategySignalHistory.id),
+                )
+                .first()
+            )
+
+        if latest_signal is None:
+            return {
+                "source": "meta_db",
+                "available": False,
+                "fallback_used": False,
+                "stock_code": settings.t0_stock_code,
+                "as_of_time": None,
+                "signal_action": None,
+                "regime": None,
+                "error": "No signal card available in Meta DB",
+            }
+
+        return {
+            "source": "meta_db",
+            "available": True,
+            "fallback_used": False,
+            "stock_code": latest_signal.stock_code,
+            "as_of_time": latest_signal.signal_time.isoformat() if latest_signal.signal_time else None,
+            "signal_action": latest_signal.signal_action,
+            "regime": latest_signal.regime,
+            "branch": latest_signal.branch_locked,
+            "price": latest_signal.price,
+            "volume": int(latest_signal.suggested_volume or 0),
         }
 
     def get_trades_page(self, page: int, limit: int) -> Dict[str, Any]:

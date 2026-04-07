@@ -8,6 +8,7 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     redis_host: str = Field(default="localhost", env="REDIS_HOST")
     redis_port: int = Field(default=6379, env="REDIS_PORT")
+    redis_username: Optional[str] = Field(default=None, env="REDIS_USERNAME")
     redis_password: Optional[str] = Field(default=None, env="REDIS_PASSWORD")
     redis_signal_channel: str = Field(default="trading_signals", env="REDIS_SIGNAL_CHANNEL")
     redis_trade_records_enabled: bool = Field(default=True, env="REDIS_TRADE_RECORDS_ENABLED")

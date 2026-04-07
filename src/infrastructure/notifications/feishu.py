@@ -176,6 +176,85 @@ class FeishuNotifier:
 
         return self.send_message(message, title_map.get(level, title_map["info"]))
 
+    def notify_service_status(self, status: str, message: str = "") -> bool:
+        """Send trading-engine lifecycle notifications expected by runtime services."""
+        level = "success" if "启动" in status else "info"
+        return self.notify_runtime_event(TRADING_ENGINE_NAME, status, message, level)
+
+    def notify_error(self, error_message: str, context: str = "") -> bool:
+        """Send runtime error notifications using the unified event format."""
+        detail = f"{context}: {error_message}" if context else str(error_message)
+        return self.notify_runtime_event(TRADING_ENGINE_NAME, "运行异常", detail, "error")
+
+    def notify_order_placed(self, signal_data: Dict[str, Any], order_id: Any) -> bool:
+        """Send order submission notifications for trading-engine order placement."""
+        stock_code = signal_data.get("stock_code")
+        stock_display = _safe_stock_display_name(stock_code)
+        message = f"订单ID: {order_id}\n"
+        message += f"股票: {stock_display}\n"
+        message += f"方向: {signal_data.get('direction', 'N/A')}\n"
+        message += f"数量: {self._format_number(signal_data.get('volume'), digits=0)}\n"
+        message += f"价格: {self._format_number(signal_data.get('price'))}"
+
+        signal_id = signal_data.get("signal_id")
+        if signal_id:
+            message += f"\n信号ID: {signal_id}"
+
+        return self.send_message(message, "📬 订单已提交")
+
+    def notify_order_filled(self, order_info: Dict[str, Any]) -> bool:
+        """Send order fill notifications after execution callbacks confirm a trade."""
+        stock_code = order_info.get("stock_code")
+        stock_display = _safe_stock_display_name(stock_code)
+        filled_qty = order_info.get("filled_qty", order_info.get("filled_volume"))
+        avg_price = order_info.get("avg_price", order_info.get("filled_price"))
+
+        trade_amount_text = "N/A"
+        try:
+            if filled_qty is not None and avg_price is not None:
+                trade_amount_text = self._format_number(float(filled_qty) * float(avg_price))
+        except (TypeError, ValueError):
+            trade_amount_text = "N/A"
+
+        message = f"订单ID: {order_info.get('order_id', 'N/A')}\n"
+        message += f"股票: {stock_display}\n"
+        message += f"成交数量: {self._format_number(filled_qty, digits=0)}\n"
+        message += f"成交均价: {self._format_number(avg_price)}\n"
+        message += f"成交金额: {trade_amount_text}"
+        return self.send_message(message, "✅ 订单已成交")
+
+    def notify_daily_pnl_summary(self, pnl_data: Dict[str, Any]) -> bool:
+        """Send the end-of-day PnL summary used by the trading engine scheduler."""
+        summary = pnl_data.get("summary", {})
+        performance = pnl_data.get("performance", {})
+        stock_breakdown = pnl_data.get("stock_breakdown", [])
+
+        message = f"日期: {pnl_data.get('date_display', 'N/A')}\n"
+        message += f"总订单数: {self._format_number(summary.get('total_orders'), digits=0)}\n"
+        message += f"买入订单: {self._format_number(summary.get('buy_orders'), digits=0)}\n"
+        message += f"卖出订单: {self._format_number(summary.get('sell_orders'), digits=0)}\n"
+        message += f"成交总额: {self._format_number(summary.get('total_amount'))}\n"
+        message += (
+            f"估算已实现盈亏: "
+            f"{self._format_number(performance.get('estimated_realized_pnl'))}\n"
+        )
+        message += (
+            f"交易成本估算: {self._format_number(performance.get('trading_cost_estimate'))}"
+        )
+
+        note = performance.get("note")
+        if note:
+            message += f"\n说明: {note}"
+
+        if stock_breakdown:
+            top_stock = stock_breakdown[0]
+            message += (
+                f"\n主要标的: {top_stock.get('stock_display', 'N/A')}"
+                f" | 成交额 {self._format_number(top_stock.get('total_amount'))}"
+            )
+
+        return self.send_message(message, "📊 当日盈亏汇总")
+
     def notify_t0_signal(self, signal_card: Any, stock_code: Optional[str] = None) -> bool:
         """Send T+0 strategy signal notifications."""
         if hasattr(signal_card, "signal") and hasattr(signal_card, "market"):

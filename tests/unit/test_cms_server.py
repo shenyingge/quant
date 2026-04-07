@@ -51,6 +51,11 @@ def test_health_snapshot_uses_standard_structure(monkeypatch, tmp_path):
         "_check_strategy_engine_process",
         lambda processes, trading_day: make_check("strategy_engine_process", "pass"),
     )
+    monkeypatch.setattr(
+        checker,
+        "_check_signal_card",
+        lambda trading_day: make_check("signal_card", "pass"),
+    )
 
     snapshot = checker.build_snapshot().to_dict()
 
@@ -63,6 +68,31 @@ def test_health_snapshot_uses_standard_structure(monkeypatch, tmp_path):
     assert "duration_ms" in snapshot["summary"]
     assert isinstance(snapshot["checks"], list)
     assert snapshot["checks"][0]["status"] in {"pass", "warn", "fail", "skip"}
+
+
+def test_signal_card_health_check_reads_latest_signal_from_meta_db():
+    class FakeAccountDataService:
+        def get_latest_signal_card_snapshot(self):
+            return {
+                "source": "meta_db",
+                "available": True,
+                "stock_code": "601138.SH",
+                "signal_action": "reverse_t_buy",
+                "as_of_time": "2026-04-07T10:31:22+08:00",
+                "regime": "transition",
+            }
+
+    checker = cms_server.ProjectCmsChecker(account_data_service=FakeAccountDataService())
+
+    result = checker._check_signal_card(make_check("trading_day", "pass"))
+
+    assert result.status == "pass"
+    assert result.message == "Signal card is present"
+    assert result.details["source"] == "meta_db"
+    assert result.details["stock_code"] == "601138.SH"
+    assert result.details["signal_action"] == "reverse_t_buy"
+    assert result.details["as_of_time"] == "2026-04-07T10:31:22+08:00"
+    assert result.details["regime"] == "transition"
 
 
 def test_health_status_is_down_when_critical_check_fails():
@@ -91,6 +121,45 @@ def test_health_status_is_degraded_when_only_noncritical_checks_warn():
     )
 
     assert status == "degraded"
+
+
+def test_check_redis_passes_acl_username_to_client(monkeypatch):
+    captured = {}
+
+    class FakeRedis:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+        def ping(self):
+            return True
+
+    monkeypatch.setattr(cms_server.settings, "redis_username", "svc-user", raising=False)
+    monkeypatch.setattr(cms_server.settings, "redis_password", "svc-pass")
+    monkeypatch.setattr(cms_server.redis, "Redis", FakeRedis)
+
+    checker = cms_server.ProjectCmsChecker()
+    result = checker._check_redis()
+
+    assert result.status == "pass"
+    assert captured["username"] == "svc-user"
+    assert captured["password"] == "svc-pass"
+
+
+def test_websocket_manager_passes_acl_username_to_client(monkeypatch):
+    captured = {}
+
+    class FakeRedis:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    monkeypatch.setattr(cms_server.settings, "redis_username", "svc-user", raising=False)
+    monkeypatch.setattr(cms_server.settings, "redis_password", "svc-pass")
+    monkeypatch.setattr(cms_server.redis, "Redis", FakeRedis)
+
+    cms_server.WebSocketManager()
+
+    assert captured["username"] == "svc-user"
+    assert captured["password"] == "svc-pass"
 
 
 def test_process_check_skips_when_component_not_expected():

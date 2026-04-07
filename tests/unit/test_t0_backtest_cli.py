@@ -64,6 +64,64 @@ def test_t0_backtest_cli_writes_output_files(tmp_path: Path):
     summary = json.loads((output_dir / "summary.json").read_text(encoding="utf-8"))
     assert summary["symbol"] == "601138.SH"
     assert "config" in summary
+    assert summary["config"]["params"]["base_position"] == 3000
+    assert summary["config"]["params"]["tactical_position"] == 1000
+    assert summary["config"]["params"]["max_trade_value"] == 250000.0
+
+
+def test_t0_backtest_cli_summary_separates_realized_t_pnl_and_open_leg_mtm(tmp_path: Path):
+    minute_path = tmp_path / "minute.csv"
+    daily_path = tmp_path / "daily.csv"
+    output_dir = tmp_path / "result"
+
+    pd.DataFrame(
+        {
+            "datetime": [
+                "2026-03-26 09:50:00",
+                "2026-03-26 13:30:00",
+            ],
+            "symbol": ["601138.SH", "601138.SH"],
+            "open": [50.0, 52.0],
+            "high": [50.1, 52.1],
+            "low": [49.9, 51.9],
+            "close": [50.0, 52.0],
+            "volume": [10000, 12000],
+            "amount": [500000, 624000],
+            "pre_close": [49.9, 50.0],
+        }
+    ).to_csv(minute_path, index=False)
+
+    pd.DataFrame(
+        {
+            "datetime": pd.date_range("2025-11-01", periods=100, freq="D"),
+            "symbol": ["601138.SH"] * 100,
+            "open": [50 + i * 0.1 for i in range(100)],
+            "high": [50.2 + i * 0.1 for i in range(100)],
+            "low": [49.8 + i * 0.1 for i in range(100)],
+            "close": [50 + i * 0.1 for i in range(100)],
+            "volume": [100000] * 100,
+            "amount": [5000000] * 100,
+            "pre_close": [49.9 + i * 0.1 for i in range(100)],
+        }
+    ).to_csv(daily_path, index=False)
+
+    exit_code = run_backtest_cli(
+        [
+            "--minute-data",
+            str(minute_path),
+            "--daily-data",
+            str(daily_path),
+            "--symbol",
+            "601138.SH",
+            "--output-dir",
+            str(output_dir),
+        ]
+    )
+
+    assert exit_code == 0
+    summary = json.loads((output_dir / "summary.json").read_text(encoding="utf-8"))
+    assert "net_realized_t_pnl" in summary
+    assert "open_legs_mtm_pnl" in summary
 
 
 def test_t0_backtest_cli_supports_json_config_and_time_filter(tmp_path: Path):

@@ -11,17 +11,13 @@ from websockets.server import WebSocketServerProtocol
 
 from src.infrastructure.config import settings
 from src.infrastructure.logger_config import configured_logger as logger
+from src.infrastructure.redis.connection import build_redis_client_kwargs
 
 
 class QuoteWebSocketServer:
     def __init__(self):
         self.clients: Dict[str, Set[WebSocketServerProtocol]] = {}
-        self.redis_client = redis.Redis(
-            host=settings.redis_host,
-            port=settings.redis_port,
-            password=settings.redis_password,
-            decode_responses=True,
-        )
+        self.redis_client = redis.Redis(**build_redis_client_kwargs(decode_responses=True))
         self.running = False
         self.loop = None
 

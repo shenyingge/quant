@@ -1,7 +1,7 @@
 """T+0 策略状态服务 - 为 CMS 提供实时策略诊断数据"""
 
 from datetime import date, datetime
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 
 from src.infrastructure.config import settings
 from src.infrastructure.logger_config import logger
@@ -66,46 +66,48 @@ class StrategyStatusService:
             # 6. 策略条件检查
             conditions = self._check_strategy_conditions(feature_dict, position_dict, time_windows)
 
-            return {
-                "status": "ok",
-                "as_of_time": as_of_time,
-                "stock_code": self.stock_code,
-                "market": {
-                    "regime": regime,
-                    "branch_priority": branch_priority,
-                },
-                "features": {
-                    "day_open": feature_dict.get("day_open", 0),
-                    "current_close": feature_dict.get("current_close", 0),
-                    "high_so_far": feature_dict.get("high_so_far", 0),
-                    "low_so_far": feature_dict.get("low_so_far", 0),
-                    "vwap": feature_dict.get("vwap", 0),
-                    "rise_pct": self._calculate_rise_pct(feature_dict),
-                    "pullback_pct": self._calculate_pullback_pct(feature_dict),
-                    "bounce_pct": feature_dict.get("bounce_from_low", 0),
-                    "close_vs_vwap_pct": feature_dict.get("close_vs_vwap", 0),
-                    "fake_breakout_score": feature_dict.get("fake_breakout_score", 0),
-                    "absorption_score": feature_dict.get("absorption_score", 0),
-                },
-                "position": {
-                    "total": position_dict.get("total_position", 0),
-                    "available": position_dict.get("available_volume", 0),
-                    "cost_price": position_dict.get("cost_price", 0),
-                    "base": position_dict.get("base_position", self.params.t0_base_position),
-                    "tactical": position_dict.get(
-                        "tactical_position", self.params.t0_tactical_position
-                    ),
-                    "max": position_dict.get(
-                        "max_position",
-                        self.params.t0_base_position + self.params.t0_tactical_position,
-                    ),
-                    "t0_sell_available": position_dict.get("t0_sell_available", 0),
-                    "t0_buy_capacity": position_dict.get("t0_buy_capacity", 0),
-                    "position_version": position_dict.get("position_version", 0),
-                },
-                "time_windows": time_windows,
-                "conditions": conditions,
-            }
+            return self._to_json_safe(
+                {
+                    "status": "ok",
+                    "as_of_time": as_of_time,
+                    "stock_code": self.stock_code,
+                    "market": {
+                        "regime": regime,
+                        "branch_priority": branch_priority,
+                    },
+                    "features": {
+                        "day_open": feature_dict.get("day_open", 0),
+                        "current_close": feature_dict.get("current_close", 0),
+                        "high_so_far": feature_dict.get("high_so_far", 0),
+                        "low_so_far": feature_dict.get("low_so_far", 0),
+                        "vwap": feature_dict.get("vwap", 0),
+                        "rise_pct": self._calculate_rise_pct(feature_dict),
+                        "pullback_pct": self._calculate_pullback_pct(feature_dict),
+                        "bounce_pct": feature_dict.get("bounce_from_low", 0),
+                        "close_vs_vwap_pct": feature_dict.get("close_vs_vwap", 0),
+                        "fake_breakout_score": feature_dict.get("fake_breakout_score", 0),
+                        "absorption_score": feature_dict.get("absorption_score", 0),
+                    },
+                    "position": {
+                        "total": position_dict.get("total_position", 0),
+                        "available": position_dict.get("available_volume", 0),
+                        "cost_price": position_dict.get("cost_price", 0),
+                        "base": position_dict.get("base_position", self.params.t0_base_position),
+                        "tactical": position_dict.get(
+                            "tactical_position", self.params.t0_tactical_position
+                        ),
+                        "max": position_dict.get(
+                            "max_position",
+                            self.params.t0_base_position + self.params.t0_tactical_position,
+                        ),
+                        "t0_sell_available": position_dict.get("t0_sell_available", 0),
+                        "t0_buy_capacity": position_dict.get("t0_buy_capacity", 0),
+                        "position_version": position_dict.get("position_version", 0),
+                    },
+                    "time_windows": time_windows,
+                    "conditions": conditions,
+                }
+            )
 
         except Exception as e:
             logger.error(f"获取策略状态失败: {e}", exc_info=True)
@@ -283,3 +285,25 @@ class StrategyStatusService:
             "error": error_msg,
             "as_of_time": as_of_time,
         }
+
+    def _to_json_safe(self, value: Any) -> Any:
+        """Normalizes numpy/pandas scalars into native JSON-safe values."""
+        if value is None or isinstance(value, (str, int, float, bool)):
+            return value
+        if isinstance(value, (datetime, date)):
+            return value.isoformat()
+        if isinstance(value, dict):
+            return {str(key): self._to_json_safe(item) for key, item in value.items()}
+        if isinstance(value, (list, tuple, set)):
+            return [self._to_json_safe(item) for item in value]
+        if hasattr(value, "item"):
+            try:
+                return self._to_json_safe(value.item())
+            except Exception:
+                pass
+        if hasattr(value, "tolist"):
+            try:
+                return self._to_json_safe(value.tolist())
+            except Exception:
+                pass
+        return str(value)

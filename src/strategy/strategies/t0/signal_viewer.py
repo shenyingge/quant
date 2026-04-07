@@ -8,6 +8,7 @@ import redis
 
 from src.infrastructure.config import settings
 from src.infrastructure.logger_config import logger
+from src.infrastructure.redis.connection import build_redis_client_kwargs
 
 
 class SignalViewer:
@@ -19,13 +20,12 @@ class SignalViewer:
 
         try:
             self.redis_client = redis.Redis(
-                host=settings.redis_host,
-                port=settings.redis_port,
-                password=settings.redis_password,
-                db=0,
-                decode_responses=True,
-                socket_connect_timeout=3,
-                socket_timeout=3,
+                **build_redis_client_kwargs(
+                    db=0,
+                    decode_responses=True,
+                    socket_connect_timeout=3,
+                    socket_timeout=3,
+                )
             )
             self.redis_client.ping()
             logger.info("Redis 连接成功")

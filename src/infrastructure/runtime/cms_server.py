@@ -30,6 +30,7 @@ from src.trading.account.account_data_service import AccountDataService, parse_p
 from src.infrastructure.config import settings
 from src.infrastructure.db import OrderRecord, TradingSignal, engine as application_db_engine, get_database_details
 from src.infrastructure.logger_config import configured_logger as logger
+from src.infrastructure.redis.connection import build_redis_client_kwargs
 from src.infrastructure.runtime.process_utils import find_matching_processes
 from src.market_data.streaming.quote_stream_service import normalize_stock_code
 from src.trading.account.account_position_sync import sync_account_positions_via_qmt
@@ -94,12 +95,7 @@ def _bootstrap_account_positions_snapshot_if_needed() -> None:
 class WebSocketManager:
     def __init__(self, account_data_service: Optional[AccountDataService] = None):
         self.clients: Dict[str, Set[Any]] = {}
-        self.redis_client = redis.Redis(
-            host=settings.redis_host,
-            port=settings.redis_port,
-            password=settings.redis_password,
-            decode_responses=True,
-        )
+        self.redis_client = redis.Redis(**build_redis_client_kwargs(decode_responses=True))
         self.account_data_service = account_data_service or AccountDataService()
         self.running = False
         self.thread = None
@@ -631,9 +627,14 @@ class CmsSnapshotStore:
 
 
 class ProjectCmsChecker:
-    def __init__(self, scope: str = "project"):
+    def __init__(
+        self,
+        scope: str = "project",
+        account_data_service: Optional[AccountDataService] = None,
+    ):
         self.scope = scope
         self.timeout_seconds = max(int(settings.cms_server_timeout_seconds), 1)
+        self.account_data_service = account_data_service or AccountDataService()
 
     def build_snapshot(self) -> CmsSnapshot:
         started_at = datetime.now()
@@ -719,12 +720,11 @@ class ProjectCmsChecker:
     def _check_redis(self) -> CmsCheckResult:
         try:
             client = redis.Redis(
-                host=settings.redis_host,
-                port=settings.redis_port,
-                password=settings.redis_password,
-                socket_connect_timeout=self.timeout_seconds,
-                socket_timeout=self.timeout_seconds,
-                decode_responses=True,
+                **build_redis_client_kwargs(
+                    socket_connect_timeout=self.timeout_seconds,
+                    socket_timeout=self.timeout_seconds,
+                    decode_responses=True,
+                )
             )
             client.ping()
             return CmsCheckResult(
@@ -800,31 +800,35 @@ class ProjectCmsChecker:
         )
 
     def _check_signal_card(self, trading_day_check: CmsCheckResult) -> CmsCheckResult:
-        output_path = Path(settings.t0_output_dir) / "live_signal_card.json"
-        if not output_path.exists():
-            status = "warn" if self._is_expected("strategy_engine", trading_day_check) else "skip"
-            return CmsCheckResult(
-                name="signal_card",
-                component="strategy_engine",
-                status=status,
-                message=f"Signal card not found at {output_path}",
-                details={"path": str(output_path)},
-            )
-
         try:
-            payload = json.loads(output_path.read_text(encoding="utf-8"))
+            payload = self.account_data_service.get_latest_signal_card_snapshot()
         except Exception as exc:
             return CmsCheckResult(
                 name="signal_card",
                 component="strategy_engine",
                 status="warn",
-                message=f"Signal card is unreadable: {exc}",
-                details={"path": str(output_path)},
+                message=f"Failed to read signal card from Meta DB: {exc}",
+                details={"source": "meta_db"},
+            )
+
+        if not payload.get("available"):
+            status = "warn" if self._is_expected("strategy_engine", trading_day_check) else "skip"
+            return CmsCheckResult(
+                name="signal_card",
+                component="strategy_engine",
+                status=status,
+                message=str(payload.get("error") or "Signal card not available in Meta DB"),
+                details={
+                    "source": payload.get("source", "meta_db"),
+                    "stock_code": payload.get("stock_code"),
+                    "as_of_time": payload.get("as_of_time"),
+                },
             )
 
         details = {
-            "path": str(output_path),
-            "signal_action": payload.get("signal", {}).get("action"),
+            "source": payload.get("source", "meta_db"),
+            "stock_code": payload.get("stock_code"),
+            "signal_action": payload.get("signal_action"),
             "as_of_time": payload.get("as_of_time"),
             "regime": payload.get("regime"),
         }
