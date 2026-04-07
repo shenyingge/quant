@@ -132,6 +132,26 @@ def test_is_trading_day_returns_false_when_both_providers_fail(monkeypatch):
     assert trading_day_checker.is_trading_day(real_date(2026, 3, 27)) is False
 
 
+def test_resolve_trading_day_status_returns_none_when_both_providers_fail(monkeypatch):
+    class FakePro:
+        def trade_cal(self, **kwargs):
+            raise RuntimeError("network unavailable")
+
+    fake_xtdata = SimpleNamespace(
+        download_holiday_data=lambda: None,
+        get_trading_calendar=lambda market, start_date, end_date: [],
+    )
+
+    monkeypatch.setattr(trading_day_checker.settings, "test_mode_enabled", False)
+    monkeypatch.setattr(trading_day_checker.settings, "trading_day_check_enabled", True)
+    monkeypatch.setattr(trading_day_checker.settings, "tushare_token", "demo-token")
+    monkeypatch.setattr(trading_day_checker.settings, "tushare_trade_calendar_exchange", "SSE")
+    monkeypatch.setitem(sys.modules, "tushare", SimpleNamespace(pro_api=lambda token: FakePro()))
+    monkeypatch.setitem(sys.modules, "xtquant", SimpleNamespace(xtdata=fake_xtdata))
+
+    assert trading_day_checker.resolve_trading_day_status(real_date(2026, 3, 27)) is None
+
+
 def test_run_t0_strategy_skips_when_not_trading_day(monkeypatch):
     monkeypatch.setattr(main_module, "is_trading_day", lambda: False)
     monkeypatch.setattr(main_module, "STRATEGY_ENGINE_NAME", "策略引擎")

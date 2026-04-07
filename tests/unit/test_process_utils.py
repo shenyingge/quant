@@ -12,7 +12,7 @@ def test_find_matching_processes_collapses_windows_launcher_chain():
             "pid": 12324,
             "parent_pid": 1336,
             "command_line": (
-                r"C:\Users\sai\AppData\Roaming\uv\python\cpython-3.9.23-windows-x86_64-none"
+                r"C:\Users\sai\AppData\Roaming\uv\python\cpython-3.12.3-windows-x86_64-none"
                 r"\python.exe main.py t0-daemon"
             ),
         },
