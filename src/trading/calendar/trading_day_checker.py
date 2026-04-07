@@ -1,10 +1,13 @@
-"""Trading-day checks backed by Tushare with QMT fallback."""
+"""Trading-day checks backed by Meta DB with QMT/Tushare fallback."""
 
 from datetime import date, datetime
 import threading
 from typing import Optional
 
+from sqlalchemy import text
+
 from src.infrastructure.config import settings
+from src.infrastructure.db import SessionLocal
 from src.infrastructure.logger_config import configured_logger as logger
 
 
@@ -18,10 +21,55 @@ def _resolve_check_date(check_date: Optional[date] = None) -> date:
     return datetime.now().date()
 
 
+def _resolve_trading_calendar_schema() -> str:
+    schema = (settings.meta_db_schema or "").strip() or "gold"
+    normalized = schema.replace("_", "")
+    if not normalized.isalnum():
+        logger.warning(
+            "META_DB_SCHEMA value {!r} is invalid for trading-day lookup, falling back to gold",
+            schema,
+        )
+        return "gold"
+    return schema
+
+
+def _check_with_database(current_date: date) -> Optional[bool]:
+    current_date_str = current_date.strftime("%Y%m%d")
+    schema = _resolve_trading_calendar_schema()
+    session = SessionLocal()
+
+    try:
+        logger.info("Checking trading day for {} via Meta DB {}.trade_cal", current_date_str, schema)
+        statement = text(
+            f'SELECT is_open FROM "{schema}".trade_cal WHERE cal_date = :check_date LIMIT 1'
+        )
+        result = session.execute(statement, {"check_date": current_date_str}).scalar_one_or_none()
+
+        if result is None:
+            logger.warning(
+                "Meta DB returned no trade_cal row for {}, falling back to QMT",
+                current_date_str,
+            )
+            return None
+
+        normalized = str(result).strip().lower()
+        is_open = normalized in {"1", "true", "t", "yes"}
+        if is_open:
+            logger.info("{} is a trading day (Meta DB)", current_date_str)
+        else:
+            logger.info("{} is not a trading day (Meta DB)", current_date_str)
+        return is_open
+    except Exception as exc:
+        logger.warning("Meta DB trading-day check failed, falling back to QMT: {}", exc)
+        return None
+    finally:
+        session.close()
+
+
 def _check_with_tushare(current_date: date) -> Optional[bool]:
     current_date_str = current_date.strftime("%Y%m%d")
     if not settings.tushare_token:
-        logger.warning("TUSHARE_TOKEN is not configured, falling back to QMT trading-day check")
+        logger.warning("TUSHARE_TOKEN is not configured, skipping Tushare trading-day check")
         return None
 
     try:
@@ -108,17 +156,23 @@ def resolve_trading_day_status(check_date: Optional[date] = None) -> Optional[bo
     if cached_result is not None:
         return cached_result
 
-    tushare_result = _check_with_tushare(current_date)
-    if tushare_result is not None:
+    database_result = _check_with_database(current_date)
+    if database_result is not None:
         with _trading_day_cache_lock:
-            _trading_day_cache[current_date] = tushare_result
-        return tushare_result
+            _trading_day_cache[current_date] = database_result
+        return database_result
 
     qmt_result = _check_with_qmt(current_date)
     if qmt_result is not None:
         with _trading_day_cache_lock:
             _trading_day_cache[current_date] = qmt_result
         return qmt_result
+
+    tushare_result = _check_with_tushare(current_date)
+    if tushare_result is not None:
+        with _trading_day_cache_lock:
+            _trading_day_cache[current_date] = tushare_result
+        return tushare_result
 
     return None
 
