@@ -18,7 +18,7 @@ from src.infrastructure.scheduling.minute_history import get_minute_daily_ingest
 from src.infrastructure.logger_config import configured_logger as logger
 from src.infrastructure.notifications import FeishuNotifier
 from src.infrastructure.runtime.process_utils import find_matching_processes
-from src.trading.calendar.trading_day_checker import is_trading_day
+from src.trading.calendar.trading_day_checker import resolve_trading_day_status
 
 
 @dataclass(frozen=True)
@@ -381,11 +381,19 @@ class QuantWatchdogService:
             return bool(self._trading_day_cache.get("value"))
 
         try:
-            value = bool(is_trading_day())
+            resolved_value = resolve_trading_day_status(current_date)
         except Exception as exc:
             logger.error("Failed to determine trading day status: {}", exc)
-            value = False
+            resolved_value = None
 
+        if resolved_value is None:
+            logger.warning(
+                "Trading day status is temporarily unavailable for {}, watchdog will retry next cycle",
+                current_date.isoformat(),
+            )
+            return False
+
+        value = bool(resolved_value)
         self._trading_day_cache = {"date": current_date.isoformat(), "value": value}
         return value
 
