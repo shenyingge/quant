@@ -9,6 +9,7 @@ import redis
 
 from src.infrastructure.config import settings
 from src.infrastructure.logger_config import logger
+from src.infrastructure.redis.connection import build_redis_client_kwargs
 
 
 class RedisTickCache:
@@ -17,13 +18,12 @@ class RedisTickCache:
     def __init__(self):
         try:
             self.redis_client = redis.Redis(
-                host=settings.redis_host,
-                port=settings.redis_port,
-                password=settings.redis_password,
-                db=settings.redis_tick_cache_db,
-                decode_responses=False,
-                socket_connect_timeout=3,
-                socket_timeout=3,
+                **build_redis_client_kwargs(
+                    db=settings.redis_tick_cache_db,
+                    decode_responses=False,
+                    socket_connect_timeout=3,
+                    socket_timeout=3,
+                )
             )
             self.redis_client.ping()
             self.enabled = True

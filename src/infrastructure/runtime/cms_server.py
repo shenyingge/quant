@@ -30,6 +30,7 @@ from src.trading.account.account_data_service import AccountDataService, parse_p
 from src.infrastructure.config import settings
 from src.infrastructure.db import OrderRecord, TradingSignal, engine as application_db_engine, get_database_details
 from src.infrastructure.logger_config import configured_logger as logger
+from src.infrastructure.redis.connection import build_redis_client_kwargs
 from src.infrastructure.runtime.process_utils import find_matching_processes
 from src.market_data.streaming.quote_stream_service import normalize_stock_code
 from src.trading.account.account_position_sync import sync_account_positions_via_qmt
@@ -94,12 +95,7 @@ def _bootstrap_account_positions_snapshot_if_needed() -> None:
 class WebSocketManager:
     def __init__(self, account_data_service: Optional[AccountDataService] = None):
         self.clients: Dict[str, Set[Any]] = {}
-        self.redis_client = redis.Redis(
-            host=settings.redis_host,
-            port=settings.redis_port,
-            password=settings.redis_password,
-            decode_responses=True,
-        )
+        self.redis_client = redis.Redis(**build_redis_client_kwargs(decode_responses=True))
         self.account_data_service = account_data_service or AccountDataService()
         self.running = False
         self.thread = None
@@ -724,12 +720,11 @@ class ProjectCmsChecker:
     def _check_redis(self) -> CmsCheckResult:
         try:
             client = redis.Redis(
-                host=settings.redis_host,
-                port=settings.redis_port,
-                password=settings.redis_password,
-                socket_connect_timeout=self.timeout_seconds,
-                socket_timeout=self.timeout_seconds,
-                decode_responses=True,
+                **build_redis_client_kwargs(
+                    socket_connect_timeout=self.timeout_seconds,
+                    socket_timeout=self.timeout_seconds,
+                    decode_responses=True,
+                )
             )
             client.ping()
             return CmsCheckResult(

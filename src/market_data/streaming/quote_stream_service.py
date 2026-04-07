@@ -12,6 +12,7 @@ import redis
 
 from src.infrastructure.config import settings
 from src.infrastructure.logger_config import configured_logger as logger
+from src.infrastructure.redis.connection import build_redis_client_kwargs
 
 try:
     from xtquant import xtdata
@@ -50,12 +51,11 @@ class QuoteStreamService:
 
     def __init__(self) -> None:
         self.redis_client = redis.Redis(
-            host=settings.redis_host,
-            port=settings.redis_port,
-            password=settings.redis_password,
-            decode_responses=True,
-            socket_connect_timeout=5,
-            socket_timeout=5,
+            **build_redis_client_kwargs(
+                decode_responses=True,
+                socket_connect_timeout=5,
+                socket_timeout=5,
+            )
         )
         self.running = False
         self._stop_event = threading.Event()

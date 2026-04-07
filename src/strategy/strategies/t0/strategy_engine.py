@@ -11,6 +11,7 @@ from src.infrastructure.config import settings
 from src.infrastructure.logger_config import logger
 from src.market_data.ingestion.qmt_snapshot_provider import QMTSnapshotProvider
 from src.infrastructure.notifications import FeishuNotifier
+from src.infrastructure.redis.connection import build_redis_client_kwargs
 from src.strategy.core.models import MarketSnapshot, PositionSnapshot, SignalCard, StrategyDecision
 from src.strategy.strategies.t0.data_fetcher import DataFetcher
 from src.strategy.strategies.t0.feature_calculator import FeatureCalculator
@@ -64,13 +65,12 @@ class StrategyEngine:
 
         try:
             self.redis_client = redis.Redis(
-                host=settings.redis_host,
-                port=settings.redis_port,
-                password=settings.redis_password,
-                db=0,
-                decode_responses=True,
-                socket_connect_timeout=3,
-                socket_timeout=3,
+                **build_redis_client_kwargs(
+                    db=0,
+                    decode_responses=True,
+                    socket_connect_timeout=3,
+                    socket_timeout=3,
+                )
             )
             self.redis_client.ping()
             self.redis_enabled = True

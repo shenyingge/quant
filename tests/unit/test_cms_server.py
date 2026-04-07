@@ -123,6 +123,45 @@ def test_health_status_is_degraded_when_only_noncritical_checks_warn():
     assert status == "degraded"
 
 
+def test_check_redis_passes_acl_username_to_client(monkeypatch):
+    captured = {}
+
+    class FakeRedis:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+        def ping(self):
+            return True
+
+    monkeypatch.setattr(cms_server.settings, "redis_username", "svc-user", raising=False)
+    monkeypatch.setattr(cms_server.settings, "redis_password", "svc-pass")
+    monkeypatch.setattr(cms_server.redis, "Redis", FakeRedis)
+
+    checker = cms_server.ProjectCmsChecker()
+    result = checker._check_redis()
+
+    assert result.status == "pass"
+    assert captured["username"] == "svc-user"
+    assert captured["password"] == "svc-pass"
+
+
+def test_websocket_manager_passes_acl_username_to_client(monkeypatch):
+    captured = {}
+
+    class FakeRedis:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    monkeypatch.setattr(cms_server.settings, "redis_username", "svc-user", raising=False)
+    monkeypatch.setattr(cms_server.settings, "redis_password", "svc-pass")
+    monkeypatch.setattr(cms_server.redis, "Redis", FakeRedis)
+
+    cms_server.WebSocketManager()
+
+    assert captured["username"] == "svc-user"
+    assert captured["password"] == "svc-pass"
+
+
 def test_process_check_skips_when_component_not_expected():
     checker = cms_server.ProjectCmsChecker()
 

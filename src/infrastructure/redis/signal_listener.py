@@ -9,6 +9,7 @@ import redis
 
 from src.infrastructure.config import settings
 from src.infrastructure.logger_config import configured_logger as logger
+from src.infrastructure.redis.connection import build_redis_client_kwargs
 
 
 class RedisSignalListener:
@@ -26,14 +27,13 @@ class RedisSignalListener:
         """创建Redis客户端"""
         try:
             self.redis_client = redis.Redis(
-                host=settings.redis_host,
-                port=settings.redis_port,
-                password=settings.redis_password,
-                decode_responses=True,
-                socket_connect_timeout=5,
-                socket_timeout=5,
-                retry_on_timeout=True,
-                health_check_interval=30,
+                **build_redis_client_kwargs(
+                    decode_responses=True,
+                    socket_connect_timeout=5,
+                    socket_timeout=5,
+                    retry_on_timeout=True,
+                    health_check_interval=30,
+                )
             )
             logger.debug("Redis客户端已创建")
         except Exception as e:

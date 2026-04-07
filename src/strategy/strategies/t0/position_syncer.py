@@ -20,6 +20,7 @@ from src.infrastructure.db import (
     create_tables,
 )
 from src.infrastructure.logger_config import logger
+from src.infrastructure.redis.connection import build_redis_client_kwargs
 from src.strategy.core.models import PortfolioState
 
 
@@ -688,13 +689,12 @@ class PositionSyncer:
 
         try:
             client = redis.Redis(
-                host=settings.redis_host,
-                port=settings.redis_port,
-                password=settings.redis_password,
-                db=0,
-                decode_responses=True,
-                socket_connect_timeout=3,
-                socket_timeout=3,
+                **build_redis_client_kwargs(
+                    db=0,
+                    decode_responses=True,
+                    socket_connect_timeout=3,
+                    socket_timeout=3,
+                )
             )
             client.ping()
             self._redis_client = client
