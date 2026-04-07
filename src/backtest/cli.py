@@ -112,6 +112,7 @@ def _build_parser(argv: Optional[list]) -> argparse.ArgumentParser:
     config = load_config_from_argv(argv)
     parser = argparse.ArgumentParser(prog="python main.py t0-backtest")
     cfg = lambda key, default=None: config.get(key, default)
+    default_params = T0StrategyParams()
 
     parser.add_argument("--config", help="JSON 配置文件路径")
     parser.add_argument(
@@ -161,13 +162,13 @@ def _build_parser(argv: Optional[list]) -> argparse.ArgumentParser:
     parser.add_argument(
         "--base-position",
         type=int,
-        default=cfg("base_position", settings.t0_base_position),
+        default=cfg("base_position", default_params.t0_base_position),
         help="底仓股数",
     )
     parser.add_argument(
         "--tactical-position",
         type=int,
-        default=cfg("tactical_position", settings.t0_tactical_position),
+        default=cfg("tactical_position", default_params.t0_tactical_position),
         help="机动仓股数",
     )
     parser.add_argument(
@@ -179,7 +180,7 @@ def _build_parser(argv: Optional[list]) -> argparse.ArgumentParser:
     parser.add_argument(
         "--max-trade-value",
         type=float,
-        default=cfg("max_trade_value", settings.t0_max_trade_value),
+        default=cfg("max_trade_value", default_params.t0_max_trade_value),
         help="单次最大可动用金额",
     )
     parser.add_argument(
@@ -200,7 +201,7 @@ def _build_parser(argv: Optional[list]) -> argparse.ArgumentParser:
     parser.add_argument(
         "--cash-available",
         type=float,
-        default=cfg("cash_available", settings.t0_max_trade_value),
+        default=cfg("cash_available", default_params.t0_max_trade_value),
         help="初始可用现金",
     )
 

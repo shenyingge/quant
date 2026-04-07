@@ -406,11 +406,11 @@ def test_backtest_simulator_carries_open_branch_and_restores_available_volume_ne
         total_position=3000,
         available_volume=3000,
         cost_price=72.0,
-        base_position=2600,
-        tactical_position=900,
-        max_position=3500,
-        t0_sell_available=400,
-        t0_buy_capacity=500,
+        base_position=3000,
+        tactical_position=1000,
+        max_position=4000,
+        t0_sell_available=0,
+        t0_buy_capacity=1000,
         cash_available=70000,
     )
     captured_positions = []
@@ -467,7 +467,7 @@ def test_backtest_simulator_carries_open_branch_and_restores_available_volume_ne
         if timestamp == minute_index[1].to_pydatetime()
     )
     assert day_two_position["available_volume"] == 3500
-    assert day_two_position["t0_sell_available"] == 900
+    assert day_two_position["t0_sell_available"] == 500
     assert day_two_history == ["reverse_t_buy"]
 
 

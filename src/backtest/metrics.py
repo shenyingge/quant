@@ -31,6 +31,7 @@ def summarize_backtest(
         float(roundtrips_df["gross_pnl"].sum()) if not roundtrips_df.empty else 0.0
     )
     net_realized_t_pnl = float(roundtrips_df["net_pnl"].sum()) if not roundtrips_df.empty else 0.0
+    open_legs_mtm_pnl = float(open_legs["mtm_pnl"].sum()) if not open_legs.empty else 0.0
 
     return {
         "symbol": symbol,
@@ -48,6 +49,7 @@ def summarize_backtest(
         "last_close": round(last_close, 6),
         "gross_realized_t_pnl": round(gross_realized_t_pnl, 6),
         "net_realized_t_pnl": round(net_realized_t_pnl, 6),
+        "open_legs_mtm_pnl": round(open_legs_mtm_pnl, 6),
         "total_fees": round(total_fees, 6),
         "open_legs": open_legs.to_dict("records") if not open_legs.empty else [],
     }

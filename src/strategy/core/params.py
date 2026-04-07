@@ -6,10 +6,10 @@ from datetime import datetime, time
 
 @dataclass(frozen=True)
 class T0StrategyParams:
-    t0_base_position: int = 3100
-    t0_tactical_position: int = 900
+    t0_base_position: int = 3000
+    t0_tactical_position: int = 1000
     t0_trade_unit: int = 100
-    t0_max_trade_value: float = 50000
+    t0_max_trade_value: float = 250000
     t0_intraday_bar_period: str = "1m"
     t0_commission_rate: float = 0.0001
     t0_min_commission: float = 5.0
