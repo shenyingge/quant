@@ -631,9 +631,14 @@ class CmsSnapshotStore:
 
 
 class ProjectCmsChecker:
-    def __init__(self, scope: str = "project"):
+    def __init__(
+        self,
+        scope: str = "project",
+        account_data_service: Optional[AccountDataService] = None,
+    ):
         self.scope = scope
         self.timeout_seconds = max(int(settings.cms_server_timeout_seconds), 1)
+        self.account_data_service = account_data_service or AccountDataService()
 
     def build_snapshot(self) -> CmsSnapshot:
         started_at = datetime.now()
@@ -800,31 +805,35 @@ class ProjectCmsChecker:
         )
 
     def _check_signal_card(self, trading_day_check: CmsCheckResult) -> CmsCheckResult:
-        output_path = Path(settings.t0_output_dir) / "live_signal_card.json"
-        if not output_path.exists():
-            status = "warn" if self._is_expected("strategy_engine", trading_day_check) else "skip"
-            return CmsCheckResult(
-                name="signal_card",
-                component="strategy_engine",
-                status=status,
-                message=f"Signal card not found at {output_path}",
-                details={"path": str(output_path)},
-            )
-
         try:
-            payload = json.loads(output_path.read_text(encoding="utf-8"))
+            payload = self.account_data_service.get_latest_signal_card_snapshot()
         except Exception as exc:
             return CmsCheckResult(
                 name="signal_card",
                 component="strategy_engine",
                 status="warn",
-                message=f"Signal card is unreadable: {exc}",
-                details={"path": str(output_path)},
+                message=f"Failed to read signal card from Meta DB: {exc}",
+                details={"source": "meta_db"},
+            )
+
+        if not payload.get("available"):
+            status = "warn" if self._is_expected("strategy_engine", trading_day_check) else "skip"
+            return CmsCheckResult(
+                name="signal_card",
+                component="strategy_engine",
+                status=status,
+                message=str(payload.get("error") or "Signal card not available in Meta DB"),
+                details={
+                    "source": payload.get("source", "meta_db"),
+                    "stock_code": payload.get("stock_code"),
+                    "as_of_time": payload.get("as_of_time"),
+                },
             )
 
         details = {
-            "path": str(output_path),
-            "signal_action": payload.get("signal", {}).get("action"),
+            "source": payload.get("source", "meta_db"),
+            "stock_code": payload.get("stock_code"),
+            "signal_action": payload.get("signal_action"),
             "as_of_time": payload.get("as_of_time"),
             "regime": payload.get("regime"),
         }

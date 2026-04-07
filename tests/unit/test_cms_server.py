@@ -51,6 +51,11 @@ def test_health_snapshot_uses_standard_structure(monkeypatch, tmp_path):
         "_check_strategy_engine_process",
         lambda processes, trading_day: make_check("strategy_engine_process", "pass"),
     )
+    monkeypatch.setattr(
+        checker,
+        "_check_signal_card",
+        lambda trading_day: make_check("signal_card", "pass"),
+    )
 
     snapshot = checker.build_snapshot().to_dict()
 
@@ -63,6 +68,31 @@ def test_health_snapshot_uses_standard_structure(monkeypatch, tmp_path):
     assert "duration_ms" in snapshot["summary"]
     assert isinstance(snapshot["checks"], list)
     assert snapshot["checks"][0]["status"] in {"pass", "warn", "fail", "skip"}
+
+
+def test_signal_card_health_check_reads_latest_signal_from_meta_db():
+    class FakeAccountDataService:
+        def get_latest_signal_card_snapshot(self):
+            return {
+                "source": "meta_db",
+                "available": True,
+                "stock_code": "601138.SH",
+                "signal_action": "reverse_t_buy",
+                "as_of_time": "2026-04-07T10:31:22+08:00",
+                "regime": "transition",
+            }
+
+    checker = cms_server.ProjectCmsChecker(account_data_service=FakeAccountDataService())
+
+    result = checker._check_signal_card(make_check("trading_day", "pass"))
+
+    assert result.status == "pass"
+    assert result.message == "Signal card is present"
+    assert result.details["source"] == "meta_db"
+    assert result.details["stock_code"] == "601138.SH"
+    assert result.details["signal_action"] == "reverse_t_buy"
+    assert result.details["as_of_time"] == "2026-04-07T10:31:22+08:00"
+    assert result.details["regime"] == "transition"
 
 
 def test_health_status_is_down_when_critical_check_fails():
