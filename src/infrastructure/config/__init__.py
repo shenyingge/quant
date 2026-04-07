@@ -140,10 +140,10 @@ class Settings(BaseSettings):
     t0_output_dir: str = Field(default="./output", env="T0_OUTPUT_DIR")
     t0_save_signal_card: bool = Field(default=False, env="T0_SAVE_SIGNAL_CARD")
     t0_notify_observe_signals: bool = Field(default=False, env="T0_NOTIFY_OBSERVE_SIGNALS")
-    t0_base_position: int = Field(default=3100, env="T0_BASE_POSITION")
-    t0_tactical_position: int = Field(default=900, env="T0_TACTICAL_POSITION")
+    t0_base_position: int = Field(default=3000, env="T0_BASE_POSITION")
+    t0_tactical_position: int = Field(default=1000, env="T0_TACTICAL_POSITION")
     t0_trade_unit: int = Field(default=100, env="T0_TRADE_UNIT")
-    t0_max_trade_value: float = Field(default=50000, env="T0_MAX_TRADE_VALUE")
+    t0_max_trade_value: float = Field(default=250000, env="T0_MAX_TRADE_VALUE")
     t0_intraday_bar_period: str = Field(default="1m", env="T0_INTRADAY_BAR_PERIOD")
     t0_commission_rate: float = Field(default=0.0001, env="T0_COMMISSION_RATE")
     t0_min_commission: float = Field(default=5.0, env="T0_MIN_COMMISSION")
@@ -180,11 +180,32 @@ class Settings(BaseSettings):
     t0_reverse_sell_end_time: str = Field(default="14:56", env="T0_REVERSE_SELL_END_TIME")
     t0_positive_sell_min_rise: float = Field(default=1.0, env="T0_POSITIVE_SELL_MIN_RISE")
     t0_positive_sell_min_pullback: float = Field(default=0.5, env="T0_POSITIVE_SELL_MIN_PULLBACK")
+    t0_positive_sell_gap_down_limit: Optional[float] = Field(
+        default=None,
+        env="T0_POSITIVE_SELL_GAP_DOWN_LIMIT",
+    )
+    t0_positive_buyback_max_carry_days: Optional[int] = Field(
+        default=None,
+        env="T0_POSITIVE_BUYBACK_MAX_CARRY_DAYS",
+    )
+    t0_positive_buyback_stop_loss_pct: Optional[float] = Field(
+        default=None,
+        env="T0_POSITIVE_BUYBACK_STOP_LOSS_PCT",
+    )
     t0_reverse_buy_min_drop: float = Field(default=1.5, env="T0_REVERSE_BUY_MIN_DROP")
     t0_reverse_buy_min_bounce: float = Field(default=0.4, env="T0_REVERSE_BUY_MIN_BOUNCE")
     t0_reverse_sell_min_profit: float = Field(default=1.2, env="T0_REVERSE_SELL_MIN_PROFIT")
     t0_reverse_sell_max_vwap_distance: float = Field(
         default=0.5, env="T0_REVERSE_SELL_MAX_VWAP_DISTANCE"
+    )
+    t0_reverse_sell_max_carry_days: Optional[int] = Field(
+        default=None, env="T0_REVERSE_SELL_MAX_CARRY_DAYS"
+    )
+    t0_reverse_sell_stop_loss_pct: Optional[float] = Field(
+        default=None, env="T0_REVERSE_SELL_STOP_LOSS_PCT"
+    )
+    t0_reverse_sell_take_profit_after_carry_days: Optional[int] = Field(
+        default=None, env="T0_REVERSE_SELL_TAKE_PROFIT_AFTER_CARRY_DAYS"
     )
 
     ns_host: str = Field(default="ns", env="NS_HOST")

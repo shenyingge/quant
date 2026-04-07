@@ -1,4 +1,4 @@
-"""市场状态识别模块 - 基于MA20/MA60识别趋势"""
+"""Market regime identification shared by T0 runtime tools."""
 
 from datetime import date
 from typing import Optional
@@ -11,47 +11,30 @@ from src.strategy.core.regime_classifier import RegimeClassifier
 
 
 class RegimeIdentifier:
-    """市场状态识别器"""
+    """Regime classifier with persistence-backed caching."""
 
     def __init__(self, strategy_name: str = "t0_601138"):
         self.strategy_name = strategy_name
         self.classifier = RegimeClassifier()
 
     def identify_regime(self, daily_data: pd.DataFrame, trade_date: date) -> str:
-        """识别市场状态
-
-        Args:
-            daily_data: 日线数据
-            trade_date: 交易日期
-
-        Returns:
-            regime: uptrend/transition/downtrend
-        """
-        # 检查缓存
         cached = self._load_cached_regime(trade_date)
         if cached:
             logger.debug(f"使用缓存regime: {cached}")
             return cached
 
-        # 计算regime
         regime = self._calculate_regime(daily_data)
-
-        # 保存到数据库
         self._save_regime(trade_date, regime, daily_data)
-
         return regime
 
     def _calculate_regime(self, df: pd.DataFrame) -> str:
-        """计算市场状态"""
         try:
             return self.classifier.calculate(df)
-
         except Exception as e:
             logger.error(f"Regime计算失败: {e}")
             return "transition"
 
     def _calculate_slope(self, series: pd.Series, window: int) -> float:
-        """计算斜率"""
         try:
             recent = series.tail(window).values
             if len(recent) < 2:
@@ -61,7 +44,6 @@ class RegimeIdentifier:
             return 0.0
 
     def _load_cached_regime(self, trade_date: date) -> Optional[str]:
-        """从数据库加载缓存的regime"""
         try:
             db = SessionLocal()
             record = (
@@ -79,7 +61,6 @@ class RegimeIdentifier:
             return None
 
     def _save_regime(self, trade_date: date, regime: str, df: pd.DataFrame):
-        """保存regime到数据库"""
         try:
             working = df.copy()
             working["ma20"] = working["close"].rolling(20).mean()

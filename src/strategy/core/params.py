@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 from datetime import datetime, time
+from typing import Optional
 
 
 @dataclass(frozen=True)
@@ -26,10 +27,16 @@ class T0StrategyParams:
     t0_reverse_sell_end_time: str = "14:56"
     t0_positive_sell_min_rise: float = 1.0
     t0_positive_sell_min_pullback: float = 0.5
+    t0_positive_sell_gap_down_limit: Optional[float] = None
+    t0_positive_buyback_max_carry_days: Optional[int] = None
+    t0_positive_buyback_stop_loss_pct: Optional[float] = None
     t0_reverse_buy_min_drop: float = 1.5
     t0_reverse_buy_min_bounce: float = 0.4
     t0_reverse_sell_min_profit: float = 1.2
     t0_reverse_sell_max_vwap_distance: float = 0.5
+    t0_reverse_sell_max_carry_days: Optional[int] = None
+    t0_reverse_sell_stop_loss_pct: Optional[float] = None
+    t0_reverse_sell_take_profit_after_carry_days: Optional[int] = None
 
     @classmethod
     def from_settings(cls, settings_obj):
@@ -54,10 +61,40 @@ class T0StrategyParams:
             t0_reverse_sell_end_time=settings_obj.t0_reverse_sell_end_time,
             t0_positive_sell_min_rise=settings_obj.t0_positive_sell_min_rise,
             t0_positive_sell_min_pullback=settings_obj.t0_positive_sell_min_pullback,
+            t0_positive_sell_gap_down_limit=getattr(
+                settings_obj,
+                "t0_positive_sell_gap_down_limit",
+                None,
+            ),
+            t0_positive_buyback_max_carry_days=getattr(
+                settings_obj,
+                "t0_positive_buyback_max_carry_days",
+                None,
+            ),
+            t0_positive_buyback_stop_loss_pct=getattr(
+                settings_obj,
+                "t0_positive_buyback_stop_loss_pct",
+                None,
+            ),
             t0_reverse_buy_min_drop=settings_obj.t0_reverse_buy_min_drop,
             t0_reverse_buy_min_bounce=settings_obj.t0_reverse_buy_min_bounce,
             t0_reverse_sell_min_profit=settings_obj.t0_reverse_sell_min_profit,
             t0_reverse_sell_max_vwap_distance=settings_obj.t0_reverse_sell_max_vwap_distance,
+            t0_reverse_sell_max_carry_days=getattr(
+                settings_obj,
+                "t0_reverse_sell_max_carry_days",
+                None,
+            ),
+            t0_reverse_sell_stop_loss_pct=getattr(
+                settings_obj,
+                "t0_reverse_sell_stop_loss_pct",
+                None,
+            ),
+            t0_reverse_sell_take_profit_after_carry_days=getattr(
+                settings_obj,
+                "t0_reverse_sell_take_profit_after_carry_days",
+                None,
+            ),
         )
 
     def parse_time(self, value: str) -> time:

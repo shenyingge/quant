@@ -7,7 +7,7 @@ from datetime import datetime
 import backtrader as bt
 
 from src.infrastructure.logger_config import logger
-from src.strategy.strategies.t0.contracts.strategy import BarData, StrategyBase
+from src.strategy.shared.strategy_contracts import BarData, StrategyBase, TradeData
 
 
 class BacktraderStrategyWrapper(bt.Strategy):
@@ -50,10 +50,30 @@ class BacktraderStrategyWrapper(bt.Strategy):
 
             if action == "BUY":
                 order = self.buy(size=volume)
+                order.addinfo(signal=signal)
                 self.buy_orders.append(order)
             elif action == "SELL":
                 order = self.sell(size=volume)
+                order.addinfo(signal=signal)
                 self.sell_orders.append(order)
+
+    def notify_order(self, order):
+        """Forward completed fills back into the pure strategy state."""
+        if order.status != bt.Order.Completed:
+            return
+
+        direction = "BUY" if order.isbuy() else "SELL"
+        filled_time = self.data.datetime.datetime(0).isoformat()
+        self.strategy.on_trade(
+            TradeData(
+                order_id=str(order.ref),
+                stock_code=self.strategy.stock_code,
+                direction=direction,
+                filled_price=float(order.executed.price),
+                filled_volume=int(abs(order.executed.size)),
+                filled_time=filled_time,
+            )
+        )
 
     def notify_trade(self, trade):
         """Called when a trade closes."""

@@ -29,7 +29,7 @@ def run_t0_daemon(
         return 0
 
     from src.infrastructure.notifications import FeishuNotifier
-    from src.strategy.strategies.t0.strategy_engine import StrategyEngine
+    from src.strategy.shared.strategy_registry import build_strategy_runtime
 
     logger_obj.info("启动 {}", STRATEGY_ENGINE_NAME)
 
@@ -46,7 +46,7 @@ def run_t0_daemon(
     exit_level = "success"
 
     try:
-        strategy_engine = StrategyEngine()
+        strategy_engine = build_strategy_runtime("t0")
 
         while True:
             try:
@@ -88,12 +88,12 @@ def run_t0_strategy(
     if should_skip_non_trading_day_fn(STRATEGY_ENGINE_NAME):
         return 0
 
-    from src.strategy.strategies.t0.strategy_engine import StrategyEngine
+    from src.strategy.shared.strategy_registry import build_strategy_runtime
 
     logger_obj.info("运行 {} 一次", STRATEGY_ENGINE_NAME)
 
     try:
-        strategy_engine = StrategyEngine()
+        strategy_engine = build_strategy_runtime("t0")
         signal_card = strategy_engine.run_once()
         logger_obj.info("策略执行完成: {}", signal_card["signal"]["action"])
         return 0

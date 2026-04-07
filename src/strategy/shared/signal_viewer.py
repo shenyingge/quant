@@ -1,4 +1,4 @@
-"""T+0 信号查看器 - 从 Redis 读取信号并展示到文件"""
+"""Redis-backed signal viewer shared by strategy runtime tools."""
 
 import json
 import time
@@ -12,7 +12,7 @@ from src.infrastructure.redis.connection import build_redis_client_kwargs
 
 
 class SignalViewer:
-    """从 Redis 读取 T+0 信号并展示到本地文件"""
+    """Read the latest T0 signal from Redis and mirror it to a local file."""
 
     def __init__(self, output_file: str = "./output/live_signal_card.json"):
         self.output_file = Path(output_file)
@@ -34,7 +34,7 @@ class SignalViewer:
             raise
 
     def fetch_and_save(self) -> bool:
-        """从 Redis 获取信号并保存到文件"""
+        """Fetch the latest signal payload from Redis and persist it locally."""
         try:
             signal_json = self.redis_client.get(settings.redis_t0_signal_key)
             if not signal_json:
@@ -42,19 +42,17 @@ class SignalViewer:
                 return False
 
             signal_dict = json.loads(signal_json)
-
             with open(self.output_file, "w", encoding="utf-8") as f:
                 json.dump(signal_dict, f, ensure_ascii=False, indent=2)
 
             logger.info(f"信号已更新到文件: {self.output_file}")
             return True
-
         except Exception as e:
             logger.error(f"获取或保存信号失败: {e}")
             return False
 
     def watch(self, interval: int = 5):
-        """持续监听 Redis 并更新文件"""
+        """Keep syncing the latest signal from Redis at a fixed interval."""
         logger.info(f"开始监听 Redis 信号，更新间隔: {interval} 秒")
         logger.info(f"输出文件: {self.output_file}")
 
@@ -71,7 +69,7 @@ class SignalViewer:
 
 
 def main():
-    """主函数"""
+    """CLI entrypoint."""
     viewer = SignalViewer()
     viewer.watch(interval=settings.t0_poll_interval_seconds)
 

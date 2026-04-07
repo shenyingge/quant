@@ -1,10 +1,8 @@
-"""T+0策略诊断工具 - 显示详细的策略判断过程"""
+"""T+0 strategy diagnostics utility."""
 
 from datetime import date, datetime
-from pathlib import Path
 
 from src.infrastructure.config import settings
-from src.infrastructure.logger_config import logger
 from src.strategy.core.params import T0StrategyParams
 from src.strategy.strategies.t0.data_fetcher import DataFetcher
 from src.strategy.strategies.t0.feature_calculator import FeatureCalculator
@@ -14,7 +12,7 @@ from src.strategy.strategies.t0.signal_state_repository import StrategySignalRep
 
 
 class StrategyDiagnostics:
-    """策略诊断工具"""
+    """Interactive diagnostics for the T0 strategy runtime."""
 
     def __init__(self):
         self.stock_code = settings.t0_stock_code
@@ -26,7 +24,7 @@ class StrategyDiagnostics:
         self.signal_repository = StrategySignalRepository()
 
     def diagnose(self) -> dict:
-        """运行完整诊断并返回详细信息"""
+        """Run the full diagnostics flow and print detailed checks."""
         trade_date = date.today()
         current_time = datetime.now().time()
 
@@ -35,7 +33,6 @@ class StrategyDiagnostics:
         print(f"时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         print(f"{'='*80}\n")
 
-        # 1. 数据获取
         print("【1. 数据获取】")
         minute_data = self.data_fetcher.fetch_minute_data(
             self.stock_code, trade_date, realtime=True
@@ -45,17 +42,19 @@ class StrategyDiagnostics:
             return {"error": "分钟数据获取失败"}
         print(f"  ✓ 分钟数据: {len(minute_data)} 条")
 
-        # 显示前几条数据
         print(f"\n  前5条数据:")
         for idx, row in minute_data.head(5).iterrows():
-            print(f"    {idx}: open={row.get('open', 0):.2f}, high={row.get('high', 0):.2f}, "
-                  f"low={row.get('low', 0):.2f}, close={row.get('close', 0):.2f}")
+            print(
+                f"    {idx}: open={row.get('open', 0):.2f}, high={row.get('high', 0):.2f}, "
+                f"low={row.get('low', 0):.2f}, close={row.get('close', 0):.2f}"
+            )
 
-        # 显示最后几条数据
         print(f"\n  最后5条数据:")
         for idx, row in minute_data.tail(5).iterrows():
-            print(f"    {idx}: open={row.get('open', 0):.2f}, high={row.get('high', 0):.2f}, "
-                  f"low={row.get('low', 0):.2f}, close={row.get('close', 0):.2f}")
+            print(
+                f"    {idx}: open={row.get('open', 0):.2f}, high={row.get('high', 0):.2f}, "
+                f"low={row.get('low', 0):.2f}, close={row.get('close', 0):.2f}"
+            )
 
         daily_data = self.data_fetcher.fetch_daily_data(self.stock_code, days=100)
         if daily_data is None:
@@ -63,7 +62,6 @@ class StrategyDiagnostics:
             return {"error": "日线数据获取失败"}
         print(f"  ✓ 日线数据: {len(daily_data)} 条\n")
 
-        # 检查数据中是否有零值
         zero_check_fields = ["open", "high", "low"]
         for field in zero_check_fields:
             if field in minute_data.columns:
@@ -72,14 +70,12 @@ class StrategyDiagnostics:
                     total = len(minute_data)
                     print(f"  ⚠️  {field} 有 {zero_count}/{total} 条为零值")
 
-        # 2. 市场状态
         print("【2. 市场状态】")
         regime = self.regime_identifier.identify_regime(daily_data, trade_date)
         print(f"  Regime: {regime}")
         branch_priority = self._get_branch_priority(regime)
         print(f"  分支优先级: {' > '.join(branch_priority)}\n")
 
-        # 3. 特征计算
         print("【3. 特征计算】")
         features = self.feature_calculator.calculate_snapshot(minute_data)
         if features is None:
@@ -110,7 +106,6 @@ class StrategyDiagnostics:
         print(f"  假突破分数: {fake_breakout:.2f}")
         print(f"  吸收分数: {absorption:.2f}\n")
 
-        # 4. 仓位状态
         print("【4. 仓位状态】")
         position = self.position_syncer.load_portfolio_state()
         position_dict = position.to_dict() if hasattr(position, "to_dict") else dict(position)
@@ -133,7 +128,6 @@ class StrategyDiagnostics:
         print(f"  T+0可卖: {t0_sell_available}")
         print(f"  T+0可买: {t0_buy_capacity}\n")
 
-        # 4.5 今日信号历史
         print("【4.5 今日信号历史】")
         signal_history = self.signal_repository.load_today_history(trade_date)
         today_actions = [s.action for s in signal_history] if signal_history else []
@@ -142,8 +136,11 @@ class StrategyDiagnostics:
         has_reverse_buy = "reverse_t_buy" in today_actions
         has_reverse_sell = "reverse_t_sell" in today_actions
         if signal_history:
-            for s in signal_history:
-                print(f"  {s.action}  price={s.price}  volume={s.volume}  time={s.signal_time}")
+            for signal in signal_history:
+                print(
+                    f"  {signal.action}  price={signal.price}  volume={signal.volume}  "
+                    f"time={signal.signal_time}"
+                )
         else:
             print("  （今日无信号历史）")
         positive_t_completed = has_positive_sell and has_positive_buyback
@@ -154,7 +151,6 @@ class StrategyDiagnostics:
             print("  ⚠️  反T闭环已完成（买入+卖出），今日不再发反T信号")
         print()
 
-        # 5. 时间窗口检查
         print("【5. 时间窗口检查】")
         print(f"  当前时间: {current_time.strftime('%H:%M:%S')}")
 
@@ -201,10 +197,8 @@ class StrategyDiagnostics:
         )
         print()
 
-        # 6. 策略条件检查
         print("【6. 策略条件检查】")
 
-        # 正T卖出条件
         print("  正T卖出条件:")
         print(f"    - 时间窗口: {'✓' if positive_sell_window else '✗'}")
         print(
@@ -222,11 +216,16 @@ class StrategyDiagnostics:
             f"{'✓' if current_close < vwap else '✗'} "
             f"(当前: {current_close:.2f}, VWAP: {vwap:.2f})"
         )
-        print(f"    - T+0可卖 > 0: {'✓' if t0_sell_available > 0 else '✗'} (实际: {t0_sell_available})")
+        print(
+            f"    - T+0可卖 > 0: {'✓' if t0_sell_available > 0 else '✗'} "
+            f"(实际: {t0_sell_available})"
+        )
 
-        # 正T回补条件
         print("\n  正T回补条件:")
-        print(f"    - 今日已执行正T卖出 (前置): {'✓' if has_positive_sell else '✗ 未满足，策略不会检查后续条件'}")
+        print(
+            f"    - 今日已执行正T卖出 (前置): "
+            f"{'✓' if has_positive_sell else '✗ 未满足，策略不会检查后续条件'}"
+        )
         print(f"    - 时间窗口: {'✓' if positive_buyback_window else '✗'}")
         print(
             f"    - 反弹 >= 0.4%: "
@@ -238,9 +237,11 @@ class StrategyDiagnostics:
             f"{'✓' if absorption >= 0.6 else '✗'} "
             f"(实际: {absorption:.2f})"
         )
-        print(f"    - T+0可买 > 0: {'✓' if t0_buy_capacity > 0 else '✗'} (实际: {t0_buy_capacity})")
+        print(
+            f"    - T+0可买 > 0: {'✓' if t0_buy_capacity > 0 else '✗'} "
+            f"(实际: {t0_buy_capacity})"
+        )
 
-        # 反T买入条件
         print("\n  反T买入条件:")
         print(f"    - 时间窗口: {'✓' if reverse_buy_window else '✗'}")
         print(
@@ -258,11 +259,16 @@ class StrategyDiagnostics:
             f"{'✓' if absorption >= 0.6 else '✗'} "
             f"(实际: {absorption:.2f})"
         )
-        print(f"    - T+0可买 > 0: {'✓' if t0_buy_capacity > 0 else '✗'} (实际: {t0_buy_capacity})")
+        print(
+            f"    - T+0可买 > 0: {'✓' if t0_buy_capacity > 0 else '✗'} "
+            f"(实际: {t0_buy_capacity})"
+        )
 
-        # 反T卖出条件
         print("\n  反T卖出条件:")
-        print(f"    - 今日已执行反T买入 (前置): {'✓' if has_reverse_buy else '✗ 未满足，策略不会检查后续条件'}")
+        print(
+            f"    - 今日已执行反T买入 (前置): "
+            f"{'✓' if has_reverse_buy else '✗ 未满足，策略不会检查后续条件'}"
+        )
         print(f"    - 时间窗口: {'✓' if reverse_sell_window else '✗'}")
         profit_pct = ((current_close - cost_price) / cost_price * 100) if cost_price > 0 else 0
         close_vs_vwap_abs = abs(close_vs_vwap)
@@ -276,7 +282,10 @@ class StrategyDiagnostics:
             f"{'✓' if close_vs_vwap_abs <= self.params.t0_reverse_sell_max_vwap_distance else '✗'} "
             f"(实际: {close_vs_vwap_abs:.2f}%)"
         )
-        print(f"    - T+0可卖 > 0: {'✓' if t0_sell_available > 0 else '✗'} (实际: {t0_sell_available})")
+        print(
+            f"    - T+0可卖 > 0: {'✓' if t0_sell_available > 0 else '✗'} "
+            f"(实际: {t0_sell_available})"
+        )
 
         print(f"\n{'='*80}\n")
 

@@ -67,6 +67,12 @@ def test_t0_backtest_cli_writes_output_files(tmp_path: Path):
     assert summary["config"]["params"]["base_position"] == 3000
     assert summary["config"]["params"]["tactical_position"] == 1000
     assert summary["config"]["params"]["max_trade_value"] == 250000.0
+    assert summary["config"]["params"]["positive_sell_gap_down_limit"] is None
+    assert summary["config"]["params"]["positive_buyback_max_carry_days"] is None
+    assert summary["config"]["params"]["positive_buyback_stop_loss_pct"] is None
+    assert summary["config"]["params"]["reverse_sell_max_carry_days"] is None
+    assert summary["config"]["params"]["reverse_sell_stop_loss_pct"] is None
+    assert summary["config"]["params"]["reverse_sell_take_profit_after_carry_days"] is None
 
 
 def test_t0_backtest_cli_summary_separates_realized_t_pnl_and_open_leg_mtm(tmp_path: Path):

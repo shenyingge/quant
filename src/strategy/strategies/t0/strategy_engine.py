@@ -3,6 +3,7 @@
 import importlib
 import json
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime
 from pathlib import Path
 
@@ -10,19 +11,20 @@ import redis
 
 from src.infrastructure.config import settings
 from src.infrastructure.logger_config import logger
+from src.infrastructure.notifications import FeishuNotifier
+from src.infrastructure.redis.connection import build_redis_client_kwargs
 from src.market_data.ingestion.market_data_gateway import (
     NullMarketDataGateway,
     XTQuantMarketDataGateway,
 )
 from src.market_data.ingestion.qmt_snapshot_provider import QMTSnapshotProvider
-from src.infrastructure.notifications import FeishuNotifier
-from src.infrastructure.redis.connection import build_redis_client_kwargs
+from src.strategy.core import T0StrategyKernel
 from src.strategy.core.models import MarketSnapshot, PositionSnapshot, SignalCard, StrategyDecision
+from src.strategy.core.params import T0StrategyParams
+from src.strategy.shared.strategy_contracts import StrategyRuntimeBase
+from src.strategy.shared.strategy_registry import register_strategy_runtime
 from src.strategy.strategies.t0.data_fetcher import DataFetcher
-from src.strategy.strategies.t0.feature_calculator import FeatureCalculator
 from src.strategy.strategies.t0.position_syncer import PositionSyncer
-from src.strategy.strategies.t0.regime_identifier import RegimeIdentifier
-from src.strategy.strategies.t0.signal_generator import SignalGenerator
 from src.strategy.strategies.t0.signal_state_repository import StrategySignalRepository
 
 
@@ -58,10 +60,12 @@ def build_market_data_gateway(xtdata_client=None):
     return XTQuantMarketDataGateway(xtdata_client=xtdata_client)
 
 
-class StrategyEngine:
+@register_strategy_runtime("t0")
+class StrategyEngine(StrategyRuntimeBase):
     """Runtime strategy engine."""
 
-    def __init__(self):
+    def __init__(self, *, strategy_name: str | None = None):
+        super().__init__(strategy_name=strategy_name or "t0_601138")
         self.stock_code = settings.t0_stock_code
         self.output_dir = Path(settings.t0_output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
@@ -83,13 +87,13 @@ class StrategyEngine:
                 interval_seconds=interval_seconds,
                 callback=self._on_market_snapshot,
             )
-        self.regime_identifier = RegimeIdentifier()
-        self.feature_calculator = FeatureCalculator()
-        self.signal_generator = SignalGenerator()
+        self.kernel = T0StrategyKernel(T0StrategyParams.from_settings(settings))
         self.position_syncer = PositionSyncer()
         self.signal_repository = StrategySignalRepository()
         self.notifier = FeishuNotifier()
         self._last_notified_action = None
+        self._regime_cache = None
+        self._regime_cache_date = None
 
         try:
             self.redis_client = redis.Redis(
@@ -123,28 +127,63 @@ class StrategyEngine:
             self.position_syncer.publish_pending_events(limit=20)
             logger.debug(f"开始执行策略引擎: {self.stock_code}, {trade_date}")
 
-            # 1. 获取数据 (realtime模式跳过download_history_data)
-            minute_data = self.data_fetcher.fetch_minute_data(
-                self.stock_code, trade_date, realtime=True
-            )
+            # 0. 预取实时快照（后续所有步骤复用）
+            snapshot = self.data_fetcher.fetch_realtime_snapshot(self.stock_code)
+
+            # 1. 并行获取数据、仓位、信号历史
+            with ThreadPoolExecutor(max_workers=4) as executor:
+                minute_future = executor.submit(
+                    self.data_fetcher.fetch_minute_data,
+                    self.stock_code, trade_date, 3, True, snapshot,
+                )
+                daily_future = executor.submit(
+                    self.data_fetcher.fetch_daily_data, self.stock_code, 100,
+                )
+                position_future = executor.submit(self.position_syncer.load_position)
+                history_future = executor.submit(
+                    self.signal_repository.load_today_history, trade_date,
+                )
+
+            minute_data = minute_future.result()
             if minute_data is None:
                 return self._finalize_signal_card(self._error_signal_card("分钟数据获取失败"))
 
-            daily_data = self.data_fetcher.fetch_daily_data(self.stock_code, days=100)
+            daily_data = daily_future.result()
             if daily_data is None:
                 return self._finalize_signal_card(self._error_signal_card("日线数据获取失败"))
 
-            # 2. 识别regime
-            regime = self.regime_identifier.identify_regime(daily_data, trade_date)
+            # 2. 加载仓位
+            position_state = position_future.result()
+            position = self.position_syncer.to_portfolio_state(position_state)
+
+            # 3. 加载当日已产出的策略信号历史
+            signal_history = history_future.result()
+            if signal_history:
+                logger.debug(
+                    f"今日信号历史: {len(signal_history)}条, "
+                    f"actions={[s.action for s in signal_history]}"
+                )
+            else:
+                logger.debug("今日信号历史: 无")
+
+            # 4. 统一走纯策略内核
+            evaluation = self.kernel.evaluate(
+                minute_data=minute_data,
+                daily_data=daily_data,
+                position=position,
+                signal_history=signal_history,
+            )
+            regime = evaluation["regime"]
+            features = evaluation["features"]
+            position = evaluation["position"]
+            signal = evaluation["signal"]
+
+            if features is None:
+                return self._finalize_signal_card(self._error_signal_card(signal.reason))
+
             logger.debug(f"市场状态: regime={regime}")
 
-            # 3. 计算特征
-            features = self.feature_calculator.calculate_snapshot(minute_data)
-            if features is None:
-                return self._finalize_signal_card(self._error_signal_card("特征计算失败"))
-
-            # 记录关键特征
-            feature_dict = features.to_dict() if hasattr(features, "to_dict") else dict(features)
+            feature_dict = features.to_dict()
             logger.debug(
                 f"特征计算: price={feature_dict.get('current_close', 0):.2f}, "
                 f"vwap={feature_dict.get('vwap', 0):.2f}, "
@@ -155,10 +194,7 @@ class StrategyEngine:
                 f"absorption={feature_dict.get('absorption_score', 0):.2f}"
             )
 
-            # 4. 加载仓位
-            position_state = self.position_syncer.load_position()
-            position = self.position_syncer.to_portfolio_state(position_state)
-            position_dict = position.to_dict() if hasattr(position, "to_dict") else dict(position)
+            position_dict = position.to_dict()
             logger.debug(
                 f"仓位状态: total={position_dict.get('total_position', 0)}, "
                 f"available={position_dict.get('available_volume', 0)}, "
@@ -168,23 +204,7 @@ class StrategyEngine:
                 f"version={position_dict.get('position_version', 0)}"
             )
 
-            # 4.1 加载当日已产出的策略信号历史
-            signal_history = self.signal_repository.load_today_history(trade_date)
-            if signal_history:
-                logger.debug(
-                    f"今日信号历史: {len(signal_history)}条, "
-                    f"actions={[s.action for s in signal_history]}"
-                )
-            else:
-                logger.debug("今日信号历史: 无")
-
-            # 4.2 获取实时快照，补齐最新市场信息
-            snapshot = self.data_fetcher.fetch_realtime_snapshot(self.stock_code)
-
-            # 5. 生成信号
-            signal = self.signal_generator.generate_signal(
-                regime, features, position, trade_date, signal_history=signal_history
-            )
+            # 5. 复用预取的实时快照，补齐最新市场信息
 
             # 6. 构造信号卡片
             signal_card = self._build_signal_card(

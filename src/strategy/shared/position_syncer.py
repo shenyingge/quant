@@ -1,4 +1,4 @@
-"""Position synchronization helpers for the T+0 runtime."""
+"""Position synchronization helpers shared by T+0 runtime components."""
 
 from __future__ import annotations
 

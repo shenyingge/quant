@@ -10,17 +10,16 @@ class RegimeClassifier:
         if len(df) < 60:
             return "transition"
 
-        working = df.copy()
-        working["ma20"] = working["close"].rolling(20).mean()
-        working["ma60"] = working["close"].rolling(60).mean()
+        close_series = df["close"]
+        ma20_series = close_series.rolling(20).mean()
+        ma60_series = close_series.rolling(60).mean()
 
-        latest = working.iloc[-1]
-        ma20 = latest["ma20"]
-        ma60 = latest["ma60"]
-        close = latest["close"]
+        ma20 = ma20_series.iloc[-1]
+        ma60 = ma60_series.iloc[-1]
+        close = close_series.iloc[-1]
         trend_spread = ((ma20 / ma60) - 1) * 100 if ma60 > 0 else 0
-        ma20_slope = self._calculate_slope(working["ma20"], 5)
-        ma60_slope = self._calculate_slope(working["ma60"], 10)
+        ma20_slope = self._calculate_slope(ma20_series, 5)
+        ma60_slope = self._calculate_slope(ma60_series, 10)
 
         if (
             ma20 > ma60

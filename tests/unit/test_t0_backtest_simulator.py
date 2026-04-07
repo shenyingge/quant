@@ -5,7 +5,7 @@ from unittest.mock import patch
 import pandas as pd
 
 from src.backtest.simulator import T0BacktestSimulator
-from src.strategy.core.models import PortfolioState
+from src.strategy.core.models import PortfolioState, SignalEvent
 from src.strategy.strategies.t0.feature_calculator import FeatureCalculator
 
 
@@ -27,6 +27,73 @@ def test_feature_calculator_returns_snapshot_object():
     assert snapshot is not None
     assert snapshot.current_close == 10.2
     assert snapshot.latest_bar_time == "2026-03-26 09:31:00"
+
+
+def test_feature_calculator_day_snapshots_match_prefix_snapshots():
+    minute_data = pd.DataFrame(
+        {
+            "open": [0.0, 10.0, 10.1, 0.0, 10.2],
+            "high": [0.0, 10.2, 10.4, 0.0, 10.5],
+            "low": [0.0, 9.9, 10.0, 0.0, 10.1],
+            "close": [0.0, 10.1, 10.3, 0.0, 10.4],
+            "volume": [0, 1000, 1200, 0, 800],
+            "pre_close": [9.8, 9.95, 9.95, 9.95, 9.95],
+        },
+        index=pd.to_datetime(
+            [
+                "2026-03-26 09:29:00",
+                "2026-03-26 09:30:00",
+                "2026-03-26 09:31:00",
+                "2026-03-26 09:32:00",
+                "2026-03-26 09:33:00",
+            ]
+        ),
+    )
+    calculator = FeatureCalculator()
+
+    prefix_snapshots = [
+        calculator.calculate_snapshot(minute_data.iloc[: idx + 1])
+        for idx in range(len(minute_data))
+    ]
+    day_snapshots = calculator.calculate_day_snapshots(minute_data)
+
+    assert day_snapshots == prefix_snapshots
+
+
+def test_feature_calculator_incremental_bar_updates_match_day_snapshots():
+    minute_data = pd.DataFrame(
+        {
+            "open": [0.0, 10.0, 10.1, 0.0, 10.2],
+            "high": [0.0, 10.2, 10.4, 0.0, 10.5],
+            "low": [0.0, 9.9, 10.0, 0.0, 10.1],
+            "close": [0.0, 10.1, 10.3, 0.0, 10.4],
+            "volume": [0, 1000, 1200, 0, 800],
+            "pre_close": [9.8, 9.95, 9.95, 9.95, 9.95],
+        },
+        index=pd.to_datetime(
+            [
+                "2026-03-26 09:29:00",
+                "2026-03-26 09:30:00",
+                "2026-03-26 09:31:00",
+                "2026-03-26 09:32:00",
+                "2026-03-26 09:33:00",
+            ]
+        ),
+    )
+    calculator = FeatureCalculator()
+    state = calculator.initialize_intraday_state()
+
+    incremental_snapshots = []
+    for idx in range(len(minute_data)):
+        incremental_snapshots.append(
+            calculator.update_snapshot_from_bar(
+                state,
+                bar=minute_data.iloc[idx].to_dict(),
+                latest_bar_time=minute_data.index[idx],
+            )
+        )
+
+    assert incremental_snapshots == calculator.calculate_day_snapshots(minute_data)
 
 
 def test_backtest_simulator_runs_and_emits_signal_log():
@@ -379,7 +446,101 @@ def test_backtest_simulator_excludes_current_day_from_regime_input():
     ):
         T0BacktestSimulator().run(minute_data, daily_data, position)
 
-    assert captured_last_dates == ["2026-03-25", "2026-03-26"]
+
+def test_backtest_simulator_carries_open_signal_history_to_next_day():
+    minute_index = pd.to_datetime(
+        [
+            "2026-03-26 14:55:00",
+            "2026-03-27 09:35:00",
+        ]
+    )
+    minute_data = pd.DataFrame(
+        {
+            "open": [50.0, 50.2],
+            "high": [50.3, 50.4],
+            "low": [49.7, 50.0],
+            "close": [50.1, 50.3],
+            "volume": [10000, 12000],
+            "amount": [501000, 603600],
+            "pre_close": [49.9, 50.1],
+        },
+        index=minute_index,
+    )
+    daily_data = pd.DataFrame({"close": [49.0, 49.5, 50.0, 50.5]})
+    position = PortfolioState(
+        total_position=3500,
+        available_volume=3500,
+        cost_price=72.0,
+        base_position=2600,
+        tactical_position=900,
+        max_position=3500,
+        t0_sell_available=900,
+        t0_buy_capacity=0,
+        cash_available=70000,
+    )
+
+    captured_history_lengths = []
+
+    def fake_generate_signal(**kwargs):
+        captured_history_lengths.append(len(kwargs.get("signal_history") or []))
+        current_dt = kwargs["current_datetime"]
+        if current_dt == minute_index[0].to_pydatetime():
+            return {
+                "action": "positive_t_sell",
+                "reason": "test",
+                "price": 50.1,
+                "volume": 900,
+                "branch": "positive_t",
+            }
+        return {
+            "action": "observe",
+            "reason": "test",
+            "price": 0.0,
+            "volume": 0,
+            "branch": None,
+        }
+
+    with patch.object(
+        T0BacktestSimulator,
+        "__init__",
+        lambda self, params=None, execution_mode="same_bar_close": None,
+    ):
+        simulator = T0BacktestSimulator()
+        simulator.params = SimpleNamespace(t0_trade_unit=100)
+        simulator.execution_mode = "same_bar_close"
+        simulator.feature_calculator = SimpleNamespace(
+            calculate_snapshot=lambda window: FeatureCalculator().calculate_snapshot(window)
+        )
+        simulator.regime_classifier = SimpleNamespace(calculate=lambda _: "transition")
+        simulator.engine = SimpleNamespace(
+            generate_signal=fake_generate_signal,
+            _build_branch_state=lambda history: SimpleNamespace(
+                completed="positive_t_buyback" in [event.action for event in history]
+            ),
+        )
+
+        simulator.run(minute_data, daily_data, position)
+
+    assert captured_history_lengths == [0, 1]
+
+
+def test_backtest_simulator_increments_carry_trading_days_on_each_rollover():
+    simulator = T0BacktestSimulator()
+    history = [
+        SignalEvent(
+            action="positive_t_sell",
+            branch="positive_t",
+            price=50.1,
+            volume=900,
+        )
+    ]
+
+    day_one_history = simulator._next_day_signal_history(history)
+    day_two_history = simulator._next_day_signal_history(day_one_history)
+
+    assert [event.carry_trading_days for event in history] == [0]
+    assert [event.carry_trading_days for event in day_one_history] == [1]
+    assert [event.carry_trading_days for event in day_two_history] == [2]
 
 
 def test_backtest_simulator_carries_open_branch_and_restores_available_volume_next_day():
@@ -551,3 +712,86 @@ def test_backtest_simulator_clears_completed_branch_history_on_next_day():
         if timestamp == minute_index[2].to_pydatetime()
     )
     assert day_three_history == []
+
+
+def test_backtest_simulator_force_same_day_close_flattens_open_branch():
+    minute_index = pd.to_datetime(
+        [
+            "2026-03-26 10:00:00",
+            "2026-03-26 14:56:00",
+        ]
+    )
+    minute_data = pd.DataFrame(
+        {
+            "open": [50.0, 49.5],
+            "high": [50.2, 49.8],
+            "low": [49.8, 49.2],
+            "close": [50.0, 49.4],
+            "volume": [10000, 12000],
+            "amount": [500000, 592800],
+            "pre_close": [49.9, 49.9],
+        },
+        index=minute_index,
+    )
+    daily_data = pd.DataFrame({"close": [50 + i * 0.1 for i in range(100)]})
+    position = PortfolioState(
+        total_position=3500,
+        available_volume=3500,
+        cost_price=72.0,
+        base_position=2600,
+        tactical_position=900,
+        max_position=3500,
+        t0_sell_available=900,
+        t0_buy_capacity=0,
+        cash_available=70000,
+    )
+
+    def fake_generate_signal(**kwargs):
+        if kwargs["current_datetime"] == minute_index[0].to_pydatetime():
+            return {
+                "action": "positive_t_sell",
+                "reason": "test",
+                "price": 50.0,
+                "volume": 900,
+                "branch": "positive_t",
+            }
+        return {"action": "observe", "reason": "test", "price": 0.0, "volume": 0, "branch": None}
+
+    with patch.object(
+        T0BacktestSimulator,
+        "__init__",
+        lambda self, params=None, execution_mode="same_bar_close", force_same_day_close=False: None,
+    ):
+        simulator = T0BacktestSimulator()
+        simulator.params = SimpleNamespace(
+            t0_trade_unit=100,
+            t0_commission_rate=0.0001,
+            t0_min_commission=5.0,
+            t0_transfer_fee_rate=0.00001,
+            t0_stamp_duty_rate=0.0005,
+        )
+        simulator.execution_mode = "same_bar_close"
+        simulator.force_same_day_close = True
+        simulator.feature_calculator = SimpleNamespace(
+            calculate_snapshot=lambda window: FeatureCalculator().calculate_snapshot(window)
+        )
+        simulator.regime_classifier = SimpleNamespace(calculate=lambda _: "transition")
+        simulator.engine = SimpleNamespace(
+            generate_signal=fake_generate_signal,
+            _build_branch_state=lambda history: SimpleNamespace(
+                branch="positive_t",
+                completed="positive_t_buyback" in [event.action for event in history],
+                volume=next((event.volume for event in history if event.volume), 0),
+                entry_price=next((event.price for event in history if event.price is not None), None),
+                entry_time=next((event.signal_time for event in history if event.signal_time), None),
+            ),
+        )
+
+        result = simulator.run(minute_data, daily_data, position)
+
+    assert list(result["fills"]["action"]) == ["positive_t_sell", "positive_t_buyback"]
+    forced_fill = result["fills"].iloc[1]
+    assert pd.Timestamp(forced_fill["timestamp"]) == minute_index[1]
+    assert forced_fill["price"] == 49.4
+    assert forced_fill["execution_mode"] == "same_bar_close_force_same_day_close"
+    assert result["final_position"].total_position == 3500

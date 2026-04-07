@@ -1,6 +1,6 @@
-"""Redis tick数据缓存，使用独立db避免影响交易系统"""
+"""Redis tick data cache shared by strategy market-data utilities."""
 
-import pickle
+import io
 from datetime import date, datetime
 from typing import Optional
 
@@ -13,7 +13,7 @@ from src.infrastructure.redis.connection import build_redis_client_kwargs
 
 
 class RedisTickCache:
-    """Redis tick数据缓存，使用独立db避免影响交易系统"""
+    """Redis tick data cache using a dedicated DB."""
 
     def __init__(self):
         try:
@@ -34,7 +34,7 @@ class RedisTickCache:
             self.enabled = False
 
     def get_cached_ticks(self, stock_code: str, trade_date: date) -> Optional[pd.DataFrame]:
-        """获取缓存的tick数据"""
+        """Load cached ticks for one symbol and trade date."""
         if not self.enabled:
             return None
 
@@ -42,7 +42,7 @@ class RedisTickCache:
         try:
             data = self.redis_client.get(key)
             if data:
-                df = pickle.loads(data)
+                df = pd.read_parquet(io.BytesIO(data))
                 logger.debug(f"从Redis加载tick缓存: {key}, rows={len(df)}")
                 return df
         except Exception as e:
@@ -50,28 +50,30 @@ class RedisTickCache:
         return None
 
     def save_ticks(self, stock_code: str, trade_date: date, df: pd.DataFrame) -> None:
-        """保存tick数据到缓存"""
+        """Persist ticks and last-tick metadata into Redis."""
         if not self.enabled or df is None or df.empty:
             return
 
         key = self._make_key(stock_code, trade_date)
         meta_key = self._make_meta_key(stock_code, trade_date)
         try:
-            data = pickle.dumps(df)
+            buf = io.BytesIO()
+            df.to_parquet(buf, index=True)
+            data = buf.getvalue()
             self.redis_client.setex(key, settings.redis_tick_cache_ttl, data)
 
             last_time = df.index.max()
             self.redis_client.setex(
                 meta_key,
                 settings.redis_tick_cache_ttl,
-                last_time.strftime("%Y-%m-%d %H:%M:%S.%f")
+                last_time.strftime("%Y-%m-%d %H:%M:%S.%f"),
             )
             logger.debug(f"保存tick缓存: {key}, rows={len(df)}, last={last_time}")
         except Exception as e:
             logger.warning(f"保存tick缓存失败: {e}")
 
     def get_last_tick_time(self, stock_code: str, trade_date: date) -> Optional[datetime]:
-        """获取最后一条tick的时间戳"""
+        """Load the last cached tick timestamp."""
         if not self.enabled:
             return None
 

@@ -64,14 +64,24 @@ def run_backtest_cli(argv: Optional[list] = None) -> int:
         t0_reverse_sell_end_time=args.reverse_sell_end_time,
         t0_positive_sell_min_rise=args.positive_sell_min_rise,
         t0_positive_sell_min_pullback=args.positive_sell_min_pullback,
+        t0_positive_sell_gap_down_limit=args.positive_sell_gap_down_limit,
+        t0_positive_buyback_max_carry_days=args.positive_buyback_max_carry_days,
+        t0_positive_buyback_stop_loss_pct=args.positive_buyback_stop_loss_pct,
         t0_reverse_buy_min_drop=args.reverse_buy_min_drop,
         t0_reverse_buy_min_bounce=args.reverse_buy_min_bounce,
         t0_reverse_sell_min_profit=args.reverse_sell_min_profit,
         t0_reverse_sell_max_vwap_distance=args.reverse_sell_max_vwap_distance,
+        t0_reverse_sell_max_carry_days=args.reverse_sell_max_carry_days,
+        t0_reverse_sell_stop_loss_pct=args.reverse_sell_stop_loss_pct,
+        t0_reverse_sell_take_profit_after_carry_days=args.reverse_sell_take_profit_after_carry_days,
     )
     initial_position = build_initial_position(args, params)
 
-    simulator = T0BacktestSimulator(params, execution_mode=args.execution_mode)
+    simulator = T0BacktestSimulator(
+        params,
+        execution_mode=args.execution_mode,
+        force_same_day_close=args.force_same_day_close,
+    )
     result = simulator.run(minute_data, daily_data, initial_position, symbol=args.symbol)
 
     output_dir = resolve_output_dir(args.output_dir)
@@ -212,6 +222,12 @@ def _build_parser(argv: Optional[list]) -> argparse.ArgumentParser:
         help="成交模型：当前 bar 收盘成交或下一 bar 开盘成交",
     )
     parser.add_argument(
+        "--force-same-day-close",
+        action="store_true",
+        default=cfg("force_same_day_close", False),
+        help="若当日未自然闭环，则在最后一根bar按收盘价强制平同等仓位",
+    )
+    parser.add_argument(
         "--commission-rate",
         type=float,
         default=cfg("commission_rate", settings.t0_commission_rate),
@@ -284,6 +300,27 @@ def _build_parser(argv: Optional[list]) -> argparse.ArgumentParser:
         default=cfg("positive_sell_min_pullback", settings.t0_positive_sell_min_pullback),
     )
     parser.add_argument(
+        "--positive-sell-gap-down-limit",
+        type=float,
+        default=cfg("positive_sell_gap_down_limit", settings.t0_positive_sell_gap_down_limit),
+    )
+    parser.add_argument(
+        "--positive-buyback-max-carry-days",
+        type=int,
+        default=cfg(
+            "positive_buyback_max_carry_days",
+            settings.t0_positive_buyback_max_carry_days,
+        ),
+    )
+    parser.add_argument(
+        "--positive-buyback-stop-loss-pct",
+        type=float,
+        default=cfg(
+            "positive_buyback_stop_loss_pct",
+            settings.t0_positive_buyback_stop_loss_pct,
+        ),
+    )
+    parser.add_argument(
         "--reverse-buy-min-drop",
         type=float,
         default=cfg("reverse_buy_min_drop", settings.t0_reverse_buy_min_drop),
@@ -302,6 +339,24 @@ def _build_parser(argv: Optional[list]) -> argparse.ArgumentParser:
         "--reverse-sell-max-vwap-distance",
         type=float,
         default=cfg("reverse_sell_max_vwap_distance", settings.t0_reverse_sell_max_vwap_distance),
+    )
+    parser.add_argument(
+        "--reverse-sell-max-carry-days",
+        type=int,
+        default=cfg("reverse_sell_max_carry_days", settings.t0_reverse_sell_max_carry_days),
+    )
+    parser.add_argument(
+        "--reverse-sell-stop-loss-pct",
+        type=float,
+        default=cfg("reverse_sell_stop_loss_pct", settings.t0_reverse_sell_stop_loss_pct),
+    )
+    parser.add_argument(
+        "--reverse-sell-take-profit-after-carry-days",
+        type=int,
+        default=cfg(
+            "reverse_sell_take_profit_after_carry_days",
+            settings.t0_reverse_sell_take_profit_after_carry_days,
+        ),
     )
     return parser
 
@@ -363,6 +418,7 @@ def build_config_payload(
         "daily_start_datetime": args.daily_start_datetime,
         "daily_end_datetime": args.daily_end_datetime,
         "execution_mode": args.execution_mode,
+        "force_same_day_close": args.force_same_day_close,
         "params": {
             "base_position": args.base_position,
             "tactical_position": args.tactical_position,
@@ -371,10 +427,16 @@ def build_config_payload(
             "min_hold_minutes": args.min_hold_minutes,
             "positive_sell_min_rise": args.positive_sell_min_rise,
             "positive_sell_min_pullback": args.positive_sell_min_pullback,
+            "positive_sell_gap_down_limit": args.positive_sell_gap_down_limit,
+            "positive_buyback_max_carry_days": args.positive_buyback_max_carry_days,
+            "positive_buyback_stop_loss_pct": args.positive_buyback_stop_loss_pct,
             "reverse_buy_min_drop": args.reverse_buy_min_drop,
             "reverse_buy_min_bounce": args.reverse_buy_min_bounce,
             "reverse_sell_min_profit": args.reverse_sell_min_profit,
             "reverse_sell_max_vwap_distance": args.reverse_sell_max_vwap_distance,
+            "reverse_sell_max_carry_days": args.reverse_sell_max_carry_days,
+            "reverse_sell_stop_loss_pct": args.reverse_sell_stop_loss_pct,
+            "reverse_sell_take_profit_after_carry_days": args.reverse_sell_take_profit_after_carry_days,
         },
         "fees": {
             "commission_rate": args.commission_rate,

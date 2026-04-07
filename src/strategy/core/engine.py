@@ -81,8 +81,17 @@ class T0StrategyEngine:
         high = features["high_so_far"]
         close = features["current_close"]
         vwap = features["vwap"]
+        prev_close = float(features.get("prev_close", day_open) or day_open)
+        open_gap_pct = self._calculate_open_gap_pct(day_open, prev_close)
+        rise_reference = max(day_open, prev_close) if prev_close > 0 else day_open
+        gap_down_limit = getattr(self.params, "t0_positive_sell_gap_down_limit", None)
 
-        rise = ((high - day_open) / day_open * 100) if day_open > 0 else 0
+        if gap_down_limit is not None and open_gap_pct <= float(gap_down_limit):
+            return self._observe_signal(
+                f"开盘低开{abs(open_gap_pct):.1f}%，跳过正T卖出"
+            )
+
+        rise = ((high - rise_reference) / rise_reference * 100) if rise_reference > 0 else 0
         pullback = ((high - close) / high * 100) if high > 0 else 0
         below_vwap = close < vwap
         volume = self._get_sell_volume(position)
@@ -106,7 +115,11 @@ class T0StrategyEngine:
         return self._observe_signal("正T卖出条件不满足")
 
     def _check_positive_t_buyback(
-        self, features: Dict, position: Dict, branch_state: BranchState
+        self,
+        features: Dict,
+        position: Dict,
+        branch_state: BranchState,
+        current_datetime: Optional[datetime] = None,
     ) -> Dict:
         bounce = features["bounce_from_low"]
         absorption = features["absorption_score"]
@@ -117,6 +130,20 @@ class T0StrategyEngine:
             return self._observe_signal("缺少positive_t卖出价格，无法判断回补")
         if volume <= 0:
             return self._observe_signal("当前无可用机动仓回补")
+
+        forced_reason = self._build_positive_t_buyback_fallback_reason(
+            branch_state=branch_state,
+            features=features,
+            current_datetime=current_datetime,
+        )
+        if forced_reason is not None:
+            return {
+                "action": "positive_t_buyback",
+                "reason": forced_reason,
+                "price": features["current_close"],
+                "volume": volume,
+                "branch": "positive_t",
+            }
 
         if bounce >= 0.4 and absorption >= 0.6:
             roundtrip = self.fee_schedule.estimate_roundtrip(
@@ -161,7 +188,11 @@ class T0StrategyEngine:
         return self._observe_signal("反T买入条件不满足")
 
     def _check_reverse_t_sell(
-        self, features: Dict, position: Dict, branch_state: BranchState
+        self,
+        features: Dict,
+        position: Dict,
+        branch_state: BranchState,
+        current_datetime: Optional[datetime] = None,
     ) -> Dict:
         entry_price = branch_state.entry_price
         volume = self._get_sell_volume(position, branch_state.volume)
@@ -171,21 +202,48 @@ class T0StrategyEngine:
         if volume <= 0:
             return self._observe_signal("当前无可卖出的T仓")
 
+        forced_reason = self._build_reverse_t_sell_fallback_reason(
+            branch_state=branch_state,
+            features=features,
+            current_datetime=current_datetime,
+        )
+        if forced_reason is not None:
+            return {
+                "action": "reverse_t_sell",
+                "reason": forced_reason,
+                "price": features["current_close"],
+                "volume": volume,
+                "branch": "reverse_t",
+            }
+
         profit = (
             ((features["current_close"] - entry_price) / entry_price * 100)
             if entry_price > 0
             else 0
         )
         near_vwap = abs(features["close_vs_vwap"]) <= self.params.t0_reverse_sell_max_vwap_distance
-
-        if not near_vwap or profit < self.params.t0_reverse_sell_min_profit:
-            return self._observe_signal("反T卖出条件不满足")
-
         roundtrip = self.fee_schedule.estimate_roundtrip(
             buy_price=entry_price,
             sell_price=features["current_close"],
             volume=volume,
         )
+
+        carry_take_profit_reason = self._build_reverse_t_sell_carry_take_profit_reason(
+            branch_state=branch_state,
+            roundtrip=roundtrip,
+        )
+        if carry_take_profit_reason is not None:
+            return {
+                "action": "reverse_t_sell",
+                "reason": carry_take_profit_reason,
+                "price": features["current_close"],
+                "volume": volume,
+                "branch": "reverse_t",
+            }
+
+        if not near_vwap or profit < self.params.t0_reverse_sell_min_profit:
+            return self._observe_signal("反T卖出条件不满足")
+
         if roundtrip["net_pnl"] <= 0:
             return self._observe_signal(self._build_fee_block_reason("反T卖出", roundtrip))
 
@@ -217,7 +275,12 @@ class T0StrategyEngine:
                 hold_check = self._check_min_hold(branch_state, current_datetime)
                 if hold_check is not None:
                     return hold_check
-                return self._check_positive_t_buyback(features, position, branch_state)
+                return self._check_positive_t_buyback(
+                    features,
+                    position,
+                    branch_state,
+                    current_datetime=current_datetime,
+                )
             return self._observe_signal("今日已执行positive_t卖出，等待回补窗口")
 
         if branch_state.branch == "reverse_t":
@@ -229,7 +292,12 @@ class T0StrategyEngine:
                 hold_check = self._check_min_hold(branch_state, current_datetime)
                 if hold_check is not None:
                     return hold_check
-                return self._check_reverse_t_sell(features, position, branch_state)
+                return self._check_reverse_t_sell(
+                    features,
+                    position,
+                    branch_state,
+                    current_datetime=current_datetime,
+                )
             return self._observe_signal("今日已执行reverse_t买入，等待卖出窗口")
 
         return None
@@ -254,6 +322,7 @@ class T0StrategyEngine:
             volume=volume,
             entry_price=entry_price,
             entry_time=entry_time,
+            carry_trading_days=max((max(item.carry_trading_days, 0) for item in history), default=0),
         )
 
     def _build_fee_block_reason(self, prefix: str, roundtrip: Dict[str, float]) -> str:
@@ -262,6 +331,94 @@ class T0StrategyEngine:
             f"毛利{roundtrip['gross_pnl']:.2f}元, "
             f"费用{roundtrip['total_fee']:.2f}元"
         )
+
+    def _build_positive_t_buyback_fallback_reason(
+        self,
+        *,
+        branch_state: BranchState,
+        features: Dict,
+        current_datetime: Optional[datetime],
+    ) -> Optional[str]:
+        sell_price = branch_state.entry_price
+        current_close = float(features.get("current_close", 0) or 0)
+        if sell_price is None or sell_price <= 0 or current_close <= 0:
+            return None
+
+        adverse_move_pct = ((current_close - sell_price) / sell_price * 100) if sell_price > 0 else 0
+        raw_stop_loss_pct = getattr(self.params, "t0_positive_buyback_stop_loss_pct", None)
+        if raw_stop_loss_pct is not None:
+            stop_loss_pct = max(float(raw_stop_loss_pct), 0.0)
+            if stop_loss_pct > 0 and adverse_move_pct >= stop_loss_pct:
+                return f"止损回补: 高于卖出价{adverse_move_pct:.1f}%"
+
+        carry_days = max(int(branch_state.carry_trading_days), 0)
+        raw_max_carry_days = getattr(self.params, "t0_positive_buyback_max_carry_days", None)
+        max_carry_days = (
+            max(int(raw_max_carry_days), 0) if raw_max_carry_days is not None else 0
+        )
+        if max_carry_days > 0 and carry_days >= max_carry_days:
+            return f"跨日兜底回补: 已持有{carry_days}天"
+
+        return None
+
+    def _build_reverse_t_sell_fallback_reason(
+        self,
+        *,
+        branch_state: BranchState,
+        features: Dict,
+        current_datetime: Optional[datetime],
+    ) -> Optional[str]:
+        entry_price = branch_state.entry_price
+        current_close = float(features.get("current_close", 0) or 0)
+        if entry_price is None or entry_price <= 0 or current_close <= 0:
+            return None
+
+        adverse_move_pct = ((entry_price - current_close) / entry_price * 100) if entry_price > 0 else 0
+        raw_stop_loss_pct = getattr(self.params, "t0_reverse_sell_stop_loss_pct", None)
+        if raw_stop_loss_pct is not None:
+            stop_loss_pct = max(float(raw_stop_loss_pct), 0.0)
+            if stop_loss_pct > 0 and adverse_move_pct >= stop_loss_pct:
+                return f"止损卖出: 低于买入价{adverse_move_pct:.1f}%"
+
+        carry_days = max(int(branch_state.carry_trading_days), 0)
+        raw_max_carry_days = getattr(self.params, "t0_reverse_sell_max_carry_days", None)
+        max_carry_days = (
+            max(int(raw_max_carry_days), 0) if raw_max_carry_days is not None else 0
+        )
+        if max_carry_days > 0 and carry_days >= max_carry_days:
+            return f"跨日兜底卖出: 已持有{carry_days}天"
+
+        return None
+
+    def _build_reverse_t_sell_carry_take_profit_reason(
+        self,
+        *,
+        branch_state: BranchState,
+        roundtrip: Dict[str, float],
+    ) -> Optional[str]:
+        raw_carry_days = getattr(
+            self.params,
+            "t0_reverse_sell_take_profit_after_carry_days",
+            None,
+        )
+        if raw_carry_days is None:
+            return None
+
+        carry_days = max(int(branch_state.carry_trading_days), 0)
+        take_profit_after_days = max(int(raw_carry_days), 0)
+        if take_profit_after_days <= 0 or carry_days < take_profit_after_days:
+            return None
+
+        net_pnl = float(roundtrip.get("net_pnl", 0.0) or 0.0)
+        if net_pnl <= 0:
+            return None
+
+        return f"跨日止盈卖出: 已持有{carry_days}天, 净盈利{net_pnl:.2f}元"
+
+    def _calculate_open_gap_pct(self, day_open: float, prev_close: float) -> float:
+        if prev_close <= 0:
+            return 0.0
+        return ((day_open - prev_close) / prev_close) * 100
 
     def _check_min_hold(
         self, branch_state: BranchState, current_datetime: Optional[datetime]

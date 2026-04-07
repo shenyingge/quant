@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, time
 from typing import Iterable, Optional
 
 import pandas as pd
@@ -51,30 +51,56 @@ class T0StrategyKernel:
 
         regime = self.regime_classifier.calculate(normalized_daily)
         normalized_position = self._normalize_position(position)
-        normalized_history = self._normalize_signal_history(signal_history)
-
-        decision = self.engine.generate_signal(
+        decision = self.decide(
             regime=regime,
-            features=features.to_dict(),
-            position=normalized_position.to_dict(),
-            current_time=evaluation_datetime.time(),
+            features=features,
+            position=normalized_position,
             current_datetime=evaluation_datetime,
-            signal_history=normalized_history,
+            signal_history=signal_history,
         )
         return {
             "regime": regime,
             "features": features,
-            "signal": self._normalize_decision(decision),
+            "signal": decision,
             "position": normalized_position,
         }
 
+    def decide(
+        self,
+        *,
+        regime: str,
+        features: FeatureSnapshot | dict,
+        position: PortfolioState | dict,
+        current_datetime: Optional[datetime] = None,
+        current_time: Optional[time] = None,
+        signal_history: Optional[Iterable[SignalEvent | dict]] = None,
+    ) -> StrategyDecision:
+        """基于已准备好的策略上下文直接产出标准化决策。"""
+        evaluation_datetime = current_datetime or datetime.now()
+        evaluation_time = current_time or evaluation_datetime.time()
+        normalized_position = self._normalize_position(position)
+        normalized_history = self._normalize_signal_history(signal_history)
+
+        decision = self.engine.generate_signal(
+            regime=regime,
+            features=self._normalize_features(features),
+            position=normalized_position.to_dict(),
+            current_time=evaluation_time,
+            current_datetime=evaluation_datetime,
+            signal_history=normalized_history,
+        )
+        return self._normalize_decision(decision)
+
     def _normalize_time_index(self, frame: pd.DataFrame, *, name: str) -> pd.DataFrame:
+        if isinstance(frame.index, pd.DatetimeIndex):
+            if frame.index.is_monotonic_increasing:
+                return frame
+            return frame.sort_index()
         working = frame.copy()
-        if not isinstance(working.index, pd.DatetimeIndex):
-            if "datetime" not in working.columns:
-                raise ValueError(f"{name} must have a DatetimeIndex or datetime column")
-            working["datetime"] = pd.to_datetime(working["datetime"])
-            working = working.set_index("datetime")
+        if "datetime" not in working.columns:
+            raise ValueError(f"{name} must have a DatetimeIndex or datetime column")
+        working["datetime"] = pd.to_datetime(working["datetime"])
+        working = working.set_index("datetime")
         return working.sort_index()
 
     def _normalize_position(self, position: PortfolioState | dict) -> PortfolioState:
@@ -116,6 +142,11 @@ class T0StrategyKernel:
             cash_available=float(normalized.get("cash_available", 0) or 0),
         )
 
+    def _normalize_features(self, features: FeatureSnapshot | dict) -> dict:
+        if isinstance(features, FeatureSnapshot):
+            return features.to_dict()
+        return dict(features)
+
     def _normalize_signal_history(
         self, signal_history: Optional[Iterable[SignalEvent | dict]]
     ) -> list[SignalEvent]:
@@ -139,6 +170,7 @@ class T0StrategyKernel:
                     signal_time=(
                         pd.Timestamp(signal_time).to_pydatetime() if signal_time is not None else None
                     ),
+                    carry_trading_days=int(payload.get("carry_trading_days") or 0),
                 )
             )
         return [event for event in events if event.action]

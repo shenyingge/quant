@@ -1,7 +1,7 @@
-"""T+0 策略状态服务 - 为 CMS 提供实时策略诊断数据"""
+"""T0 strategy status service for CMS and runtime diagnostics."""
 
 from datetime import date, datetime
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 from src.infrastructure.config import settings
 from src.infrastructure.logger_config import logger
@@ -13,7 +13,7 @@ from src.strategy.strategies.t0.regime_identifier import RegimeIdentifier
 
 
 class StrategyStatusService:
-    """策略状态服务 - 提供结构化的策略诊断数据"""
+    """Provide structured runtime status for the T0 strategy."""
 
     def __init__(self):
         self.stock_code = settings.t0_stock_code
@@ -24,17 +24,12 @@ class StrategyStatusService:
         self.position_syncer = PositionSyncer()
 
     def get_strategy_status(self) -> Dict:
-        """获取策略状态快照
-
-        Returns:
-            包含市场状态、特征、仓位、时间窗口、条件检查的字典
-        """
+        """Build a strategy status snapshot for API consumers."""
         try:
             trade_date = date.today()
             current_time = datetime.now().time()
             as_of_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-            # 1. 获取数据
             minute_data = self.data_fetcher.fetch_minute_data(
                 self.stock_code, trade_date, realtime=True
             )
@@ -45,25 +40,17 @@ class StrategyStatusService:
             if daily_data is None:
                 return self._error_response("日线数据获取失败", as_of_time)
 
-            # 2. 市场状态
             regime = self.regime_identifier.identify_regime(daily_data, trade_date)
             branch_priority = self._get_branch_priority(regime)
 
-            # 3. 特征计算
             features = self.feature_calculator.calculate_snapshot(minute_data)
             if features is None:
                 return self._error_response("特征计算失败", as_of_time)
 
             feature_dict = features.to_dict() if hasattr(features, "to_dict") else dict(features)
-
-            # 4. 仓位状态
             position = self.position_syncer.load_portfolio_state()
             position_dict = position.to_dict() if hasattr(position, "to_dict") else dict(position)
-
-            # 5. 时间窗口检查
             time_windows = self._check_time_windows(current_time)
-
-            # 6. 策略条件检查
             conditions = self._check_strategy_conditions(feature_dict, position_dict, time_windows)
 
             return self._to_json_safe(
@@ -77,6 +64,8 @@ class StrategyStatusService:
                     },
                     "features": {
                         "day_open": feature_dict.get("day_open", 0),
+                        "prev_close": feature_dict.get("prev_close", 0),
+                        "open_gap_pct": feature_dict.get("open_gap_pct", 0),
                         "current_close": feature_dict.get("current_close", 0),
                         "high_so_far": feature_dict.get("high_so_far", 0),
                         "low_so_far": feature_dict.get("low_so_far", 0),
@@ -116,7 +105,6 @@ class StrategyStatusService:
             )
 
     def _check_time_windows(self, current_time) -> Dict:
-        """检查时间窗口"""
         return {
             "current_time": current_time.strftime("%H:%M:%S"),
             "positive_sell": {
@@ -156,20 +144,36 @@ class StrategyStatusService:
     def _check_strategy_conditions(
         self, features: Dict, position: Dict, time_windows: Dict
     ) -> Dict:
-        """检查策略条件"""
         day_open = features.get("day_open", 0)
+        prev_close = features.get("prev_close", day_open)
+        open_gap_pct = features.get("open_gap_pct", self._calculate_open_gap_pct(features))
         current_close = features.get("current_close", 0)
         high_so_far = features.get("high_so_far", 0)
         vwap = features.get("vwap", 0)
         bounce = features.get("bounce_from_low", 0)
         close_vs_vwap = features.get("close_vs_vwap", 0)
         absorption = features.get("absorption_score", 0)
+        rise_reference = max(day_open, prev_close) if prev_close > 0 else day_open
 
-        rise = ((high_so_far - day_open) / day_open * 100) if day_open > 0 else 0
+        rise = ((high_so_far - rise_reference) / rise_reference * 100) if rise_reference > 0 else 0
         pullback = ((high_so_far - current_close) / high_so_far * 100) if high_so_far > 0 else 0
 
         t0_sell_available = position.get("t0_sell_available", 0)
         t0_buy_capacity = position.get("t0_buy_capacity", 0)
+        gap_down_limit = self.params.t0_positive_sell_gap_down_limit
+        gap_check = {
+            "name": "开盘缺口过滤未启用",
+            "passed": True,
+            "value": round(open_gap_pct, 2),
+        }
+        gap_check_passed = True
+        if gap_down_limit is not None:
+            gap_check = {
+                "name": f"开盘缺口 > {gap_down_limit}%",
+                "passed": open_gap_pct > gap_down_limit,
+                "value": round(open_gap_pct, 2),
+            }
+            gap_check_passed = gap_check["passed"]
 
         return {
             "positive_t_sell": {
@@ -184,6 +188,7 @@ class StrategyStatusService:
                         "passed": rise >= self.params.t0_positive_sell_min_rise,
                         "value": round(rise, 2),
                     },
+                    gap_check,
                     {
                         "name": f"回撤 >= {self.params.t0_positive_sell_min_pullback}%",
                         "passed": pullback >= self.params.t0_positive_sell_min_pullback,
@@ -204,6 +209,7 @@ class StrategyStatusService:
                     [
                         time_windows["positive_sell"]["active"],
                         rise >= self.params.t0_positive_sell_min_rise,
+                        gap_check_passed,
                         pullback >= self.params.t0_positive_sell_min_pullback,
                         current_close < vwap,
                         t0_sell_available > 0,
@@ -251,27 +257,32 @@ class StrategyStatusService:
         }
 
     def _calculate_rise_pct(self, features: Dict) -> float:
-        """计算涨幅百分比"""
         day_open = features.get("day_open", 0)
+        prev_close = features.get("prev_close", day_open)
         high_so_far = features.get("high_so_far", 0)
-        if day_open > 0:
-            return round((high_so_far - day_open) / day_open * 100, 2)
+        rise_reference = max(day_open, prev_close) if prev_close > 0 else day_open
+        if rise_reference > 0:
+            return round((high_so_far - rise_reference) / rise_reference * 100, 2)
         return 0.0
 
     def _calculate_pullback_pct(self, features: Dict) -> float:
-        """计算回撤百分比"""
         high_so_far = features.get("high_so_far", 0)
         current_close = features.get("current_close", 0)
         if high_so_far > 0:
             return round((high_so_far - current_close) / high_so_far * 100, 2)
         return 0.0
 
+    def _calculate_open_gap_pct(self, features: Dict) -> float:
+        day_open = features.get("day_open", 0)
+        prev_close = features.get("prev_close", day_open)
+        if prev_close > 0:
+            return round((day_open - prev_close) / prev_close * 100, 2)
+        return 0.0
+
     def _within_window(self, current_time, start: str, end: str) -> bool:
-        """检查是否在时间窗口内"""
         return self.params.parse_time(start) <= current_time <= self.params.parse_time(end)
 
     def _get_branch_priority(self, regime: str) -> list:
-        """获取分支优先级"""
         if regime == "downtrend":
             return ["positive_t", "reverse_t"]
         if regime == "uptrend":
@@ -279,7 +290,6 @@ class StrategyStatusService:
         return ["reverse_t", "positive_t"]
 
     def _error_response(self, error_msg: str, as_of_time: str) -> Dict:
-        """返回错误响应"""
         return {
             "status": "error",
             "error": error_msg,
@@ -287,23 +297,14 @@ class StrategyStatusService:
         }
 
     def _to_json_safe(self, value: Any) -> Any:
-        """Normalizes numpy/pandas scalars into native JSON-safe values."""
-        if value is None or isinstance(value, (str, int, float, bool)):
-            return value
-        if isinstance(value, (datetime, date)):
-            return value.isoformat()
+        """Normalize numpy/pandas scalars into native JSON-safe values."""
+        item = getattr(value, "item", None)
+        if callable(item):
+            return item()
         if isinstance(value, dict):
-            return {str(key): self._to_json_safe(item) for key, item in value.items()}
-        if isinstance(value, (list, tuple, set)):
-            return [self._to_json_safe(item) for item in value]
-        if hasattr(value, "item"):
-            try:
-                return self._to_json_safe(value.item())
-            except Exception:
-                pass
-        if hasattr(value, "tolist"):
-            try:
-                return self._to_json_safe(value.tolist())
-            except Exception:
-                pass
-        return str(value)
+            return {key: self._to_json_safe(val) for key, val in value.items()}
+        if isinstance(value, list):
+            return [self._to_json_safe(val) for val in value]
+        if isinstance(value, tuple):
+            return [self._to_json_safe(val) for val in value]
+        return value

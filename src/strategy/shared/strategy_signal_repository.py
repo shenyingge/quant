@@ -1,4 +1,4 @@
-"""策略状态的持久化适配层。"""
+"""Shared persistence adapter for strategy signal history."""
 
 from datetime import date, datetime
 from typing import List
@@ -9,7 +9,7 @@ from src.strategy.core.models import SignalEvent, StrategyDecision
 
 
 class StrategySignalRepository:
-    """从数据库读取/写入策略事件，但不参与策略判断。"""
+    """Read and write strategy signal history without participating in decisions."""
 
     def __init__(self, strategy_name: str = "t0_601138"):
         self.strategy_name = strategy_name
@@ -42,7 +42,13 @@ class StrategySignalRepository:
             logger.warning(f"查询信号历史失败: {e}")
             return []
 
-    def save_signal(self, trade_date: date, regime: str, stock_code: str, signal: StrategyDecision):
+    def save_signal(
+        self,
+        trade_date: date,
+        regime: str,
+        stock_code: str,
+        signal: StrategyDecision,
+    ) -> None:
         try:
             db = SessionLocal()
             record = StrategySignalHistory(

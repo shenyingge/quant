@@ -18,6 +18,8 @@ class FeatureSnapshot:
     bounce_from_low: float
     fake_breakout_score: float
     absorption_score: float
+    prev_close: float = 0.0
+    open_gap_pct: float = 0.0
 
     def to_dict(self) -> Dict:
         return {
@@ -32,6 +34,8 @@ class FeatureSnapshot:
             "bounce_from_low": self.bounce_from_low,
             "fake_breakout_score": self.fake_breakout_score,
             "absorption_score": self.absorption_score,
+            "prev_close": self.prev_close,
+            "open_gap_pct": self.open_gap_pct,
         }
 
 
@@ -152,6 +156,7 @@ class SignalEvent:
     price: Optional[float] = None
     volume: int = 0
     signal_time: Optional[datetime] = None
+    carry_trading_days: int = 0
 
 
 @dataclass(frozen=True)
@@ -163,6 +168,7 @@ class BranchState:
     volume: int
     entry_price: Optional[float]
     entry_time: Optional[datetime]
+    carry_trading_days: int = 0
 
 
 @dataclass(frozen=True)

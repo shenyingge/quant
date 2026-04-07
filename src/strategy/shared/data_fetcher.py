@@ -12,7 +12,9 @@ import pandas as pd
 from src.infrastructure.config import settings
 from src.infrastructure.logger_config import logger
 from src.market_data.ingestion.market_data_gateway import NullMarketDataGateway
-from src.strategy.strategies.t0.tick_cache import RedisTickCache
+from src.strategy.shared.tick_cache import RedisTickCache
+
+xtdata = None
 
 
 class DataFetcher:
@@ -40,7 +42,8 @@ class DataFetcher:
         self.intraday_period_seconds = self._period_to_seconds(self.intraday_period)
 
     def fetch_minute_data(
-        self, stock_code: str, trade_date: date, retry: int = 3, realtime: bool = False
+        self, stock_code: str, trade_date: date, retry: int = 3, realtime: bool = False,
+        snapshot: Optional[dict] = None,
     ) -> Optional[pd.DataFrame]:
         """Fetches the configured intraday bars for one trade date."""
         if self.market_data_gateway is None:
@@ -67,7 +70,7 @@ class DataFetcher:
                 if df is None or df.empty:
                     raise ValueError(f"未获取到 {trade_date} 的日内数据")
 
-                snapshot = self.fetch_realtime_snapshot(stock_code)
+                snapshot = snapshot or self.fetch_realtime_snapshot(stock_code)
                 self._warn_if_minute_data_is_stale(df, stock_code, trade_date, snapshot)
 
                 valid, msg = self._validate_minute_data(df, trade_date)
@@ -295,6 +298,8 @@ class DataFetcher:
 
         try:
             snapshot_data = self.market_data_gateway.fetch_full_tick([stock_code])
+            if snapshot_data is None and xtdata is not None:
+                snapshot_data = xtdata.get_full_tick([stock_code])
             if not isinstance(snapshot_data, dict):
                 return None
 
@@ -646,10 +651,11 @@ class DataFetcher:
         return candidate
 
     def _append_snapshot_tick(
-        self, df: Optional[pd.DataFrame], stock_code: str, trade_date: date
+        self, df: Optional[pd.DataFrame], stock_code: str, trade_date: date,
+        snapshot: Optional[dict] = None,
     ) -> Optional[pd.DataFrame]:
         """Append one synthetic tick row from the latest full-tick snapshot when available."""
-        snapshot = self.fetch_realtime_snapshot(stock_code)
+        snapshot = snapshot or self.fetch_realtime_snapshot(stock_code)
         if not snapshot:
             return df
 
