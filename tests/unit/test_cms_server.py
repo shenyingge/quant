@@ -16,6 +16,27 @@ def make_check(name: str, status: str, critical: bool = False):
     )
 
 
+def _http_get(host: str, port: int, path: str):
+    client = socket.create_connection((host, port), timeout=2)
+    try:
+        client.sendall(
+            f"GET {path} HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n".encode("ascii")
+        )
+        chunks = []
+        while True:
+            data = client.recv(4096)
+            if not data:
+                break
+            chunks.append(data)
+    finally:
+        client.close()
+
+    raw_response = b"".join(chunks)
+    header_bytes, body_bytes = raw_response.split(b"\r\n\r\n", 1)
+    status_line = header_bytes.splitlines()[0].decode("ascii")
+    return status_line, body_bytes
+
+
 def test_health_snapshot_uses_standard_structure(monkeypatch):
     checker = cms_server.ProjectCmsChecker()
     monkeypatch.setattr(checker, "_check_trading_day", lambda: make_check("trading_day", "pass"))
@@ -223,6 +244,77 @@ def test_background_health_server_is_idempotent(monkeypatch):
     try:
         assert cms_server.start_cms_server(host, port, scope="project") is True
         assert cms_server.start_cms_server(host, port, scope="project") is True
+    finally:
+        cms_server.stop_cms_server()
+
+
+def test_background_health_server_does_not_expose_strategy_pnl_endpoint(monkeypatch):
+    snapshot = cms_server.CmsSnapshot(
+        service="quant",
+        scope="project",
+        version="0.1.0",
+        status="ok",
+        checked_at="2026-03-29T00:00:00+08:00",
+        summary={"pass": 1, "warn": 0, "fail": 0, "skip": 0, "duration_ms": 1},
+        checks=[],
+    )
+
+    monkeypatch.setattr(cms_server.ProjectCmsChecker, "build_snapshot", lambda self: snapshot)
+    monkeypatch.setattr(cms_server, "_bootstrap_account_positions_snapshot_if_needed", lambda: None)
+
+    sock = socket.socket()
+    sock.bind(("127.0.0.1", 0))
+    host, port = sock.getsockname()
+    sock.close()
+
+    try:
+        assert cms_server.start_cms_server(host, port, scope="project") is True
+        time.sleep(0.2)
+        status_line, _ = _http_get(host, port, "/api/strategy-pnl-summary")
+
+        assert "404" in status_line
+    finally:
+        cms_server.stop_cms_server()
+
+
+def test_account_overview_uses_pnl_summary_without_strategy_field(monkeypatch):
+    snapshot = cms_server.CmsSnapshot(
+        service="quant",
+        scope="project",
+        version="0.1.0",
+        status="ok",
+        checked_at="2026-03-29T00:00:00+08:00",
+        summary={"pass": 1, "warn": 0, "fail": 0, "skip": 0, "duration_ms": 1},
+        checks=[],
+    )
+
+    class FakeAccountDataService:
+        def get_account_overview(self, include_positions=True):
+            return {
+                "policy": {"positions": {"source_of_truth": "meta_db"}},
+                "pnl_summary": {"source": "meta_db", "kind": "realized_pnl_estimate"},
+                "positions_included": include_positions,
+                "positions_snapshot": {"available": False},
+            }
+
+    monkeypatch.setattr(cms_server.ProjectCmsChecker, "build_snapshot", lambda self: snapshot)
+    monkeypatch.setattr(cms_server, "_bootstrap_account_positions_snapshot_if_needed", lambda: None)
+    monkeypatch.setattr(cms_server._CmsRequestHandler, "account_data_service", FakeAccountDataService())
+
+    sock = socket.socket()
+    sock.bind(("127.0.0.1", 0))
+    host, port = sock.getsockname()
+    sock.close()
+
+    try:
+        assert cms_server.start_cms_server(host, port, scope="project") is True
+        time.sleep(0.2)
+        status_line, body = _http_get(host, port, "/api/account-overview")
+        payload = json.loads(body.decode("utf-8"))
+
+        assert "200" in status_line
+        assert payload["pnl_summary"]["kind"] == "realized_pnl_estimate"
+        assert "strategy_pnl_summary" not in payload
     finally:
         cms_server.stop_cms_server()
 

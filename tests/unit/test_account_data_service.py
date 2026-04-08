@@ -156,20 +156,23 @@ def test_get_account_overview_includes_positions_by_default(monkeypatch):
     fake_snapshot = {"available": True, "positions": [{"stock_code": "000001.SZ"}]}
 
     monkeypatch.setattr(service, "get_positions_snapshot", lambda: fake_snapshot)
-    monkeypatch.setattr(service, "get_strategy_pnl_summary", lambda target_date=None: {"ok": True})
+    monkeypatch.setattr(service, "get_realized_pnl_summary", lambda target_date=None: {"ok": True})
 
     overview = service.get_account_overview()
 
     assert overview["positions_included"] is True
     assert overview["positions_snapshot"] == fake_snapshot
+    assert overview["pnl_summary"] == {"ok": True}
+    assert "strategy_pnl_summary" not in overview
 
 
 def test_get_account_overview_can_disable_positions(monkeypatch):
     service = AccountDataService()
 
-    monkeypatch.setattr(service, "get_strategy_pnl_summary", lambda target_date=None: {"ok": True})
+    monkeypatch.setattr(service, "get_realized_pnl_summary", lambda target_date=None: {"ok": True})
 
     overview = service.get_account_overview(include_positions=False)
 
     assert overview["positions_included"] is False
     assert overview["positions_snapshot"] is None
+    assert overview["pnl_summary"] == {"ok": True}

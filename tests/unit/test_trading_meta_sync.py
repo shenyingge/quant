@@ -67,8 +67,9 @@ def test_sync_sqlite_to_meta_db_returns_sync_summary(monkeypatch):
         "stock_info": [],
         "trading_signals": [{"id": 2}],
         "order_records": [{"id": 3}, {"id": 4}],
-        "strategy_regime_state": [],
-        "strategy_signal_history": [{"id": 5}],
+        "trade_executions": [{"id": 5}],
+        "order_cancellations": [],
+        "account_positions": [{"id": 6}],
     }
 
     monkeypatch.setattr("src.infrastructure.sync.trading_meta_sync._read_source_rows", lambda: source_rows)
@@ -89,5 +90,5 @@ def test_sync_sqlite_to_meta_db_returns_sync_summary(monkeypatch):
     result = sync_sqlite_to_meta_db()
 
     assert result.schema == "trading"
-    assert result.total_rows == 5
+    assert result.total_rows == 6
     assert result.table_row_counts["order_records"] == 2

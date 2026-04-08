@@ -13,7 +13,6 @@
 
 - `docs/architecture/`
 - `docs/guides/`
-- `docs/strategy/`
 - `docs/archive/`
 
 任务流程不再写成 skills，统一改为按需使用的模板：
@@ -27,4 +26,6 @@
 
 - 不再新增 `.codex/skills` 或 `.agents/skills` 作为项目规则入口。
 - 不再新增 `docs/prompt.md` 这类一次性 prompt 文件。
+- 当前有效约束来源只包括 `README.md`、`CLAUDE.md`、`docs/architecture*.md`、`docs/coding-rules.md`。
+- `docs/guides/` 用于操作手册，不自动视为架构约束来源。
 - 新文档进入对应目录；过期文档移入 `docs/archive/`。

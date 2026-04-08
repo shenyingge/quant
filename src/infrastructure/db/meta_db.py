@@ -14,11 +14,7 @@ TRADING_META_TABLE_NAMES = (
     "order_cancellations",
     "trading_calendar",
     "stock_info",
-    "strategy_regime_state",
-    "strategy_signal_history",
     "account_positions",
-    "strategy_positions",
-    "strategy_event_outbox",
 )
 
 

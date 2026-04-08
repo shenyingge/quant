@@ -228,7 +228,7 @@ class AccountDataService:
             ],
         }
 
-    def get_strategy_pnl_breakdown(self) -> List[Dict[str, Any]]:
+    def get_realized_pnl_breakdown(self) -> List[Dict[str, Any]]:
         with self._open_db_session() as session:
             trades = session.query(OrderRecord).filter(OrderRecord.filled_volume > 0).all()
 
@@ -333,7 +333,7 @@ class AccountDataService:
         }
 
     def get_pnl_snapshot(self) -> Dict[str, Any]:
-        realized_breakdown = self.get_strategy_pnl_breakdown()
+        realized_breakdown = self.get_realized_pnl_breakdown()
         realized_buy_amount = round(
             sum(float(item.get("buy_amount") or 0.0) for item in realized_breakdown), 4
         )
@@ -370,16 +370,16 @@ class AccountDataService:
             "unrealized": self.get_unrealized_pnl_snapshot(),
         }
 
-    def get_strategy_pnl_summary(self, target_date: Optional[date] = None) -> Dict[str, Any]:
+    def get_realized_pnl_summary(self, target_date: Optional[date] = None) -> Dict[str, Any]:
         summary = calculate_daily_summary(target_date)
         summary["source"] = "meta_db"
-        summary["kind"] = "strategy_realized_pnl_estimate"
+        summary["kind"] = "realized_pnl_estimate"
         return summary
 
     def get_account_overview(self, *, include_positions: bool = True) -> Dict[str, Any]:
         overview = {
             "policy": self.get_data_policy(),
-            "strategy_pnl_summary": self.get_strategy_pnl_summary(),
+            "pnl_summary": self.get_realized_pnl_summary(),
             "positions_included": include_positions,
         }
 

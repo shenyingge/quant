@@ -14,8 +14,9 @@ SYNC_TABLES = (
     "stock_info",
     "trading_signals",
     "order_records",
-    "strategy_regime_state",
-    "strategy_signal_history",
+    "trade_executions",
+    "order_cancellations",
+    "account_positions",
 )
 
 

@@ -1,4 +1,4 @@
-"""Market data gateway adapters for live/backtest compatibility."""
+"""Market data gateway adapters for live and test-only compatibility."""
 
 from __future__ import annotations
 
@@ -100,7 +100,7 @@ class XTQuantMarketDataGateway:
 
 
 class NullMarketDataGateway:
-    """No-op gateway used by backtests or environments without live data source."""
+    """No-op gateway used by tests or environments without a live data source."""
 
     def fetch_market_data(
         self,

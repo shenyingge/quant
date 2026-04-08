@@ -15,7 +15,7 @@ This project now uses Meta DB as the only persistent store for runtime business 
   - updated when orders are submitted, updated, or filled
 - Signals
   - stored in `trading.trading_signals`
-  - updated when a strategy signal is accepted by the trading engine
+  - updated when a Redis order signal is accepted by the trading engine
 - Positions
   - stored in `trading.account_positions`
   - refreshed on trading-engine startup, after filled-trade callbacks, and by a one-time CMS startup bootstrap when no snapshot exists yet
@@ -42,9 +42,9 @@ This project now uses Meta DB as the only persistent store for runtime business 
 - `/api/trades`
   - reads filled rows from `trading.order_records`
 - `/api/pnl`
-  - derives strategy realized PnL from filled orders in Meta DB
+  - derives realized PnL from filled orders in Meta DB
 - `/api/account-overview`
-  - combines Meta DB policy, Meta DB strategy summary, and optional Meta DB positions
+  - combines Meta DB policy, orders, signals, trades, and optional Meta DB positions
 
 ## Update Timing
 

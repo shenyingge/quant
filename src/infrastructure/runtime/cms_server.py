@@ -977,8 +977,6 @@ class _CmsRequestHandler(BaseHTTPRequestHandler):
             self._handle_trades(query_params)
         elif parsed.path == "/api/pnl":
             self._handle_pnl()
-        elif parsed.path == "/api/strategy-pnl-summary":
-            self._handle_strategy_pnl_summary(query_params)
         elif parsed.path == "/api/data-policy":
             self._handle_data_policy()
         elif parsed.path == "/api/account-overview":
@@ -1070,21 +1068,6 @@ class _CmsRequestHandler(BaseHTTPRequestHandler):
             self._send_json_response(json.dumps(result, ensure_ascii=False, indent=2).encode("utf-8"))
         except Exception as e:
             self._send_error_response(f"Failed to calculate PnL: {e}")
-
-    def _handle_strategy_pnl_summary(self, query_params: Dict) -> None:
-        try:
-            date_values = query_params.get("date", [])
-            target_date = None
-            if date_values:
-                target_date = datetime.strptime(date_values[0], "%Y-%m-%d").date()
-            result = self.account_data_service.get_strategy_pnl_summary(target_date)
-            self._send_json_response(
-                json.dumps(result, ensure_ascii=False, indent=2).encode("utf-8")
-            )
-        except ValueError as e:
-            self._send_error_response(f"Invalid date: {e}", HTTPStatus.BAD_REQUEST)
-        except Exception as e:
-            self._send_error_response(f"Failed to get strategy PnL summary: {e}")
 
     def _handle_data_policy(self) -> None:
         result = self.account_data_service.get_data_policy()

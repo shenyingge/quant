@@ -2,69 +2,64 @@
 
 ## Purpose
 
-The project exposes a standalone CMS server for operator monitoring and account-facing APIs.
+项目提供独立的 CMS 服务，面向运维健康检查和账户类读取接口。
 
-- HTTP endpoint: `/health` and `/healthz`
-- Default bind: `127.0.0.1:8780`
-- Process model: independent of the trading engine and strategy engine
-- Runtime model: 24x7 background service
-
-The endpoint returns a standardized JSON payload with:
-
-- top-level service metadata
-- overall status
-- summary counters
-- per-check results
+- HTTP endpoint: `/health` / `/healthz`
+- 默认绑定: `127.0.0.1:8780`
+- 进程模型: 可独立运行，也可由 watchdog 长期守护
+- 运行模型: 24x7 后台服务
 
 ## Commands
 
-Run a one-shot snapshot:
+推荐入口：
 
-```powershell
-.\.venv\Scripts\python.exe main.py cms-check
+```bash
+make cms-check
+make cms-server
 ```
 
-Run the standalone HTTP service:
+底层 CLI：
 
-```powershell
-.\.venv\Scripts\python.exe main.py cms-server
+```bash
+uv run python main.py cms-check
+uv run python main.py cms-server
 ```
 
 ## Default Checks
 
-The current `/health` output includes:
+当前 `/health` 聚焦以下检查项：
 
 - trading day status
 - database connectivity
 - Redis connectivity
 - QMT client process presence
 - trading engine process presence
-- strategy engine process presence
-- latest signal card file
+- watchdog process presence
 
-Overall status rules:
+说明：
 
-- `down`: at least one critical check failed
-- `degraded`: no critical failure, but at least one `warn` or noncritical `fail`
-- `ok`: everything else
+- `/health` 只覆盖当前运行中的核心依赖与进程
+- CMS 自身健康由 `/health` 端点可访问性体现，而不是单独的检查项
+
+总体状态规则：
+
+- `down`: 至少一个 critical check failed
+- `degraded`: 没有 critical failure，但存在 `warn` 或非 critical `fail`
+- `ok`: 其余情况
 
 ## Refresh Model
 
-The HTTP server does not compute checks on every request.
+- 后台刷新线程周期性重建快照
+- `/health` 返回缓存中的最新快照
+- 避免每个请求都直接触发慢检查
 
-- A background refresh thread rebuilds the snapshot periodically
-- `/health` returns the latest cached snapshot
-- This avoids slow requests caused by Tushare, QMT, or process inspection
-
-Default refresh interval:
+默认刷新间隔：
 
 ```env
 CMS_SERVER_REFRESH_INTERVAL_SECONDS=15
 ```
 
 ## Configuration
-
-Relevant environment variables:
 
 ```env
 CMS_SERVER_HOST=127.0.0.1
@@ -73,55 +68,25 @@ CMS_SERVER_TIMEOUT_SECONDS=2
 CMS_SERVER_REFRESH_INTERVAL_SECONDS=15
 ```
 
-`CMS_SERVER_HOST` supports a special value:
+`CMS_SERVER_HOST` 支持特殊值：
 
-- `tailscale`: auto-detect the current Tailscale IPv4 and bind to that interface only
-
-Recommended usage:
-
-- Keep `CMS_SERVER_HOST=127.0.0.1` as the default safe setting
-- Set `CMS_SERVER_HOST=tailscale` only on hosts where you explicitly want Tailscale access
-
-To add a Windows Firewall rule that allows only Tailscale CGNAT addresses to reach the port:
-
-```powershell
-.\scripts\configure_cms_tailscale_firewall.ps1
-```
+- `tailscale`: 自动探测当前 Tailscale IPv4 并只绑定该网卡
 
 ## Windows Registration
 
-Direct startup registration for `cms-server` is deprecated in single-entry mode.
+单独注册 `cms-server` 开机任务已不是推荐模式。
 
-Use the watchdog startup task instead:
+推荐使用 watchdog 单入口：
 
 ```powershell
 .\scripts\register_watchdog_service_task.ps1
 ```
 
-Remove the single startup task through the watchdog unregistration script:
-
-```powershell
-.\\scripts\\unregister_watchdog_service_task.ps1
-```
-
 ## Verification
 
-Check the watchdog task state:
-
-```powershell
-schtasks /Query /TN Quant_Watchdog_Service /V /FO LIST
-```
-
-Query the endpoint locally:
-
-```powershell
+```bash
+make cms-check
 curl http://127.0.0.1:8780/health
 ```
 
-Query the endpoint over Tailscale from another node:
-
-```powershell
-curl http://100.x.y.z:8780/health
-```
-
-If local HTTP tooling is affected by system proxy settings, use a browser or a direct socket-based check instead.
+如需经 Tailscale 访问，再额外配置防火墙与绑定地址。

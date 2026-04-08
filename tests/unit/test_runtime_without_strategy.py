@@ -55,3 +55,5 @@ def test_settings_and_services_do_not_expose_strategy_specific_contracts():
     assert not hasattr(FeishuNotifier, "notify_t0_signal")
     assert not hasattr(FeishuNotifier, "notify_t0_position_sync")
     assert not hasattr(AccountDataService, "get_latest_signal_card_snapshot")
+    assert not hasattr(AccountDataService, "get_strategy_pnl_summary")
+    assert not hasattr(AccountDataService, "get_strategy_pnl_breakdown")
