@@ -24,11 +24,6 @@ def test_on_stock_trade_calls_attribution_service(monkeypatch):
     mock_service_instance = MagicMock()
     mock_service_instance.record_execution.side_effect = fake_record_execution
 
-    # Mock out settings.t0_stock_code so PositionSyncer branch is skipped
-    monkeypatch.setattr(
-        "src.infrastructure.config.settings.t0_stock_code", "NOMATCH.XX", raising=False
-    )
-
     mock_order_record = MagicMock(
         order_id="BO001",
         order_uid="01TESTULID00000000000001",
@@ -104,10 +99,6 @@ def test_on_stock_trade_attribution_failure_does_not_crash_callback(monkeypatch)
     """
     mock_service_instance = MagicMock()
     mock_service_instance.record_execution.side_effect = RuntimeError("DB error")
-
-    monkeypatch.setattr(
-        "src.infrastructure.config.settings.t0_stock_code", "NOMATCH.XX", raising=False
-    )
 
     mock_order_record = MagicMock(
         order_id="BO001",

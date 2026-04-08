@@ -648,8 +648,6 @@ class ProjectCmsChecker:
             self._check_watchdog_process(processes),
             self._check_qmt_client_process(processes, trading_day),
             self._check_trading_engine_process(processes, trading_day),
-            self._check_strategy_engine_process(processes, trading_day),
-            self._check_signal_card(trading_day),
         ]
 
         status = self._derive_overall_status(checks)
@@ -788,58 +786,6 @@ class ProjectCmsChecker:
             expected=self._is_expected("trading_engine", trading_day_check),
         )
 
-    def _check_strategy_engine_process(
-        self, processes: List[Dict[str, Any]], trading_day_check: CmsCheckResult
-    ) -> CmsCheckResult:
-        matches = find_matching_processes(processes, ("main.py t0-daemon",))
-        return self._build_process_check(
-            name="strategy_engine_process",
-            component="strategy_engine",
-            matches=matches,
-            expected=self._is_expected("strategy_engine", trading_day_check),
-        )
-
-    def _check_signal_card(self, trading_day_check: CmsCheckResult) -> CmsCheckResult:
-        try:
-            payload = self.account_data_service.get_latest_signal_card_snapshot()
-        except Exception as exc:
-            return CmsCheckResult(
-                name="signal_card",
-                component="strategy_engine",
-                status="warn",
-                message=f"Failed to read signal card from Meta DB: {exc}",
-                details={"source": "meta_db"},
-            )
-
-        if not payload.get("available"):
-            status = "warn" if self._is_expected("strategy_engine", trading_day_check) else "skip"
-            return CmsCheckResult(
-                name="signal_card",
-                component="strategy_engine",
-                status=status,
-                message=str(payload.get("error") or "Signal card not available in Meta DB"),
-                details={
-                    "source": payload.get("source", "meta_db"),
-                    "stock_code": payload.get("stock_code"),
-                    "as_of_time": payload.get("as_of_time"),
-                },
-            )
-
-        details = {
-            "source": payload.get("source", "meta_db"),
-            "stock_code": payload.get("stock_code"),
-            "signal_action": payload.get("signal_action"),
-            "as_of_time": payload.get("as_of_time"),
-            "regime": payload.get("regime"),
-        }
-        return CmsCheckResult(
-            name="signal_card",
-            component="strategy_engine",
-            status="pass",
-            message="Signal card is present",
-            details=details,
-        )
-
     def _build_process_check(
         self,
         name: str,
@@ -901,11 +847,9 @@ class ProjectCmsChecker:
                 datetime.strptime(settings.watchdog_trading_start_time, "%H:%M").time(),
                 datetime.strptime(settings.watchdog_trading_stop_time, "%H:%M").time(),
             ),
-            "strategy_engine": (
-                datetime.strptime(settings.watchdog_t0_start_time, "%H:%M").time(),
-                datetime.strptime(settings.watchdog_t0_stop_time, "%H:%M").time(),
-            ),
         }
+        if component not in windows:
+            return False
         start_time, end_time = windows[component]
         return start_time <= now <= end_time
 
@@ -1039,10 +983,6 @@ class _CmsRequestHandler(BaseHTTPRequestHandler):
             self._handle_data_policy()
         elif parsed.path == "/api/account-overview":
             self._handle_account_overview()
-        elif parsed.path == "/api/t0-strategy-status":
-            self._handle_t0_strategy_status()
-        elif parsed.path == "/" or parsed.path == "/t0-monitor":
-            self._handle_static_file("static/t0-monitor.html")
         elif parsed.path.startswith("/static/"):
             self._handle_static_file(parsed.path[1:])
         else:
@@ -1166,20 +1106,6 @@ class _CmsRequestHandler(BaseHTTPRequestHandler):
             )
         except Exception as e:
             self._send_error_response(f"Failed to get account overview: {e}")
-
-    def _handle_t0_strategy_status(self) -> None:
-        """处理 T+0 策略状态请求"""
-        try:
-            from src.strategy.strategies.t0.strategy_status_service import StrategyStatusService
-
-            service = StrategyStatusService()
-            result = service.get_strategy_status()
-            self._send_json_response(
-                json.dumps(result, ensure_ascii=False, indent=2).encode("utf-8")
-            )
-        except Exception as e:
-            logger.error(f"获取 T+0 策略状态失败: {e}", exc_info=True)
-            self._send_error_response(f"Failed to get T+0 strategy status: {e}")
 
     def _handle_static_file(self, file_path: str) -> None:
         """处理静态文件请求"""

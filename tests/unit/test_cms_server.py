@@ -2,7 +2,6 @@ import json
 import socket
 import subprocess
 import time
-from pathlib import Path
 
 import src.infrastructure.runtime.cms_server as cms_server
 
@@ -17,15 +16,7 @@ def make_check(name: str, status: str, critical: bool = False):
     )
 
 
-def test_health_snapshot_uses_standard_structure(monkeypatch, tmp_path):
-    signal_card_path = Path(tmp_path) / "live_signal_card.json"
-    signal_card_path.write_text(
-        '{"as_of_time":"2026-03-28 10:00:00","regime":"range","signal":{"action":"observe"}}',
-        encoding="utf-8",
-    )
-
-    monkeypatch.setattr(cms_server.settings, "t0_output_dir", str(tmp_path))
-
+def test_health_snapshot_uses_standard_structure(monkeypatch):
     checker = cms_server.ProjectCmsChecker()
     monkeypatch.setattr(checker, "_check_trading_day", lambda: make_check("trading_day", "pass"))
     monkeypatch.setattr(checker, "_check_database", lambda: make_check("database", "pass", True))
@@ -46,16 +37,6 @@ def test_health_snapshot_uses_standard_structure(monkeypatch, tmp_path):
         "_check_trading_engine_process",
         lambda processes, trading_day: make_check("trading_engine_process", "pass"),
     )
-    monkeypatch.setattr(
-        checker,
-        "_check_strategy_engine_process",
-        lambda processes, trading_day: make_check("strategy_engine_process", "pass"),
-    )
-    monkeypatch.setattr(
-        checker,
-        "_check_signal_card",
-        lambda trading_day: make_check("signal_card", "pass"),
-    )
 
     snapshot = checker.build_snapshot().to_dict()
 
@@ -64,35 +45,10 @@ def test_health_snapshot_uses_standard_structure(monkeypatch, tmp_path):
     assert snapshot["status"] == "ok"
     assert "checked_at" in snapshot
     assert "summary" in snapshot
-    assert snapshot["summary"]["pass"] >= 7
+    assert snapshot["summary"]["pass"] >= 5
     assert "duration_ms" in snapshot["summary"]
     assert isinstance(snapshot["checks"], list)
     assert snapshot["checks"][0]["status"] in {"pass", "warn", "fail", "skip"}
-
-
-def test_signal_card_health_check_reads_latest_signal_from_meta_db():
-    class FakeAccountDataService:
-        def get_latest_signal_card_snapshot(self):
-            return {
-                "source": "meta_db",
-                "available": True,
-                "stock_code": "601138.SH",
-                "signal_action": "reverse_t_buy",
-                "as_of_time": "2026-04-07T10:31:22+08:00",
-                "regime": "transition",
-            }
-
-    checker = cms_server.ProjectCmsChecker(account_data_service=FakeAccountDataService())
-
-    result = checker._check_signal_card(make_check("trading_day", "pass"))
-
-    assert result.status == "pass"
-    assert result.message == "Signal card is present"
-    assert result.details["source"] == "meta_db"
-    assert result.details["stock_code"] == "601138.SH"
-    assert result.details["signal_action"] == "reverse_t_buy"
-    assert result.details["as_of_time"] == "2026-04-07T10:31:22+08:00"
-    assert result.details["regime"] == "transition"
 
 
 def test_health_status_is_down_when_critical_check_fails():
@@ -102,7 +58,7 @@ def test_health_status_is_down_when_critical_check_fails():
         [
             make_check("database", "fail", True),
             make_check("redis", "pass", True),
-            make_check("strategy_engine_process", "warn"),
+            make_check("trading_engine_process", "warn"),
         ]
     )
 
@@ -116,7 +72,7 @@ def test_health_status_is_degraded_when_only_noncritical_checks_warn():
         [
             make_check("database", "pass", True),
             make_check("redis", "pass", True),
-            make_check("strategy_engine_process", "warn"),
+            make_check("trading_engine_process", "warn"),
         ]
     )
 
@@ -166,8 +122,8 @@ def test_process_check_skips_when_component_not_expected():
     checker = cms_server.ProjectCmsChecker()
 
     result = checker._build_process_check(
-        name="strategy_engine_process",
-        component="strategy_engine",
+        name="watchdog_process",
+        component="watchdog",
         matches=[],
         expected=False,
     )
@@ -186,32 +142,6 @@ def test_process_check_warns_when_component_expected_but_missing():
     )
 
     assert result.status == "warn"
-
-
-def test_strategy_engine_process_check_collapses_windows_launcher_chain():
-    checker = cms_server.ProjectCmsChecker()
-    trading_day = make_check("trading_day", "pass")
-    processes = [
-        {
-            "pid": 1336,
-            "parent_pid": 4868,
-            "command_line": r"C:\Users\sai\quant\.venv\Scripts\python.exe main.py t0-daemon",
-        },
-        {
-            "pid": 12324,
-            "parent_pid": 1336,
-            "command_line": (
-                r"C:\Users\sai\AppData\Roaming\uv\python\cpython-3.12.3-windows-x86_64-none"
-                r"\python.exe main.py t0-daemon"
-            ),
-        },
-    ]
-
-    result = checker._check_strategy_engine_process(processes, trading_day)
-
-    assert result.status == "pass"
-    assert result.details["count"] == 1
-    assert result.details["pids"] == [1336]
 
 
 def test_background_health_server_serves_snapshot(monkeypatch):

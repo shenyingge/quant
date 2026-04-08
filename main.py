@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import sys
-import time
 from datetime import date
 from typing import Optional
 
@@ -20,21 +19,7 @@ from src.cli.ops import (
 from src.cli.registry import COMMANDS as REGISTRY_COMMANDS
 from src.cli.registry import print_usage as cli_print_usage
 from src.cli.registry import resolve_app_role as cli_resolve_app_role
-from src.cli.shared import (
-    STRATEGY_ENGINE_NAME,
-    TRADING_ENGINE_NAME,
-    get_t0_poll_interval_seconds,
-    resolve_qmt_session_id,
-    should_skip_non_trading_day,
-)
-from src.cli.strategy import (
-    reconcile_t0_state as cli_reconcile_t0_state,
-    run_t0_backtest as cli_run_t0_backtest,
-    run_t0_daemon as cli_run_t0_daemon,
-    run_t0_diagnose as cli_run_t0_diagnose,
-    run_t0_strategy as cli_run_t0_strategy,
-    sync_t0_position as cli_sync_t0_position,
-)
+from src.cli.shared import TRADING_ENGINE_NAME
 from src.cli.trading import (
     run_trading_service as cli_run_trading_service,
     run_trading_service_test as cli_run_trading_service_test,
@@ -44,23 +29,6 @@ from src.infrastructure.config import settings
 from src.infrastructure.logger_config import configure_process_logger
 from src.infrastructure.logger_config import configured_logger as logger
 from src.trading.calendar.trading_day_checker import is_trading_day
-
-
-def _resolve_qmt_session_id(mode: str) -> int:
-    return resolve_qmt_session_id(mode, settings_obj=settings)
-
-
-def _should_skip_non_trading_day(component_name: str) -> bool:
-    return should_skip_non_trading_day(
-        component_name,
-        is_trading_day_fn=is_trading_day,
-        logger_obj=logger,
-    )
-
-
-def _get_t0_poll_interval_seconds() -> int:
-    return get_t0_poll_interval_seconds(settings_obj=settings)
-
 
 def _resolve_app_role(command: Optional[str]) -> str:
     return cli_resolve_app_role(command)
@@ -76,54 +44,6 @@ def run_trading_service_test(args: list[str]) -> int:
 
 def test_system(args: list[str]) -> int:
     return cli_test_system(args, logger_obj=logger)
-
-
-def run_t0_daemon(args: list[str]) -> int:
-    return cli_run_t0_daemon(
-        args,
-        should_skip_non_trading_day_fn=_should_skip_non_trading_day,
-        get_t0_poll_interval_seconds_fn=_get_t0_poll_interval_seconds,
-        logger_obj=logger,
-        time_module=time,
-    )
-
-
-def run_t0_strategy(args: list[str] | None = None) -> int:
-    return cli_run_t0_strategy(
-        args,
-        should_skip_non_trading_day_fn=_should_skip_non_trading_day,
-        logger_obj=logger,
-    )
-
-
-def sync_t0_position(args: list[str]) -> int:
-    return cli_sync_t0_position(
-        args,
-        should_skip_non_trading_day_fn=_should_skip_non_trading_day,
-        resolve_qmt_session_id_fn=_resolve_qmt_session_id,
-        settings_obj=settings,
-        logger_obj=logger,
-        time_module=time,
-    )
-
-
-def reconcile_t0_state(args: list[str]) -> int:
-    return cli_reconcile_t0_state(
-        args,
-        should_skip_non_trading_day_fn=_should_skip_non_trading_day,
-        resolve_qmt_session_id_fn=_resolve_qmt_session_id,
-        settings_obj=settings,
-        logger_obj=logger,
-        time_module=time,
-    )
-
-
-def run_t0_backtest(args: list[str]) -> int:
-    return cli_run_t0_backtest(args, logger_obj=logger)
-
-
-def run_t0_diagnose(args: list[str]) -> int:
-    return cli_run_t0_diagnose(args, logger_obj=logger)
 
 
 def run_cms_check(args: list[str]) -> int:
@@ -176,12 +96,6 @@ COMMANDS.update(
         "run": run_trading_service,
         "test-run": run_trading_service_test,
         "test": test_system,
-        "t0-daemon": run_t0_daemon,
-        "t0-strategy": run_t0_strategy,
-        "t0-sync-position": sync_t0_position,
-        "t0-reconcile": reconcile_t0_state,
-        "t0-backtest": run_t0_backtest,
-        "t0-diagnose": run_t0_diagnose,
         "cms-check": run_cms_check,
         "sync-account-positions": sync_account_positions,
         "cms-server": run_cms_server,

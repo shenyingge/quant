@@ -295,17 +295,6 @@ class QMTCallback(XtQuantTraderCallback):
             except Exception as sync_error:
                 logger.error(f"Trade callback position sync failed: {sync_error}")
 
-            position_syncer = None
-            if stock_code == settings.t0_stock_code:
-                try:
-                    from src.strategy.strategies.t0.position_syncer import PositionSyncer
-
-                    position_syncer = PositionSyncer()
-                except Exception as position_sync_error:
-                    logger.error(
-                        f"Failed to initialize T0 strategy position syncer during trade callback: {position_sync_error}"
-                    )
-
             try:
                 db = SessionLocal()
                 try:
@@ -335,17 +324,6 @@ class QMTCallback(XtQuantTraderCallback):
                             f"Created standalone order record from trade callback: order_id={order_record.order_id}, stock_code={stock_code}, trade_id={trade_id}"
                         )
 
-                    if position_syncer is not None:
-                        position_syncer.apply_fill_transactional(
-                            db,
-                            direction,
-                            traded_volume,
-                            traded_price,
-                            stock_code=stock_code,
-                            filled_time=filled_time,
-                            source="trade_callback",
-                        )
-
                     should_notify = not getattr(order_record, "fill_notified", False)
                     notification_payload["order_id"] = order_record.order_id
 
@@ -372,9 +350,6 @@ class QMTCallback(XtQuantTraderCallback):
                         logger.warning("AttributionService.record_execution failed: {}", exc)
 
                     db.commit()
-
-                    if position_syncer is not None:
-                        position_syncer.publish_pending_events(limit=20)
 
                     if should_notify and hasattr(self.trader, "notifier") and self.trader.notifier:
                         self.trader.notifier.notify_order_filled(notification_payload)

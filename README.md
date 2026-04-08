@@ -1,19 +1,18 @@
-# QMT自动交易服务
+# QMT 交易引擎
 
-基于QMT（迅投量化交易系统）的自动交易服务，通过Redis监听交易信号并自动执行订单。
+这是一个收敛为单一职责的 QMT 交易引擎项目，只保留两条主链路：
+
+1. `QMT 行情 -> Redis 发布`
+2. `Redis 下单信号 -> QMT 下单执行`
 
 ## 功能特性
 
-- 🔄 **实时监听**: 监听Redis频道接收交易信号
-- 📈 **自动交易**: 接收信号后自动执行买卖操作
-- 💾 **数据记录**: 将交易信号和订单信息存储到本地数据库
-- 📱 **飞书通知**: 实时推送交易状态到飞书群聊
-- ⏰ **计划任务**: 支持通过Windows任务计划程序自动运行
-- 📊 **订单监控**: 实时监控订单状态和成交情况
-- 🔧 **自动备份**: 每日自动备份交易数据
-- 📅 **交易日历**: 使用akshare获取准确的交易日历，非交易日自动跳过
-- ♻️ **T+0信号引擎**: 支持单次运行、守护轮询、仓位同步与纯文件回测
-- 📤 **收盘导出**: 支持每日持仓与成交记录导出并上传到远端主机
+- Redis 信号监听与 QMT 自动下单
+- QMT 实时行情发布到 Redis 频道与 latest key
+- 订单、信号、持仓、成交记录落库
+- 飞书运行时通知与异常告警
+- CMS 健康检查与 watchdog 守护
+- 分钟行情导出、入库与收盘导出工具
 
 ## 系统要求
 
@@ -32,26 +31,16 @@ quant/
 ├── pytest.ini             # 测试配置（默认排除 live_qmt / manual）
 ├── .env                   # 环境配置文件
 ├── src/                   # 核心源代码
-│   ├── config.py          # 配置管理（Pydantic Settings）
-│   ├── logger_config.py   # 统一日志配置
-│   ├── process_utils.py   # 进程与子进程工具
-│   ├── watchdog_service.py # Watchdog 进程管理
-│   ├── cms_server.py      # CMS HTTP 管理接口
-│   ├── uid.py             # 统一ID生成工具
 │   ├── infrastructure/    # 基础设施层
+│   │   ├── config/        # 配置管理（Pydantic Settings）
+│   │   ├── runtime/       # CMS / watchdog / 进程工具
 │   │   ├── db/            # SQLAlchemy 模型与会话
 │   │   ├── notifications/ # 飞书通知实现
 │   │   ├── redis/         # Redis 信号监听器
 │   │   └── scheduling/    # 分钟行情定时采集
 │   ├── trading/           # 交易领域层
-│   │   ├── attribution.py # 成交归因与复盘
 │   │   ├── execution/     # QMT 下单执行器
 │   │   └── runtime/       # 交易引擎运行时
-│   ├── strategy/          # T+0 策略层
-│   │   ├── core/          # 纯策略核心（无 QMT/Redis 依赖）
-│   │   ├── adapters/      # 回测适配器
-│   │   └── shared/        # 多策略共享组件
-│   ├── backtest/          # 文件驱动回测（Linux 友好）
 │   ├── broker/            # Broker 抽象层
 │   ├── data_manager/      # 市场数据下载/标准化/校验
 │   ├── market_data/       # 高频实时行情摄入
@@ -62,8 +51,6 @@ quant/
 │   └── setup_minute_history_task.bat # 分钟行情导出任务安装器
 ├── logs/                  # 日志文件目录
 │   ├── task_execution_trading.log # 交易服务计划任务日志
-│   ├── task_execution_t0_daemon.log # T+0 守护进程任务日志
-│   ├── task_execution_t0_sync.log # T+0 仓位同步任务日志
 │   ├── current/          # 当前活跃日志
 │   └── archive/          # 滚动压缩归档日志
 ├── backups/               # 数据备份目录
@@ -104,22 +91,9 @@ QMT_SESSION_ID=666  # 会话ID（自动检测可用）
 QMT_PATH=C:/国金QMT交易端模拟/userdata_mini
 QMT_ACCOUNT_ID=39266820
 QMT_SESSION_ID_TRADING_SERVICE=666
-QMT_SESSION_ID_T0_DAEMON=667
-QMT_SESSION_ID_T0_SYNC=668
 
 # 飞书通知配置
 FEISHU_WEBHOOK_URL=https://open.feishu.cn/open-apis/bot/v2/hook/your-webhook
-FEISHU_SECRET=your-secret-key
-
-# T+0 配置
-T0_STOCK_CODE=601138.SH
-T0_BASE_POSITION=2600
-T0_TACTICAL_POSITION=900
-T0_COMMISSION_RATE=0.0001
-T0_MIN_COMMISSION=5.0
-T0_TRANSFER_FEE_RATE=0.00001
-T0_STAMP_DUTY_RATE=0.0005
-T0_NOTIFY_OBSERVE_SIGNALS=false
 
 # 日志配置
 LOG_LEVEL=INFO
@@ -134,6 +108,12 @@ LOG_COMPRESSION=zip
 BACKUP_ENABLED=true
 BACKUP_TIME=15:05
 BACKUP_DIR=backups
+
+# 交易成本配置
+COMMISSION_RATE=0.0001
+MIN_COMMISSION=5
+TRANSFER_FEE_RATE=0.00001
+STAMP_DUTY_RATE=0.0005
 ```
 
 ### 3. 测试系统连接
@@ -159,7 +139,7 @@ set TRADING_DAY_CHECK_ENABLED=false
 uv run python main.py run
 ```
 
-#### 方式二：定时任务（生产环境）
+#### 方式二：watchdog 守护（生产环境）
 
 以管理员身份运行：
 
@@ -171,8 +151,8 @@ uv run python main.py run
 这会创建单一开机计划任务：
 - `Quant_Watchdog_Service` 随系统启动
 - `cms-server` 24x7 保持在线
-- 交易日内由 watchdog 自动管理交易主进程、T+0 守护、仓位同步和 Meta DB 同步
-- 非交易时间按 watchdog 时间窗自动停止对应长跑服务
+- 交易日内由 watchdog 自动管理交易引擎与分钟行情入库任务
+- 非交易时间按 watchdog 时间窗自动停止交易引擎
 
 ## 交易信号格式
 
@@ -209,108 +189,28 @@ uv run python main.py run
 # 测试系统连接
 uv run python main.py test
 
-# 手动备份数据
-uv run python main.py backup
-
-# 查看备份配置
-uv run python main.py backup-config
-
 # 管理股票信息缓存
 uv run python main.py stock-info
 
 # 管理交易日历
 uv run python main.py calendar
 
-# 手动发送当日盈亏汇总
-uv run python main.py pnl-summary
-
 # 导出每日持仓和成交
 uv run python main.py export-daily
 
-# 运行一次 T+0 信号生成
-uv run python main.py t0-strategy
+# 启动 CMS 服务
+uv run python main.py cms-server
 
-# 启动 T+0 守护进程
-uv run python main.py t0-daemon
+# 启动 watchdog
+uv run python main.py watchdog
 
-# 从 QMT 同步 T+0 仓位
-uv run python main.py t0-sync-position
+# 导出分钟行情
+uv run python main.py export-minute-history --trade-date today --listed-only
 
-# 运行 T+0 文件回测
-uv run python main.py t0-reconcile
+# 分钟行情入库
+uv run python main.py ingest-minute-daily
 
-uv run python main.py t0-backtest --minute-data minute.csv --daily-data daily.csv
 ```
-
-### T+0 文件回测
-
-可在 Linux 或 Windows 上直接使用 csv/parquet 文件运行分钟级回测：
-
-```bash
-uv run python main.py t0-backtest \
-   --minute-data ./data/minute_601138.parquet \
-   --daily-data ./data/daily_601138.parquet \
-   --symbol 601138.SH \
-   --output-dir ./output/backtest
-```
-
-也可以直接给目录，让 `quant` 自己按股票代码匹配文件：
-
-```bash
-uv run python main.py t0-backtest \
-   --minute-data ./data/minute \
-   --daily-data ./data/daily \
-   --symbol 601138.SH \
-   --start-datetime "2026-03-12 09:58:00" \
-   --end-datetime "2026-03-24 15:00:00"
-```
-
-还支持 JSON 配置文件：
-
-```bash
-uv run python main.py t0-backtest --config ./configs/t0_backtest_601138.json
-```
-
-配置文件示例：
-
-```json
-{
-  "minute_data": "./data/minute",
-  "daily_data": "./data/daily",
-  "symbol": "601138.SH",
-  "output_dir": "./output/backtest_601138",
-  "start_datetime": "2026-03-12 09:58:00",
-  "end_datetime": "2026-03-24 15:00:00",
-  "execution_mode": "next_bar_open",
-  "base_position": 2600,
-  "tactical_position": 900,
-  "initial_position": 3500,
-  "available_volume": 3500,
-  "cost_price": 72.685,
-  "cash_available": 2133.81,
-  "commission_rate": 0.0001,
-  "min_commission": 5.0,
-  "transfer_fee_rate": 0.00001,
-  "stamp_duty_rate": 0.0005
-}
-```
-
-输出文件：
-
-- `signals.csv`
-- `fills.csv`
-- `roundtrips.csv`
-- `open_legs.csv`
-- `summary.json`
-
-### T+0 运行产物
-
-实时 T+0 会在 `output/` 目录写入运行态文件，例如：
-
-- `live_signal_card.json`
-- `position_state.json`
-
-这些文件属于本地运行产物，当前已加入 Git 忽略规则，不再纳入版本控制。
 
 ## 监控和维护
 
@@ -322,16 +222,6 @@ uv run python main.py t0-backtest --config ./configs/t0_backtest_601138.json
 - `logs/current/watchdog.log` - watchdog 详细日志
 - `logs/archive/<role>/` - 滚动后的压缩归档日志
 - `logs/task_debug.log` - 调试日志（如有）
-- `logs/task_execution_t0_daemon.log` - T+0 守护进程任务日志
-- `logs/task_execution_t0_sync.log` - T+0 仓位同步任务日志
-
-### 数据备份
-
-系统支持自动备份交易数据：
-
-- 默认每日15:05自动备份
-- 备份文件保存在 `backups/` 目录
-- 格式：`trading_backup_YYYYMMDD_HHMMSS.json.gz`
 
 ### 飞书通知
 
@@ -405,20 +295,9 @@ uv run pytest -m ""
 
 本项目仅供学习和研究使用，请遵守相关法律法规。使用本系统进行实际交易产生的任何损失，作者不承担责任。
 
-## 联系方式
+## Linux 回测说明
 
-如有问题或建议，请提交Issue或联系开发者。
-## 分钟行情任务
-
-```bash
-# 导出自定义分钟历史行情包
-uv run python main.py export-minute-history --trade-date today --listed-only
-
-# 按日任务默认参数拉取当日分钟行情
-uv run python main.py export-minute-daily
-```
-
-Windows 计划任务配置：
+当前项目已经移除策略与回测子系统，因此不再提供 Linux 回测命令。Linux 环境下可运行的是分钟行情工具、测试命令和文档中列出的非 QMT 任务；真实下单链路仍以 Windows + QMT 为前提。
 
 ```cmd
 scripts\setup_minute_history_task.bat

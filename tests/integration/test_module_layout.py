@@ -36,7 +36,5 @@ def test_root_wrapper_modules_removed():
         "src/redis_listener.py",
         "src/trader.py",
         "src/trading_engine.py",
-        "src/strategy/t0_orchestrator.py",
-        "src/strategy/t0_strategy_compat.py",
     ]:
         assert not Path(path).exists(), f"{path} should be removed"

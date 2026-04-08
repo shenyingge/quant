@@ -201,26 +201,3 @@ def test_resolve_trading_day_status_returns_none_when_both_providers_fail(monkey
     monkeypatch.setitem(sys.modules, "xtquant", SimpleNamespace(xtdata=fake_xtdata))
 
     assert trading_day_checker.resolve_trading_day_status(real_date(2026, 3, 27)) is None
-
-
-def test_run_t0_strategy_skips_when_not_trading_day(monkeypatch):
-    monkeypatch.setattr(main_module, "is_trading_day", lambda: False)
-    monkeypatch.setattr(main_module, "STRATEGY_ENGINE_NAME", "策略引擎")
-    started = {"value": False}
-
-    class FakeStrategyEngine:
-        def __init__(self):
-            started["value"] = True
-
-        def run_once(self):
-            return {"signal": {"action": "observe"}}
-
-    monkeypatch.setitem(
-        sys.modules,
-        "src.strategy.strategies.t0.strategy_engine",
-        SimpleNamespace(StrategyEngine=FakeStrategyEngine),
-    )
-
-    main_module.run_t0_strategy()
-
-    assert started["value"] is False

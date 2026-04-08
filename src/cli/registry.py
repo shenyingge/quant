@@ -11,15 +11,7 @@ from src.cli.market_data import (
     ingest_minute_history,
 )
 from src.cli.ops import run_cms_check, run_cms_server, run_watchdog, sync_account_positions
-from src.cli.shared import STRATEGY_ENGINE_NAME, TRADING_ENGINE_NAME
-from src.cli.strategy import (
-    reconcile_t0_state,
-    run_t0_backtest,
-    run_t0_daemon,
-    run_t0_diagnose,
-    run_t0_strategy,
-    sync_t0_position,
-)
+from src.cli.shared import TRADING_ENGINE_NAME
 from src.cli.trading import run_trading_service, run_trading_service_test, test_system
 
 CommandHandler = Callable[[Sequence[str]], int]
@@ -29,12 +21,6 @@ COMMANDS: dict[str, CommandHandler] = {
     "run": run_trading_service,
     "test-run": run_trading_service_test,
     "test": test_system,
-    "t0-daemon": run_t0_daemon,
-    "t0-strategy": run_t0_strategy,
-    "t0-sync-position": sync_t0_position,
-    "t0-reconcile": reconcile_t0_state,
-    "t0-backtest": run_t0_backtest,
-    "t0-diagnose": run_t0_diagnose,
     "cms-check": run_cms_check,
     "sync-account-positions": sync_account_positions,
     "cms-server": run_cms_server,
@@ -52,12 +38,6 @@ def resolve_app_role(command: str | None) -> str:
         "run": "trading_engine",
         "test-run": "trading_engine",
         "test": "system_test",
-        "t0-strategy": "strategy_engine",
-        "t0-daemon": "strategy_engine",
-        "t0-sync-position": "strategy_engine",
-        "t0-reconcile": "strategy_engine",
-        "t0-backtest": "strategy_engine",
-        "t0-diagnose": "strategy_engine",
         "cms-check": "cms_server",
         "sync-account-positions": "cms_server",
         "cms-server": "cms_server",
@@ -78,14 +58,6 @@ def print_usage(*, logger_obj=logger) -> None:
     logger_obj.info("  python main.py run                    - 运行 {}", TRADING_ENGINE_NAME)
     logger_obj.info("  python main.py test-run               - 测试模式运行 {}", TRADING_ENGINE_NAME)
     logger_obj.info("  python main.py test                   - 运行系统连接检查")
-    logger_obj.info("")
-    logger_obj.info("T+0 策略:")
-    logger_obj.info("  python main.py t0-daemon              - 持续运行 {}", STRATEGY_ENGINE_NAME)
-    logger_obj.info("  python main.py t0-strategy            - 运行一次 {}", STRATEGY_ENGINE_NAME)
-    logger_obj.info("  python main.py t0-sync-position       - 从 QMT 手工同步 T0 仓位")
-    logger_obj.info("  python main.py t0-reconcile           - 收盘后校验 T0 持仓与成交")
-    logger_obj.info("  python main.py t0-backtest            - 运行 T+0 文件回测")
-    logger_obj.info("  python main.py t0-diagnose            - 运行 T+0 策略诊断工具")
     logger_obj.info("")
     logger_obj.info("监控:")
     logger_obj.info("  python main.py cms-check              - 输出 CMS check JSON 结果")

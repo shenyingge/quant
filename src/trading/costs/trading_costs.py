@@ -37,33 +37,16 @@ class TradingFeeSchedule:
     def from_settings(cls, settings_obj: Any) -> "TradingFeeSchedule":
         return cls(
             commission_rate=float(
-                getattr(settings_obj, "t0_commission_rate", cls.commission_rate) or 0.0
+                getattr(settings_obj, "commission_rate", cls.commission_rate) or 0.0
             ),
             min_commission=float(
-                getattr(settings_obj, "t0_min_commission", cls.min_commission) or 0.0
+                getattr(settings_obj, "min_commission", cls.min_commission) or 0.0
             ),
             transfer_fee_rate=float(
-                getattr(settings_obj, "t0_transfer_fee_rate", cls.transfer_fee_rate) or 0.0
+                getattr(settings_obj, "transfer_fee_rate", cls.transfer_fee_rate) or 0.0
             ),
             stamp_duty_rate=float(
-                getattr(settings_obj, "t0_stamp_duty_rate", cls.stamp_duty_rate) or 0.0
-            ),
-        )
-
-    @classmethod
-    def from_t0_params(cls, params_obj: Any) -> "TradingFeeSchedule":
-        return cls(
-            commission_rate=float(
-                getattr(params_obj, "t0_commission_rate", cls.commission_rate) or 0.0
-            ),
-            min_commission=float(
-                getattr(params_obj, "t0_min_commission", cls.min_commission) or 0.0
-            ),
-            transfer_fee_rate=float(
-                getattr(params_obj, "t0_transfer_fee_rate", cls.transfer_fee_rate) or 0.0
-            ),
-            stamp_duty_rate=float(
-                getattr(params_obj, "t0_stamp_duty_rate", cls.stamp_duty_rate) or 0.0
+                getattr(settings_obj, "stamp_duty_rate", cls.stamp_duty_rate) or 0.0
             ),
         )
 

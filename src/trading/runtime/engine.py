@@ -21,7 +21,6 @@ from src.trading.qmt_constants import OrderStatus, get_status_name, is_filled_st
 from src.market_data.streaming.quote_stream_service import QuoteStreamService
 from src.infrastructure.redis import RedisSignalListener
 from src.data_manager.stock_info import get_stock_display_name
-from src.strategy.strategies.t0.position_syncer import PositionSyncer
 from src.trading.execution.qmt_trader import QMTTrader
 from src.trading.calendar.trading_calendar_manager import (
     initialize_trading_calendar,
@@ -313,16 +312,6 @@ class TradingEngine:
                     logger.error(f"交易信号缺少必需字段: {field}")
                     return
 
-            # 保存信号到数据库
-            guard_error = self._resolve_position_guard_mismatch(signal_data)
-            if guard_error:
-                logger.warning(guard_error)
-                self._persist_rejected_signal(signal_data, guard_error)
-                self.notifier.notify_error(
-                    guard_error, f"淇″彿ID: {signal_data.get('signal_id', 'Unknown')}"
-                )
-                return
-
             db = SessionLocal()
             try:
                 # 检查信号是否已处理
@@ -362,68 +351,6 @@ class TradingEngine:
             self.notifier.notify_error(
                 str(e), f"处理信号: {signal_data.get('signal_id', 'Unknown')}"
             )
-
-    def _resolve_position_guard_mismatch(self, signal_data: Dict[str, Any]) -> Optional[str]:
-        expected_version = self._extract_expected_position_version(signal_data)
-        if expected_version is None:
-            return None
-
-        stock_code = str(signal_data.get("stock_code") or "").strip()
-        current_version = PositionSyncer().get_position_version(stock_code=stock_code or None)
-        if current_version == expected_version:
-            return None
-
-        return (
-            f"Stale trading signal rejected: stock={stock_code}, "
-            f"expected_position_version={expected_version}, current_position_version={current_version}"
-        )
-
-    def _extract_expected_position_version(self, signal_data: Dict[str, Any]) -> Optional[int]:
-        for key in ("expected_position_version", "position_version", "strategy_position_version"):
-            raw_value = signal_data.get(key)
-            if raw_value in (None, ""):
-                continue
-            try:
-                return int(raw_value)
-            except (TypeError, ValueError):
-                logger.warning(
-                    "Ignoring invalid position version guard on signal {}: key={} value={}",
-                    signal_data.get("signal_id"),
-                    key,
-                    raw_value,
-                )
-                return None
-        return None
-
-    def _persist_rejected_signal(self, signal_data: Dict[str, Any], error_message: str) -> None:
-        db = SessionLocal()
-        try:
-            existing_signal = (
-                db.query(TradingSignal)
-                .filter(TradingSignal.signal_id == signal_data["signal_id"])
-                .first()
-            )
-            if existing_signal:
-                return
-
-            db.add(
-                TradingSignal(
-                    signal_id=signal_data["signal_id"],
-                    stock_code=signal_data["stock_code"],
-                    direction=signal_data["direction"],
-                    volume=signal_data["volume"],
-                    price=signal_data.get("price"),
-                    signal_time=datetime.utcnow(),
-                    processed=True,
-                    error_message=error_message,
-                )
-            )
-            db.commit()
-        except Exception as exc:
-            db.rollback()
-            logger.error(f"Failed to persist rejected trading signal: {exc}")
-        finally:
-            db.close()
 
     def _execute_trade(self, signal_data: Dict[str, Any], db: Session):
         """执行交易（使用超时保护的同步下单）"""

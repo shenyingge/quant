@@ -15,12 +15,8 @@ repository maintenance utilities.
   - Manual launcher for the standalone CMS HTTP server.
 - `run_console.bat`
   - Manual console entry for the trading runtime.
-- `run_t0_daemon.bat`
-  - Manual console entry for the T+0 daemon.
 - `stop_trading_service.bat`
   - Stops the trading service process.
-- `stop_t0_daemon.bat`
-  - Stops the T+0 daemon process.
 - `stop_python_by_command.ps1`
   - Shared stop helper used by the BAT wrappers.
 

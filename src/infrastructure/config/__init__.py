@@ -26,15 +26,6 @@ class Settings(BaseSettings):
     redis_block_timeout: int = Field(default=1000, env="REDIS_BLOCK_TIMEOUT")
     redis_tick_cache_db: int = Field(default=1, env="REDIS_TICK_CACHE_DB")
     redis_tick_cache_ttl: int = Field(default=28800, env="REDIS_TICK_CACHE_TTL")
-    redis_t0_signal_key: str = Field(default="t0_signal_card", env="REDIS_T0_SIGNAL_KEY")
-    redis_t0_signal_ttl: int = Field(default=86400, env="REDIS_T0_SIGNAL_TTL")
-    redis_t0_position_channel: str = Field(
-        default="t0_position_updates", env="REDIS_T0_POSITION_CHANNEL"
-    )
-    redis_t0_position_latest_prefix: str = Field(
-        default="t0_position_latest:", env="REDIS_T0_POSITION_LATEST_PREFIX"
-    )
-    redis_t0_position_latest_ttl: int = Field(default=86400, env="REDIS_T0_POSITION_LATEST_TTL")
     redis_quote_stream_channel: str = Field(
         default="quote_stream", env="REDIS_QUOTE_STREAM_CHANNEL"
     )
@@ -60,8 +51,6 @@ class Settings(BaseSettings):
     qmt_session_id_trading_service: Optional[int] = Field(
         default=None, env="QMT_SESSION_ID_TRADING_SERVICE"
     )
-    qmt_session_id_t0_daemon: Optional[int] = Field(default=None, env="QMT_SESSION_ID_T0_DAEMON")
-    qmt_session_id_t0_sync: Optional[int] = Field(default=None, env="QMT_SESSION_ID_T0_SYNC")
     qmt_path: str = Field(default="", env="QMT_PATH")
     qmt_account_id: str = Field(default="", env="QMT_ACCOUNT_ID")
     qmt_account_type: str = Field(default="STOCK", env="QMT_ACCOUNT_TYPE")
@@ -72,6 +61,10 @@ class Settings(BaseSettings):
     order_retry_attempts: int = Field(default=3, env="ORDER_RETRY_ATTEMPTS")
     order_retry_delay: int = Field(default=2, env="ORDER_RETRY_DELAY")
     auto_cancel_timeout: int = Field(default=300, env="AUTO_CANCEL_TIMEOUT")
+    commission_rate: float = Field(default=0.0001, env="COMMISSION_RATE")
+    min_commission: float = Field(default=5.0, env="MIN_COMMISSION")
+    transfer_fee_rate: float = Field(default=0.00001, env="TRANSFER_FEE_RATE")
+    stamp_duty_rate: float = Field(default=0.0005, env="STAMP_DUTY_RATE")
 
     feishu_webhook_url: Optional[str] = Field(default=None, env="FEISHU_WEBHOOK_URL")
     feishu_failure_notify_cooldown_seconds: int = Field(
@@ -120,92 +113,14 @@ class Settings(BaseSettings):
     watchdog_enable_trading_service: bool = Field(
         default=True, env="WATCHDOG_ENABLE_TRADING_SERVICE"
     )
-    watchdog_enable_t0_daemon: bool = Field(default=True, env="WATCHDOG_ENABLE_T0_DAEMON")
-    watchdog_enable_t0_reconcile: bool = Field(default=True, env="WATCHDOG_ENABLE_T0_RECONCILE")
     watchdog_trading_start_time: str = Field(default="08:35", env="WATCHDOG_TRADING_START_TIME")
     watchdog_trading_stop_time: str = Field(default="21:05", env="WATCHDOG_TRADING_STOP_TIME")
-    watchdog_t0_start_time: str = Field(default="09:20", env="WATCHDOG_T0_START_TIME")
-    watchdog_t0_stop_time: str = Field(default="15:05", env="WATCHDOG_T0_STOP_TIME")
-    watchdog_t0_reconcile_time: str = Field(default="15:10", env="WATCHDOG_T0_RECONCILE_TIME")
     watchdog_job_max_delay_minutes: int = Field(default=120, env="WATCHDOG_JOB_MAX_DELAY_MINUTES")
     trading_day_check_enabled: bool = Field(default=True, env="TRADING_DAY_CHECK_ENABLED")
     test_mode_enabled: bool = Field(default=False, env="TEST_MODE_ENABLED")
     tushare_token: Optional[str] = Field(default=None, env="TUSHARE_TOKEN")
     tushare_trade_calendar_exchange: str = Field(
         default="SSE", env="TUSHARE_TRADE_CALENDAR_EXCHANGE"
-    )
-
-    t0_strategy_enabled: bool = Field(default=False, env="T0_STRATEGY_ENABLED")
-    t0_stock_code: str = Field(default="601138.SH", env="T0_STOCK_CODE")
-    t0_output_dir: str = Field(default="./output", env="T0_OUTPUT_DIR")
-    t0_save_signal_card: bool = Field(default=False, env="T0_SAVE_SIGNAL_CARD")
-    t0_notify_observe_signals: bool = Field(default=False, env="T0_NOTIFY_OBSERVE_SIGNALS")
-    t0_base_position: int = Field(default=3000, env="T0_BASE_POSITION")
-    t0_tactical_position: int = Field(default=1000, env="T0_TACTICAL_POSITION")
-    t0_trade_unit: int = Field(default=100, env="T0_TRADE_UNIT")
-    t0_max_trade_value: float = Field(default=250000, env="T0_MAX_TRADE_VALUE")
-    t0_intraday_bar_period: str = Field(default="1m", env="T0_INTRADAY_BAR_PERIOD")
-    t0_commission_rate: float = Field(default=0.0001, env="T0_COMMISSION_RATE")
-    t0_min_commission: float = Field(default=5.0, env="T0_MIN_COMMISSION")
-    t0_transfer_fee_rate: float = Field(default=0.00001, env="T0_TRANSFER_FEE_RATE")
-    t0_stamp_duty_rate: float = Field(default=0.0005, env="T0_STAMP_DUTY_RATE")
-    t0_poll_interval_seconds: int = Field(default=60, env="T0_POLL_INTERVAL_SECONDS")
-    t0_market_data_provider_enabled: bool = Field(
-        default=True, env="T0_MARKET_DATA_PROVIDER_ENABLED"
-    )
-    t0_market_data_snapshot_interval_seconds: int = Field(
-        default=3, env="T0_MARKET_DATA_SNAPSHOT_INTERVAL_SECONDS"
-    )
-    t0_max_strategies: int = Field(default=5, env="T0_MAX_STRATEGIES")
-    t0_position_limit_per_strategy: int = Field(
-        default=5000, env="T0_POSITION_LIMIT_PER_STRATEGY"
-    )
-    t0_conflict_resolution_mode: str = Field(
-        default="strict", env="T0_CONFLICT_RESOLUTION_MODE"
-    )
-    t0_sync_connect_retry_attempts: int = Field(default=3, env="T0_SYNC_CONNECT_RETRY_ATTEMPTS")
-    t0_sync_connect_retry_delay_seconds: int = Field(
-        default=5, env="T0_SYNC_CONNECT_RETRY_DELAY_SECONDS"
-    )
-    t0_min_hold_minutes: int = Field(default=20, env="T0_MIN_HOLD_MINUTES")
-    t0_positive_sell_start_time: str = Field(default="09:45", env="T0_POSITIVE_SELL_START_TIME")
-    t0_positive_sell_end_time: str = Field(default="11:20", env="T0_POSITIVE_SELL_END_TIME")
-    t0_positive_buyback_start_time: str = Field(
-        default="13:30", env="T0_POSITIVE_BUYBACK_START_TIME"
-    )
-    t0_positive_buyback_end_time: str = Field(default="14:56", env="T0_POSITIVE_BUYBACK_END_TIME")
-    t0_reverse_buy_start_time: str = Field(default="09:50", env="T0_REVERSE_BUY_START_TIME")
-    t0_reverse_buy_end_time: str = Field(default="13:20", env="T0_REVERSE_BUY_END_TIME")
-    t0_reverse_sell_start_time: str = Field(default="13:20", env="T0_REVERSE_SELL_START_TIME")
-    t0_reverse_sell_end_time: str = Field(default="14:56", env="T0_REVERSE_SELL_END_TIME")
-    t0_positive_sell_min_rise: float = Field(default=1.0, env="T0_POSITIVE_SELL_MIN_RISE")
-    t0_positive_sell_min_pullback: float = Field(default=0.5, env="T0_POSITIVE_SELL_MIN_PULLBACK")
-    t0_positive_sell_gap_down_limit: Optional[float] = Field(
-        default=None,
-        env="T0_POSITIVE_SELL_GAP_DOWN_LIMIT",
-    )
-    t0_positive_buyback_max_carry_days: Optional[int] = Field(
-        default=None,
-        env="T0_POSITIVE_BUYBACK_MAX_CARRY_DAYS",
-    )
-    t0_positive_buyback_stop_loss_pct: Optional[float] = Field(
-        default=None,
-        env="T0_POSITIVE_BUYBACK_STOP_LOSS_PCT",
-    )
-    t0_reverse_buy_min_drop: float = Field(default=1.5, env="T0_REVERSE_BUY_MIN_DROP")
-    t0_reverse_buy_min_bounce: float = Field(default=0.4, env="T0_REVERSE_BUY_MIN_BOUNCE")
-    t0_reverse_sell_min_profit: float = Field(default=1.2, env="T0_REVERSE_SELL_MIN_PROFIT")
-    t0_reverse_sell_max_vwap_distance: float = Field(
-        default=0.5, env="T0_REVERSE_SELL_MAX_VWAP_DISTANCE"
-    )
-    t0_reverse_sell_max_carry_days: Optional[int] = Field(
-        default=None, env="T0_REVERSE_SELL_MAX_CARRY_DAYS"
-    )
-    t0_reverse_sell_stop_loss_pct: Optional[float] = Field(
-        default=None, env="T0_REVERSE_SELL_STOP_LOSS_PCT"
-    )
-    t0_reverse_sell_take_profit_after_carry_days: Optional[int] = Field(
-        default=None, env="T0_REVERSE_SELL_TAKE_PROFIT_AFTER_CARRY_DAYS"
     )
 
     ns_host: str = Field(default="ns", env="NS_HOST")

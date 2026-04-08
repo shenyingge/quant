@@ -124,34 +124,6 @@ class QuantWatchdogService:
                 )
             )
 
-        if settings.t0_strategy_enabled and settings.watchdog_enable_t0_daemon:
-            targets.append(
-                ManagedTarget(
-                    name="strategy_engine",
-                    kind="service",
-                    description="T0 strategy daemon",
-                    command_patterns=("main.py t0-daemon",),
-                    launch_command=self._strategy_engine_command(),
-                    require_trading_day=True,
-                    start_time=self._parse_clock(settings.watchdog_t0_start_time),
-                    stop_time=self._parse_clock(settings.watchdog_t0_stop_time),
-                    enforce_stop_outside_window=self.enforce_stop_outside_window,
-                )
-            )
-
-        if settings.t0_strategy_enabled and settings.watchdog_enable_t0_reconcile:
-            targets.append(
-                ManagedTarget(
-                    name="t0_reconcile",
-                    kind="job",
-                    description="T0 end-of-day reconciliation",
-                    command_patterns=("main.py t0-reconcile",),
-                    launch_command=self._python_main_command("t0-reconcile"),
-                    require_trading_day=True,
-                    schedule_time=self._parse_clock(settings.watchdog_t0_reconcile_time),
-                )
-            )
-
         targets.append(
             ManagedTarget(
                 name="minute_history_ingest_daily",
@@ -456,9 +428,6 @@ class QuantWatchdogService:
 
     def _trading_engine_command(self) -> List[str]:
         return self._python_main_command("run")
-
-    def _strategy_engine_command(self) -> List[str]:
-        return self._python_main_command("t0-daemon")
 
     def _resolve_python_executable(self) -> Path:
         if os.name == "nt":

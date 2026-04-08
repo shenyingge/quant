@@ -12,7 +12,6 @@ from src.infrastructure.db import (
     AccountPosition,
     OrderRecord,
     SessionLocal,
-    StrategySignalHistory,
     TradingSignal,
 )
 from src.trading.costs.trading_costs import (
@@ -39,22 +38,22 @@ class AccountDataService:
             "orders": {
                 "source_of_truth": "meta_db",
                 "storage": "trading.order_records",
-                "usage": "strategy order ledger, paging, audit, troubleshooting",
+                "usage": "order ledger, paging, audit, troubleshooting",
             },
             "signals": {
                 "source_of_truth": "meta_db",
                 "storage": "trading.trading_signals",
-                "usage": "strategy signal ledger and replay context",
+                "usage": "signal ledger and replay context",
             },
             "trades": {
                 "source_of_truth": "meta_db",
                 "storage": "trading.order_records",
-                "usage": "filled-order ledger and strategy-side execution history",
+                "usage": "filled-order ledger and execution history",
             },
-            "strategy_pnl": {
+            "trading_pnl": {
                 "source_of_truth": "meta_db",
                 "storage": "trading.order_records",
-                "usage": "strategy realized PnL, daily summary, attribution",
+                "usage": "realized PnL, daily summary, attribution",
             },
             "account_pnl": {
                 "source_of_truth": "meta_db",
@@ -197,43 +196,6 @@ class AccountDataService:
                 }
                 for s in signals
             ],
-        }
-
-    def get_latest_signal_card_snapshot(self) -> Dict[str, Any]:
-        with self._open_db_session() as session:
-            latest_signal = (
-                session.query(StrategySignalHistory)
-                .filter(StrategySignalHistory.stock_code == settings.t0_stock_code)
-                .order_by(
-                    desc(StrategySignalHistory.signal_time),
-                    desc(StrategySignalHistory.id),
-                )
-                .first()
-            )
-
-        if latest_signal is None:
-            return {
-                "source": "meta_db",
-                "available": False,
-                "fallback_used": False,
-                "stock_code": settings.t0_stock_code,
-                "as_of_time": None,
-                "signal_action": None,
-                "regime": None,
-                "error": "No signal card available in Meta DB",
-            }
-
-        return {
-            "source": "meta_db",
-            "available": True,
-            "fallback_used": False,
-            "stock_code": latest_signal.stock_code,
-            "as_of_time": latest_signal.signal_time.isoformat() if latest_signal.signal_time else None,
-            "signal_action": latest_signal.signal_action,
-            "regime": latest_signal.regime,
-            "branch": latest_signal.branch_locked,
-            "price": latest_signal.price,
-            "volume": int(latest_signal.suggested_volume or 0),
         }
 
     def get_trades_page(self, page: int, limit: int) -> Dict[str, Any]:

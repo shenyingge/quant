@@ -4,7 +4,7 @@ from __future__ import annotations
 import threading
 from typing import Any
 
-from src.strategy.strategies.t0.contracts.market_data import MarketDataCallback, MarketSnapshot
+from src.market_data.models import MarketDataCallback, MarketSnapshot
 
 
 class QMTSnapshotProvider:

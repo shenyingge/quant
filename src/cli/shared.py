@@ -6,7 +6,6 @@ from src.infrastructure.config import settings
 from src.infrastructure.logger_config import configured_logger as logger
 from src.trading.calendar.trading_day_checker import is_trading_day
 
-STRATEGY_ENGINE_NAME = "策略引擎"
 TRADING_ENGINE_NAME = "交易引擎"
 
 
@@ -31,15 +30,13 @@ def parse_retry_params(args: Sequence[str]) -> tuple[int, int]:
 
 
 def resolve_qmt_session_id(mode: str, *, settings_obj: object = settings) -> int:
-    """按模式解析 QMT session id。"""
-    session_id_map = {
-        "trading-service": getattr(settings_obj, "qmt_session_id_trading_service", None),
-        "t0-daemon": getattr(settings_obj, "qmt_session_id_t0_daemon", None),
-        "t0-sync": getattr(settings_obj, "qmt_session_id_t0_sync", None),
-    }
-    return int(session_id_map.get(mode) or getattr(settings_obj, "qmt_session_id"))
-
-
+    """Resolve the QMT session id used by runtime commands."""
+    if mode == "trading-service":
+        return int(
+            getattr(settings_obj, "qmt_session_id_trading_service", None)
+            or getattr(settings_obj, "qmt_session_id")
+        )
+    return int(getattr(settings_obj, "qmt_session_id"))
 def should_skip_non_trading_day(
     component_name: str,
     *,
@@ -52,8 +49,3 @@ def should_skip_non_trading_day(
 
     logger_obj.info("今天不是交易日，跳过启动 {}", component_name)
     return True
-
-
-def get_t0_poll_interval_seconds(*, settings_obj: object = settings) -> int:
-    """读取并规整 T+0 守护轮询间隔。"""
-    return max(int(getattr(settings_obj, "t0_poll_interval_seconds", 60)), 1)

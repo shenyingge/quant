@@ -6,16 +6,16 @@ def test_resolve_log_file_path_uses_role_based_default(tmp_path, monkeypatch):
     monkeypatch.setenv("LOG_DIR", str(tmp_path))
     monkeypatch.setenv("LOG_TO_FILE", "true")
 
-    path = resolve_log_file_path("t0-daemon")
+    path = resolve_log_file_path("trading-engine")
 
-    assert path == tmp_path / "t0_daemon.log"
+    assert path == tmp_path / "trading_engine.log"
 
 
 def test_resolve_log_file_path_honors_explicit_file(tmp_path, monkeypatch):
     monkeypatch.setenv("LOG_DIR", str(tmp_path))
     monkeypatch.setenv("LOG_TO_FILE", "true")
 
-    path = resolve_log_file_path("t0-daemon", explicit_log_file=str(tmp_path / "custom.log"))
+    path = resolve_log_file_path("trading-engine", explicit_log_file=str(tmp_path / "custom.log"))
 
     assert path == tmp_path / "custom.log"
 
@@ -27,6 +27,6 @@ def test_configure_process_logger_uses_role_specific_file_even_with_shared_log_f
     monkeypatch.setenv("LOG_TO_FILE", "true")
     monkeypatch.setenv("LOG_FILE", str(tmp_path / "shared.log"))
 
-    configure_process_logger("t0-daemon")
+    configure_process_logger("trading-engine")
 
-    assert (tmp_path / "t0_daemon.log").exists()
+    assert (tmp_path / "trading_engine.log").exists()

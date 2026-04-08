@@ -1,6 +1,6 @@
 from dataclasses import asdict
 
-from src.strategy.strategies.t0.contracts.market_data import MarketSnapshot
+from src.market_data.models import MarketSnapshot
 
 
 def test_market_snapshot_to_dict_fields_complete():
