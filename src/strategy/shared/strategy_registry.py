@@ -75,7 +75,24 @@ def get_strategy_runtime_class(strategy_key: str) -> type[StrategyRuntimeBase]:
         raise KeyError(f"Unknown strategy runtime: {normalized_key}") from exc
 
 
-def build_strategy_runtime(strategy_key: str, **kwargs) -> StrategyRuntimeBase:
+def build_strategy_runtime(strategy_key: str, config_path: str | None = None, **kwargs) -> StrategyRuntimeBase:
+    """构建策略运行时实例。
+
+    Args:
+        strategy_key: 策略标识符（如 't0'）
+        config_path: 可选的 YAML 配置文件路径
+        **kwargs: 传递给运行时构造函数的其他参数
+
+    Returns:
+        策略运行时实例
+    """
     runtime_cls = get_strategy_runtime_class(strategy_key)
+
+    # 如果提供了配置文件，加载参数
+    if config_path:
+        from src.strategy.config_loader import load_t0_strategy_config
+        params = load_t0_strategy_config(config_path)
+        kwargs['params'] = params
+
     return runtime_cls(**kwargs)
 

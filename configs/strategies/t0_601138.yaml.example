@@ -1,0 +1,76 @@
+# T+0 策略配置示例
+# 使用时复制为 t0_601138.yaml（不带 .example 后缀）
+
+# 基本信息
+strategy_type: t0
+stock_code: "601138.SH"
+enabled: true
+output_dir: ./output
+
+# 交易时间窗口
+time_windows:
+  positive_sell:
+    start: "09:45"
+    end: "11:20"
+  positive_buyback:
+    start: "13:30"
+    end: "14:56"
+  reverse_buy:
+    start: "09:50"
+    end: "13:20"
+  reverse_sell:
+    start: "13:20"
+    end: "14:56"
+
+# 信号生成阈值
+signal_thresholds:
+  # 正T：高抛
+  positive_sell:
+    min_rise: 1.0              # 涨幅达到1%
+    min_pullback: 0.5          # 回落0.5%时卖出
+    gap_down_limit: null       # 跳空限制（null=不限制）
+
+  # 正T：低吸回补
+  positive_buyback:
+    # 回补条件由 carry 配置控制
+    pass
+
+  # 反T：低吸
+  reverse_buy:
+    min_drop: 1.5              # 跌幅达到1.5%
+    min_bounce: 0.4            # 反弹0.4%时买入
+
+  # 反T：高抛
+  reverse_sell:
+    min_profit: 1.2            # 盈利达到1.2%
+    max_vwap_distance: 0.5     # 且距离VWAP不超过0.5%
+
+# 持仓管理
+position_management:
+  min_hold_minutes: 20         # 最小持仓时间（分钟）
+
+  # 跨日持仓配置（回测验证：净利+67%）
+  carry:
+    positive_buyback:
+      max_carry_days: 2        # 正T回补最大持仓天数
+      stop_loss_pct: null      # 止损百分比（null=不止损）
+
+    reverse_sell:
+      max_carry_days: 2        # 反T卖出最大持仓天数
+      stop_loss_pct: null      # 止损百分比（null=不止损）
+      take_profit_after_carry_days: 1  # 持仓超过1天后只要盈利就卖
+
+# 回测验证结果（仅供参考）
+backtest_results:
+  date_range: "2025-04-07 ~ 2026-04-07"
+  total_bars: 58443
+  roundtrips: 108
+  win_rate: 75.0
+  net_pnl: 37726
+  gross_pnl: 41530
+  total_fees: 3836
+  improvement_vs_intraday: "+67%"
+  notes: |
+    - 跨日2天配置相比日内强平，净利从22606提升到37726
+    - 胜率从52.1%提升到75.0%
+    - 不建议加止损（回测显示止损反而降低利润）

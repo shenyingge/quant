@@ -54,3 +54,7 @@ examples/
 data/
 
 /strategy/
+
+# Strategy configs (actual configs, not examples)
+configs/strategies/*.yaml
+!configs/strategies/*.yaml.example

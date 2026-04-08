@@ -22,8 +22,17 @@ def run_t0_daemon(
     logger_obj=logger,
     time_module=time,
 ) -> int:
-    """启动 T+0 策略守护进程。"""
-    del args
+    """启动 T+0 策略守护进程。
+
+    Args:
+        args: 命令行参数，支持 --config 指定配置文件路径
+    """
+    # 解析 --config 参数
+    config_path = None
+    for i, arg in enumerate(args):
+        if arg == "--config" and i + 1 < len(args):
+            config_path = args[i + 1]
+            break
 
     if should_skip_non_trading_day_fn(STRATEGY_ENGINE_NAME):
         return 0
@@ -31,14 +40,17 @@ def run_t0_daemon(
     from src.infrastructure.notifications import FeishuNotifier
     from src.strategy.shared.strategy_registry import build_strategy_runtime
 
-    logger_obj.info("启动 {}", STRATEGY_ENGINE_NAME)
+    if config_path:
+        logger_obj.info("启动 {} (config: {})", STRATEGY_ENGINE_NAME, config_path)
+    else:
+        logger_obj.info("启动 {} (使用环境变量配置)", STRATEGY_ENGINE_NAME)
 
     poll_interval = get_t0_poll_interval_seconds_fn()
     notifier = FeishuNotifier()
     notifier.notify_runtime_event(
         STRATEGY_ENGINE_NAME,
         "启动",
-        f"开始轮询策略信号: interval={poll_interval}s",
+        f"开始轮询策略信号: interval={poll_interval}s, config={config_path or 'env'}",
         "info",
     )
 
@@ -46,7 +58,7 @@ def run_t0_daemon(
     exit_level = "success"
 
     try:
-        strategy_engine = build_strategy_runtime("t0")
+        strategy_engine = build_strategy_runtime("t0", config_path=config_path)
 
         while True:
             try:
@@ -82,18 +94,31 @@ def run_t0_strategy(
     should_skip_non_trading_day_fn: Callable[[str], bool] = should_skip_non_trading_day,
     logger_obj=logger,
 ) -> int:
-    """运行一次 T+0 策略。"""
-    del args
+    """运行一次 T+0 策略。
+
+    Args:
+        args: 命令行参数，支持 --config 指定配置文件路径
+    """
+    # 解析 --config 参数
+    config_path = None
+    if args:
+        for i, arg in enumerate(args):
+            if arg == "--config" and i + 1 < len(args):
+                config_path = args[i + 1]
+                break
 
     if should_skip_non_trading_day_fn(STRATEGY_ENGINE_NAME):
         return 0
 
     from src.strategy.shared.strategy_registry import build_strategy_runtime
 
-    logger_obj.info("运行 {} 一次", STRATEGY_ENGINE_NAME)
+    if config_path:
+        logger_obj.info("运行 {} 一次 (config: {})", STRATEGY_ENGINE_NAME, config_path)
+    else:
+        logger_obj.info("运行 {} 一次 (使用环境变量配置)", STRATEGY_ENGINE_NAME)
 
     try:
-        strategy_engine = build_strategy_runtime("t0")
+        strategy_engine = build_strategy_runtime("t0", config_path=config_path)
         signal_card = strategy_engine.run_once()
         logger_obj.info("策略执行完成: {}", signal_card["signal"]["action"])
         return 0
