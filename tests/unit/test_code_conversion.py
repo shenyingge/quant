@@ -1,4 +1,4 @@
-from redis_signal_sender import jq_to_qmt_code, qmt_to_jq_code
+from src.infrastructure.common.code_conversion import jq_to_qmt_code, qmt_to_jq_code
 
 
 def test_jq_to_qmt_code_basic_cases():
