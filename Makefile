@@ -5,9 +5,10 @@ UV ?= uv
 PYTHON ?= $(UV) run python
 PYTEST ?= $(UV) run pytest
 BG_LOG_DIR ?= ./logs/current
-WATCHDOG_CHECK = $(UV) run python -c "import psutil, sys; sys.exit(0 if any('main.py watchdog' in ' '.join((p.info.get('cmdline') or [])) for p in psutil.process_iter(['cmdline'])) else 1)"
+WATCHDOG_CHECK = $(UV) run python scripts/runtime_process_control.py check-watchdog
+STOP_RUNTIME = $(UV) run python scripts/runtime_process_control.py stop-all --log-dir $(BG_LOG_DIR)
 
-.PHONY: help sync test test-cov trading-engine trading-engine-test cms-server cms-check watchdog \
+.PHONY: help sync test test-cov trading-engine trading-engine-test cms-server cms-check watchdog stop \
 	trading-engine-bg cms-server-bg watchdog-bg \
 	export-minute-history export-minute-daily ingest-minute-history ingest-minute-daily
 
@@ -31,6 +32,7 @@ help:
 > @echo "  make cms-check                 # CMS health snapshot"
 > @echo "  make watchdog                  # watchdog service"
 > @echo "  make watchdog-bg               # watchdog service in background"
+> @echo "  make stop                      # stop managed runtime processes"
 > @echo ""
 > @echo "Market Data"
 > @echo "  make export-minute-history     # export minute history"
@@ -87,6 +89,9 @@ watchdog-bg:
 > echo $$! > $(BG_LOG_DIR)/watchdog.pid; \
 > echo "watchdog started in background, pid=$$(cat $(BG_LOG_DIR)/watchdog.pid)"; \
 > fi
+
+stop:
+> @$(STOP_RUNTIME)
 
 export-minute-history:
 > $(PYTHON) main.py export-minute-history
