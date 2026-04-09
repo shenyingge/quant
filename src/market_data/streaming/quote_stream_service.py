@@ -7,6 +7,7 @@ import threading
 import time
 from datetime import datetime
 from typing import Any, Callable, Dict, Optional
+from zoneinfo import ZoneInfo
 
 import redis
 
@@ -18,6 +19,9 @@ try:
     from xtquant import xtdata
 except Exception:  # pragma: no cover - depends on local QMT runtime
     xtdata = None
+
+
+_CHINA_TZ = ZoneInfo("Asia/Shanghai")
 
 
 def normalize_stock_code(stock_code: Optional[str]) -> str:
@@ -44,6 +48,101 @@ def _json_safe(value: Any) -> Any:
         except Exception:
             pass
     return str(value)
+
+
+def _quote_now_iso() -> str:
+    return datetime.now(_CHINA_TZ).isoformat(timespec="seconds")
+
+
+def _warn_naive_quote_timestamp(stock_code: str, value: Any) -> None:
+    logger.warning(
+        "Quote timestamp for {} is naive ({}); assuming Asia/Shanghai",
+        stock_code,
+        value,
+    )
+
+
+def _format_quote_datetime(value: datetime) -> str:
+    timespec = "milliseconds" if value.microsecond else "seconds"
+    return value.isoformat(timespec=timespec)
+
+
+def _normalize_quote_datetime(value: datetime, *, stock_code: str) -> datetime:
+    if value.tzinfo is None:
+        _warn_naive_quote_timestamp(stock_code, value)
+        return value.replace(tzinfo=_CHINA_TZ)
+    return value.astimezone(_CHINA_TZ)
+
+
+def _normalize_quote_timestamp_value(
+    value: Any,
+    *,
+    stock_code: str,
+) -> Any:
+    if value in (None, ""):
+        return value
+
+    if isinstance(value, datetime):
+        return _format_quote_datetime(
+            _normalize_quote_datetime(value, stock_code=stock_code)
+        )
+
+    text_value = str(value).strip()
+    if not text_value:
+        return value
+
+    if text_value.isdigit():
+        if len(text_value) == 14:
+            parsed = datetime.strptime(text_value, "%Y%m%d%H%M%S")
+            return _format_quote_datetime(
+                _normalize_quote_datetime(parsed, stock_code=stock_code)
+            )
+        if len(text_value) == 17:
+            parsed = datetime.strptime(text_value[:14], "%Y%m%d%H%M%S").replace(
+                microsecond=int(text_value[14:17]) * 1000
+            )
+            return _format_quote_datetime(
+                _normalize_quote_datetime(parsed, stock_code=stock_code)
+            )
+
+        numeric_value = float(text_value)
+        absolute_value = abs(numeric_value)
+        if absolute_value >= 1e17:
+            numeric_value /= 1_000_000_000
+        elif absolute_value >= 1e14:
+            numeric_value /= 1_000_000
+        elif absolute_value >= 1e11:
+            numeric_value /= 1_000
+        parsed = datetime.fromtimestamp(numeric_value, tz=_CHINA_TZ)
+        return _format_quote_datetime(parsed)
+
+    try:
+        parsed = datetime.fromisoformat(text_value)
+    except ValueError:
+        return value
+
+    return _format_quote_datetime(
+        _normalize_quote_datetime(parsed, stock_code=stock_code)
+    )
+
+
+def _normalize_quote_payload_timestamps(
+    raw_payload: Any,
+    *,
+    stock_code: str,
+) -> Any:
+    if not isinstance(raw_payload, dict):
+        return raw_payload
+
+    normalized_payload = dict(raw_payload)
+    for field_name in ("time", "timestamp", "trade_time"):
+        if field_name not in normalized_payload:
+            continue
+        normalized_payload[field_name] = _normalize_quote_timestamp_value(
+            normalized_payload.get(field_name),
+            stock_code=stock_code,
+        )
+    return normalized_payload
 
 
 class QuoteStreamService:
@@ -239,20 +338,25 @@ class QuoteStreamService:
             if not raw_payload:
                 return None
             raw_payload = raw_payload[-1]
+        raw_payload = _normalize_quote_payload_timestamps(
+            raw_payload,
+            stock_code=stock_code,
+        )
 
         payload: Dict[str, Any] = {
             "stock_code": stock_code,
             "source": "qmt",
             "period": settings.quote_stream_period,
-            "published_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+            "published_at": _quote_now_iso(),
             "quote": raw_payload,
         }
 
         if isinstance(raw_payload, dict):
-            payload["quote_time"] = (
+            payload["quote_time"] = _normalize_quote_timestamp_value(
                 raw_payload.get("time")
                 or raw_payload.get("timestamp")
-                or raw_payload.get("trade_time")
+                or raw_payload.get("trade_time"),
+                stock_code=stock_code,
             )
             payload["last_price"] = (
                 raw_payload.get("lastPrice")

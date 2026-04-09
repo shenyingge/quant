@@ -1,4 +1,5 @@
 import json
+from datetime import datetime
 
 import src.market_data.streaming.quote_stream_service as quote_stream_service
 
@@ -87,6 +88,9 @@ def test_quote_stream_service_reconciles_subscriptions_and_publishes_quotes(monk
     assert fake_redis.published[0][0] == quote_stream_service.settings.redis_quote_stream_channel
     assert fake_redis.published[0][1]["stock_code"] == "000001.SZ"
     assert fake_redis.published[0][1]["last_price"] == 12.34
+    assert fake_redis.published[0][1]["quote_time"] == "2026-04-02T12:30:00+08:00"
+    assert fake_redis.published[0][1]["published_at"].endswith("+08:00")
+    assert fake_redis.published[0][1]["quote"]["time"] == "2026-04-02T12:30:00+08:00"
     assert (
         json.loads(fake_redis.values["quote_latest:000001.SZ"])["volume"] == 500
     )
@@ -97,3 +101,21 @@ def test_quote_stream_service_reconciles_subscriptions_and_publishes_quotes(monk
 
     assert unsubscribed == [1]
     assert service._subscription_seq_by_stock == {}
+
+
+def test_normalize_quote_timestamp_value_warns_on_naive_input(monkeypatch):
+    warnings = []
+
+    monkeypatch.setattr(
+        quote_stream_service.logger,
+        "warning",
+        lambda message, *args: warnings.append(message.format(*args)),
+    )
+
+    normalized = quote_stream_service._normalize_quote_timestamp_value(
+        datetime(2026, 4, 2, 13, 30, 1),
+        stock_code="000001.SZ",
+    )
+
+    assert normalized == "2026-04-02T13:30:01+08:00"
+    assert any("assuming Asia/Shanghai" in item for item in warnings)

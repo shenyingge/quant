@@ -20,6 +20,7 @@ from urllib.parse import urlparse, parse_qs
 import hashlib
 import base64
 import struct
+from zoneinfo import ZoneInfo
 
 import psutil
 import redis
@@ -42,6 +43,7 @@ _server_thread: Optional[threading.Thread] = None
 _snapshot_store: Optional["CmsSnapshotStore"] = None
 _ws_manager: Optional["WebSocketManager"] = None
 _TAILSCALE_HOST_SENTINEL = "tailscale"
+_CHINA_TZ = ZoneInfo("Asia/Shanghai")
 
 
 def _list_runtime_processes() -> List[Dict[str, Any]]:
@@ -421,7 +423,7 @@ class WebSocketClient:
 
 
 def _timestamp_now() -> str:
-    return datetime.now().astimezone().isoformat(timespec="seconds")
+    return datetime.now(_CHINA_TZ).isoformat(timespec="seconds")
 
 
 def _project_version() -> str:
