@@ -50,9 +50,11 @@ class ConnectionManager:
         """启动连接管理器"""
         logger.info(f"启动 {self.name} 连接管理器")
 
+        with self.state_lock:
+            self.is_running = True
+
         # 首次连接
         if self._connect():
-            self.is_running = True
             if settings.auto_reconnect_enabled:
                 self._start_health_check()
             return True
@@ -60,6 +62,8 @@ class ConnectionManager:
             if settings.auto_reconnect_enabled:
                 self._start_reconnect()
                 return True  # 即使首次连接失败，也启动重连机制
+            with self.state_lock:
+                self.is_running = False
             return False
 
     def stop(self):
