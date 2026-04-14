@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Optional
 from sqlalchemy import and_
 
 from src.infrastructure.config import settings
-from src.infrastructure.db import OrderRecord, SessionLocal
+from src.infrastructure.db import DEFAULT_META_DB_STRATEGY_ID, OrderRecord, SessionLocal
 from src.infrastructure.logger_config import configured_logger as logger
 from src.data_manager.stock_info import get_stock_display_name
 from src.trading.costs.trading_costs import TradingFeeSchedule, analyze_filled_trades
@@ -64,6 +64,7 @@ class DailyPnLCalculator:
                     db.query(OrderRecord)
                     .filter(
                         and_(
+                            OrderRecord.strategy_id == DEFAULT_META_DB_STRATEGY_ID,
                             OrderRecord.filled_time >= start_time,
                             OrderRecord.filled_time <= end_time,
                             OrderRecord.filled_volume > 0,

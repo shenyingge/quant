@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Any, Dict, Optional
 
 from src.infrastructure.config import settings
-from src.infrastructure.db import AccountPosition, SessionLocal
+from src.infrastructure.db import AccountPosition, DEFAULT_META_DB_STRATEGY_ID, SessionLocal
 from src.infrastructure.logger_config import configured_logger as logger
 
 
@@ -52,7 +52,12 @@ def sync_account_positions_from_qmt(trader: Any, *, source: str) -> Optional[int
 
     try:
         existing_rows = (
-            session.query(AccountPosition).filter(AccountPosition.account_id == account_id).all()
+            session.query(AccountPosition)
+            .filter(
+                AccountPosition.strategy_id == DEFAULT_META_DB_STRATEGY_ID,
+                AccountPosition.account_id == account_id,
+            )
+            .all()
         )
         existing_by_code = {row.stock_code: row for row in existing_rows}
         seen_codes = set()
@@ -64,7 +69,11 @@ def sync_account_positions_from_qmt(trader: Any, *, source: str) -> Optional[int
 
             row = existing_by_code.get(stock_code)
             if row is None:
-                row = AccountPosition(account_id=account_id, stock_code=stock_code)
+                row = AccountPosition(
+                    strategy_id=DEFAULT_META_DB_STRATEGY_ID,
+                    account_id=account_id,
+                    stock_code=stock_code,
+                )
                 session.add(row)
 
             row.total_volume = int(item.get("volume") or 0)
@@ -78,7 +87,10 @@ def sync_account_positions_from_qmt(trader: Any, *, source: str) -> Optional[int
             row.snapshot_time = snapshot_time
             seen_codes.add(stock_code)
 
-        query = session.query(AccountPosition).filter(AccountPosition.account_id == account_id)
+        query = session.query(AccountPosition).filter(
+            AccountPosition.strategy_id == DEFAULT_META_DB_STRATEGY_ID,
+            AccountPosition.account_id == account_id,
+        )
         if seen_codes:
             query = query.filter(~AccountPosition.stock_code.in_(seen_codes))
         query.delete(synchronize_session=False)
