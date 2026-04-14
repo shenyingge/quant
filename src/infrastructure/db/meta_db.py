@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Iterable
+from typing import Any, Iterable
 
 from sqlalchemy import MetaData
 from sqlalchemy.engine import URL
@@ -15,12 +15,25 @@ TRADING_META_TABLE_NAMES = (
     "trading_calendar",
     "stock_info",
     "account_positions",
+    "trading_accounts",
 )
+
+DEFAULT_META_DB_STRATEGY_ID = ""
 
 
 def get_meta_db_trading_schema() -> str:
     schema = (settings.meta_db_trading_schema or "").strip()
     return schema or "trading"
+
+
+def normalize_strategy_id(value: Any) -> str:
+    return str(value or "").strip()[:100]
+
+
+def normalize_account_id(value: Any, *, fallback: Any = None) -> str | None:
+    candidate = value if value not in (None, "") else fallback
+    text = str(candidate or "").strip()
+    return text[:50] or None
 
 
 def validate_meta_db_config(required_keys: Iterable[str] | None = None) -> None:

@@ -16,7 +16,10 @@ from sqlalchemy import (
 )
 from sqlalchemy.ext.declarative import declarative_base
 
-from src.infrastructure.db.meta_db import get_meta_db_trading_schema
+from src.infrastructure.db.meta_db import (
+    DEFAULT_META_DB_STRATEGY_ID,
+    get_meta_db_trading_schema,
+)
 
 TRADING_SCHEMA = get_meta_db_trading_schema()
 Base = declarative_base(metadata=MetaData(schema=TRADING_SCHEMA))
@@ -27,6 +30,9 @@ class TradingSignal(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     signal_id = Column(String(50), unique=True, index=True)
+    strategy_id = Column(
+        String(100), nullable=False, default=DEFAULT_META_DB_STRATEGY_ID, index=True
+    )
     stock_code = Column(String(20), nullable=False)  # 证券代码
     direction = Column(String(10), nullable=False)  # 买卖方向: BUY, SELL
     volume = Column(Integer, nullable=False)  # 委托数量
@@ -42,6 +48,10 @@ class OrderRecord(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     signal_id = Column(String(50), index=True)
+    strategy_id = Column(
+        String(100), nullable=False, default=DEFAULT_META_DB_STRATEGY_ID, index=True
+    )
+    account_id = Column(String(50), index=True, nullable=True)
     order_id = Column(String(50), unique=True)  # 委托编号
     order_uid = Column(String(50), unique=True, index=True, nullable=True)
     order_type = Column(String(50), nullable=False, default="LIMIT")
@@ -78,6 +88,10 @@ class TradeExecution(Base):
 
     id = Column(Integer, primary_key=True)
     execution_uid = Column(String(50), unique=True, index=True, nullable=False)
+    strategy_id = Column(
+        String(100), nullable=False, default=DEFAULT_META_DB_STRATEGY_ID, index=True
+    )
+    account_id = Column(String(50), index=True, nullable=True)
     order_uid = Column(String(50), index=True, nullable=True)
     broker_trade_id = Column(String(50), index=True, nullable=True)
     broker_order_id = Column(String(50), index=True, nullable=True)
@@ -102,6 +116,10 @@ class OrderCancellation(Base):
     __tablename__ = "order_cancellations"
 
     id = Column(Integer, primary_key=True)
+    strategy_id = Column(
+        String(100), nullable=False, default=DEFAULT_META_DB_STRATEGY_ID, index=True
+    )
+    account_id = Column(String(50), index=True, nullable=True)
     order_uid = Column(String(50), index=True, nullable=False)
     broker_order_id = Column(String(50), index=True, nullable=True)
     stock_code = Column(String(20), nullable=False)
@@ -151,6 +169,9 @@ class AccountPosition(Base):
     __tablename__ = "account_positions"
 
     id = Column(Integer, primary_key=True)
+    strategy_id = Column(
+        String(100), nullable=False, default=DEFAULT_META_DB_STRATEGY_ID, index=True
+    )
     account_id = Column(String(50), nullable=False, index=True)
     stock_code = Column(String(20), nullable=False, index=True)
     total_volume = Column(Integer, nullable=False, default=0)
@@ -164,5 +185,28 @@ class AccountPosition(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     __table_args__ = (
-        Index("idx_account_position_account_stock", "account_id", "stock_code", unique=True),
-    )
+        Index(
+            "idx_account_position_strategy_account_stock",
+            "strategy_id",
+            "account_id",
+            "stock_code",
+            unique=True,
+        ),
+
+
+class TradingAccount(Base):
+    """账户配置表，存储账户基础参数与费率配置。由 quant 维护 schema，s-quant 只读。"""
+
+    __tablename__ = "trading_accounts"
+
+    account_id = Column(String(50), primary_key=True)
+    account_type = Column(String(20), nullable=False, default="paper")
+    initial_capital = Column(Float, nullable=False)
+    commission_rate = Column(Float, nullable=False)
+    transfer_fee_rate = Column(Float, nullable=False, default=0.00001)
+    stamp_duty_rate = Column(Float, nullable=False, default=0.001)
+    min_commission = Column(Float, nullable=False, default=5.0)
+    is_active = Column(Integer, nullable=False, default=1)
+    description = Column(String(200), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
