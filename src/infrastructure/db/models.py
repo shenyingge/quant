@@ -138,7 +138,9 @@ class TradingCalendar(Base):
     date = Column(Date, unique=True, nullable=False, index=True)  # 日期
     is_trading = Column(Boolean, nullable=False)  # 是否为交易日
     year = Column(Integer, nullable=False, index=True)  # 年份，便于查询
-    market = Column(String(10), nullable=False, default="SSE")  # 市场：SSE(上交所), SZSE(深交所)
+    market = Column(
+        String(10), nullable=False, default="SSE"
+    )  # 市场：SSE(上交所), SZSE(深交所)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -192,6 +194,7 @@ class AccountPosition(Base):
             "stock_code",
             unique=True,
         ),
+    )
 
 
 class TradingAccount(Base):
